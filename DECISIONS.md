@@ -2,6 +2,13 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-08-30 — Integração CentralGest por API + servidor MCP
+
+- **Decisão:** integrar o ContaDesk com o CentralGest Cloud por API (lançamento directo dos lançamentos aprovados) e expor o pipeline via servidor MCP (`apps/contadesk/src/mcp/server.ts`) para que agentes de IA lancem a documentação de forma automática.
+- **Contexto:** a API do CentralGest existe mas não tem documentação pública (acesso via "Pedido de Adesão à API"). O cliente foi construído contra um contrato assumido, documentado em `apps/contadesk/docs/centralgest-api.md`, isolado em `src/integrations/centralgest.ts`, e acompanhado de um simulador local (`CENTRALGEST_MOCK=1`) usado em dev e testes. Quando a documentação oficial chegar, só o cliente e o mock precisam de ajuste.
+- **Princípios mantidos:** toda a escrita no CentralGest passa por um despachante determinístico e idempotente (tabela `dispatches` com `entry_id` único + `idExterno` no destino); só lançamentos aprovados por humano (ou pela ferramenta de decisão MCP, invocada explicitamente) são despachados; cada lançamento segue por uma única via de entrega (API CentralGest ou CSV Primavera).
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-08-30 — ContaDesk: app para gabinete de contabilidade (novo produto no repo)
 
 - **Decisão:** criar em `apps/contadesk/` uma aplicação para gabinetes de contabilidade inspirada no Kangaroo Files (portal do cliente, recepção e classificação de documentos, arquivo digital DL 28/2019, lançamentos propostos com validação humana, exportação Cegid Primavera), separada do produto WhatsApp→Pipedrive descrito no `CLAUDE.md`.

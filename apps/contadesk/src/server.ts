@@ -18,6 +18,7 @@ import { ingestDocument } from "./pipeline.js";
 import { exportApprovedEntries } from "./domain/exportPrimavera.js";
 import { upcomingObligations } from "./domain/obligations.js";
 import { EntryLine, isBalanced } from "./domain/entries.js";
+import { CentralGestClient, dispatchApprovedEntries, CentralGestError } from "./integrations/centralgest.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +26,7 @@ export interface ServerOptions {
   db: Db;
   provider: AiProvider;
   storageRoot: string;
+  centralgest?: CentralGestClient | null;
 }
 
 const upload = multer({
@@ -32,7 +34,7 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-export function createServer({ db, provider, storageRoot }: ServerOptions): express.Express {
+export function createServer({ db, provider, storageRoot, centralgest = null }: ServerOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
@@ -324,6 +326,63 @@ export function createServer({ db, provider, storageRoot }: ServerOptions): expr
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="primavera-lote-${b.id}.csv"`);
     return res.send(b.content);
+  });
+
+  // ---------- CentralGest ----------
+  app.patch("/api/companies/:id", auth, requireStaff, (req, res) => {
+    const body = z
+      .object({ centralgest_code: z.string().trim().min(1).nullable() })
+      .safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos.", details: body.error.issues });
+    const r = db
+      .prepare("UPDATE companies SET centralgest_code = ? WHERE id = ?")
+      .run(body.data.centralgest_code, Number(req.params.id));
+    if (r.changes === 0) return res.status(404).json({ error: "Empresa inexistente." });
+    audit(db, req.user!.id, "update", "company", Number(req.params.id), `centralgest_code=${body.data.centralgest_code}`);
+    return res.json({ centralgest_code: body.data.centralgest_code });
+  });
+
+  app.get("/api/centralgest/status", auth, requireStaff, async (_req, res) => {
+    if (!centralgest) {
+      return res.json({ configured: false });
+    }
+    try {
+      const companies = await centralgest.listCompanies();
+      return res.json({ configured: true, connection: "ok", remoteCompanies: companies });
+    } catch (e: any) {
+      return res.json({ configured: true, connection: "erro", detail: e.message });
+    }
+  });
+
+  app.post("/api/centralgest/dispatch/:companyId", auth, requireStaff, async (req, res) => {
+    if (!centralgest) {
+      return res.status(409).json({
+        error: "CentralGest não configurado. Defina CENTRALGEST_BASE_URL e CENTRALGEST_API_KEY (ou CENTRALGEST_MOCK=1).",
+      });
+    }
+    const entryId = req.body?.entry_id ? Number(req.body.entry_id) : undefined;
+    try {
+      const outcomes = await dispatchApprovedEntries(db, centralgest, Number(req.params.companyId), req.user!.id, entryId);
+      return res.json({ outcomes });
+    } catch (e: any) {
+      if (e instanceof CentralGestError) return res.status(409).json({ error: e.message });
+      throw e;
+    }
+  });
+
+  app.get("/api/centralgest/dispatches", auth, requireStaff, (_req, res) => {
+    const rows = db
+      .prepare(
+        `SELECT dp.id, dp.entry_id, dp.company_id, c.name AS company_name, dp.external_id,
+           dp.remote_number, dp.status, dp.error_detail, dp.created_at,
+           e.description AS entry_description
+         FROM dispatches dp
+         JOIN companies c ON c.id = dp.company_id
+         JOIN entries e ON e.id = dp.entry_id
+         ORDER BY dp.created_at DESC LIMIT 100`
+      )
+      .all();
+    return res.json({ dispatches: rows });
   });
 
   // ---------- Dashboard e calendario fiscal ----------

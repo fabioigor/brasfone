@@ -27,6 +27,7 @@ export function exportApprovedEntries(db: Db, companyId: number, userId: number)
       `SELECT e.* FROM entries e
        WHERE e.company_id = ? AND e.status = 'aprovado'
          AND e.id NOT IN (SELECT entry_id FROM export_batch_entries)
+         AND e.id NOT IN (SELECT entry_id FROM dispatches WHERE status != 'erro')
        ORDER BY e.entry_date, e.id`
     )
     .all(companyId) as any[];

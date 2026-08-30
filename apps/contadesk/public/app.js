@@ -65,6 +65,9 @@ const STATUS_BADGE = {
   cumprido: "ok",
   rejeitado: "bad",
   cancelado: "bad",
+  lancado: "ok",
+  ja_existia: "info",
+  erro: "bad",
 };
 
 const DOC_TYPE_LABEL = {
@@ -387,12 +390,29 @@ async function viewCompanies(main) {
         toast(e.message, true);
       }
     });
-    tbody.append(el("tr", {}, [el("td", {}, c.name), el("td", {}, c.nif), el("td", {}, c.vat_regime), el("td", {}, userBtn)]));
+    const cgInput = el("input", { value: c.centralgest_code || "", placeholder: "ex.: PADARIA", style: "width:110px" });
+    const cgBtn = el("button", { class: "btn small" }, "Guardar");
+    cgBtn.addEventListener("click", async () => {
+      try {
+        await api("/api/companies/" + c.id, { method: "PATCH", json: { centralgest_code: cgInput.value.trim() || null } });
+        toast("Código CentralGest guardado.");
+        await loadCompanies();
+      } catch (e) {
+        toast(e.message, true);
+      }
+    });
+    tbody.append(el("tr", {}, [
+      el("td", {}, c.name),
+      el("td", {}, c.nif),
+      el("td", {}, c.vat_regime),
+      el("td", {}, [cgInput, " ", cgBtn]),
+      el("td", {}, userBtn),
+    ]));
   }
   main.append(
     el("div", { class: "card table-wrap" },
       el("table", {}, [
-        el("thead", {}, el("tr", {}, [el("th", {}, "Nome"), el("th", {}, "NIF"), el("th", {}, "Regime IVA"), el("th", {}, "")])),
+        el("thead", {}, el("tr", {}, [el("th", {}, "Nome"), el("th", {}, "NIF"), el("th", {}, "Regime IVA"), el("th", {}, "Código CentralGest"), el("th", {}, "")])),
         tbody,
       ])
     )
@@ -400,8 +420,68 @@ async function viewCompanies(main) {
 }
 
 async function viewExport(main) {
-  main.append(el("h2", {}, "Exportação para Cegid Primavera"));
-  main.append(el("p", { class: "muted" }, "Exporta os lançamentos aprovados que ainda não foram exportados. A exportação é idempotente: o mesmo lançamento nunca sai duas vezes."));
+  main.append(el("h2", {}, "Entrega da contabilidade"));
+  main.append(el("p", { class: "muted" }, "Cada lançamento aprovado segue por uma única via: API CentralGest ou CSV Primavera. Ambas são idempotentes: o mesmo lançamento nunca sai duas vezes."));
+
+  // --- CentralGest (API) ---
+  const cgStatus = await api("/api/centralgest/status");
+  const cgCard = el("div", { class: "card" });
+  cgCard.append(el("h2", {}, "CentralGest (API)"));
+  if (!cgStatus.configured) {
+    cgCard.append(el("p", { class: "muted" }, "Não configurado. Defina CENTRALGEST_BASE_URL e CENTRALGEST_API_KEY (ou CENTRALGEST_MOCK=1 para o simulador local) e reinicie o servidor."));
+  } else if (cgStatus.connection !== "ok") {
+    cgCard.append(el("p", { class: "error" }, "Ligação com erro: " + cgStatus.detail));
+  } else {
+    cgCard.append(el("p", { class: "muted small" }, "Ligação OK. Empresas remotas: " + cgStatus.remoteCompanies.map((c) => c.codigo).join(", ")));
+    const cgCompany = el("select");
+    companyOptions(cgCompany, false);
+    const cgBtn = el("button", { class: "btn primary" }, "Lançar aprovados no CentralGest");
+    cgBtn.addEventListener("click", async () => {
+      cgBtn.disabled = true;
+      try {
+        const out = await api("/api/centralgest/dispatch/" + cgCompany.value, { method: "POST", json: {} });
+        if (!out.outcomes.length) toast("Nada por lançar para esta empresa.");
+        else {
+          const done = out.outcomes.filter((o) => o.status === "lancado" || o.status === "ja_existia").length;
+          const errs = out.outcomes.filter((o) => o.status === "erro");
+          toast(done + " lançamento(s) no CentralGest" + (errs.length ? "; " + errs.length + " com erro" : "") + ".", errs.length > 0);
+        }
+        render();
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        cgBtn.disabled = false;
+      }
+    });
+    cgCard.append(el("div", { class: "form-row" }, [el("label", {}, ["Empresa", cgCompany]), cgBtn]));
+  }
+  main.append(cgCard);
+
+  if (cgStatus.configured) {
+    const dispatches = (await api("/api/centralgest/dispatches")).dispatches;
+    const dtbody = el("tbody");
+    for (const d of dispatches) {
+      dtbody.append(el("tr", {}, [
+        el("td", {}, "#" + d.entry_id),
+        el("td", {}, [d.entry_description, el("div", { class: "muted small" }, d.company_name)]),
+        el("td", {}, d.remote_number || ""),
+        el("td", {}, [badge(d.status), d.error_detail ? el("div", { class: "error small" }, d.error_detail) : null]),
+        el("td", {}, d.created_at),
+      ]));
+    }
+    main.append(
+      el("div", { class: "card table-wrap" }, [
+        el("h2", {}, "Despachos CentralGest"),
+        el("table", {}, [
+          el("thead", {}, el("tr", {}, [el("th", {}, "Lançamento"), el("th", {}, "Descrição"), el("th", {}, "N.º remoto"), el("th", {}, "Estado"), el("th", {}, "Data")])),
+          dispatches.length ? dtbody : el("tbody", {}, el("tr", {}, el("td", { colspan: "5", class: "muted" }, "Sem despachos."))),
+        ]),
+      ])
+    );
+  }
+
+  // --- Primavera (CSV) ---
+  main.append(el("h2", {}, "Cegid Primavera (CSV)"));
 
   const companySelect = el("select");
   companyOptions(companySelect, false);

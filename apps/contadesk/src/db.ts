@@ -91,6 +91,20 @@ CREATE TABLE IF NOT EXISTS export_batch_entries (
   PRIMARY KEY (batch_id, entry_id)
 );
 
+CREATE TABLE IF NOT EXISTS dispatches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry_id INTEGER NOT NULL REFERENCES entries(id),
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  channel TEXT NOT NULL DEFAULT 'centralgest',
+  external_id TEXT NOT NULL,
+  remote_id TEXT,
+  remote_number TEXT,
+  status TEXT NOT NULL CHECK (status IN ('lancado', 'ja_existia', 'erro')),
+  error_detail TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (entry_id, channel)
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
@@ -114,7 +128,16 @@ export function openDb(dbPath: string): Db {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/** Additive migrations for databases created by earlier versions. */
+function migrate(db: Db): void {
+  const companyCols = db.prepare("PRAGMA table_info(companies)").all() as any[];
+  if (!companyCols.some((c) => c.name === "centralgest_code")) {
+    db.exec("ALTER TABLE companies ADD COLUMN centralgest_code TEXT");
+  }
 }
 
 export function audit(
