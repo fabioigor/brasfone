@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ContaDesk</title>
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <meta name="theme-color" content="#0e7a5f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
 </head>
 <body>
   <div id="login-view" class="login-wrap" hidden>
@@ -35,5 +39,10 @@
   </div>
 
   <script src="/app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+    }
+  </script>
 </body>
 </html>

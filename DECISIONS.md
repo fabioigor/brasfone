@@ -2,6 +2,14 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-12 — Agentes de análise: conferência de IVA, balancetes, relatórios sectoriais, web app do cliente
+
+- **Decisão:** implementar as quatro dores prioritárias como motores determinísticos com conhecimento versionado em JSON (taxas/listas do CIVA, benchmarks sectoriais) e agentes de IA apenas para explicar e dar segunda opinião, nunca para decidir. Os alertas de taxa de IVA vs produto são sempre "aviso" (a lei tem excepções que o texto do documento não revela); erros aritméticos e taxas inexistentes são "erro".
+- **Actualização da lei:** o conhecimento tem `version` + `last_verified` + prazo de revisão; ultrapassado o prazo, o sistema avisa. A actualização é uma alteração de dados revista em git, não código.
+- **Fontes externas:** BPstat (Banco de Portugal) tem API REST pública, verificada; INE tem API JSON (não verificada a partir da sandbox). Sem scraping. Benchmarks actuais marcados como indicativos até serem carregados do BPstat.
+- **Modelo de IA:** `claude-opus-5` para os agentes (memória descritiva, segunda opinião), `claude-haiku-4-5` como trabalhador barato na classificação; tudo via SDK oficial `@anthropic-ai/sdk`, com fallbacks server-side activados.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-08-30 — Integração CentralGest por API + servidor MCP
 
 - **Decisão:** integrar o ContaDesk com o CentralGest Cloud por API (lançamento directo dos lançamentos aprovados) e expor o pipeline via servidor MCP (`apps/contadesk/src/mcp/server.ts`) para que agentes de IA lancem a documentação de forma automática.

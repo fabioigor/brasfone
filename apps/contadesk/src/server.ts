@@ -19,6 +19,20 @@ import { exportApprovedEntries } from "./domain/exportPrimavera.js";
 import { upcomingObligations } from "./domain/obligations.js";
 import { EntryLine, isBalanced } from "./domain/entries.js";
 import { CentralGestClient, dispatchApprovedEntries, CentralGestError } from "./integrations/centralgest.js";
+import { auditStoredDocument } from "./domain/vatAudit.js";
+import {
+  parseBalanceCsv,
+  deriveBalanceFromEntries,
+  saveTrialBalance,
+  loadTrialBalance,
+  previousPeriod,
+  computeFinancials,
+} from "./domain/trialBalance.js";
+import { listRules, evaluateRules, persistBalanceFindings } from "./domain/balanceRules.js";
+import { buildReportData } from "./domain/financialReport.js";
+import { renderReportHtml } from "./domain/reportHtml.js";
+import { knowledgeStatus, loadVatRules, loadSectorBenchmarks } from "./knowledge/index.js";
+import { AgentGateway } from "./ai/agents.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,6 +41,7 @@ export interface ServerOptions {
   provider: AiProvider;
   storageRoot: string;
   centralgest?: CentralGestClient | null;
+  agents?: AgentGateway;
 }
 
 const upload = multer({
@@ -34,7 +49,7 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-export function createServer({ db, provider, storageRoot, centralgest = null }: ServerOptions): express.Express {
+export function createServer({ db, provider, storageRoot, centralgest = null, agents = new AgentGateway() }: ServerOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
@@ -331,15 +346,24 @@ export function createServer({ db, provider, storageRoot, centralgest = null }: 
   // ---------- CentralGest ----------
   app.patch("/api/companies/:id", auth, requireStaff, (req, res) => {
     const body = z
-      .object({ centralgest_code: z.string().trim().min(1).nullable() })
+      .object({
+        centralgest_code: z.string().trim().min(1).nullable().optional(),
+        cae: z.string().trim().regex(/^\d{3,5}$/).nullable().optional(),
+        territory: z.enum(["continente", "acores", "madeira"]).optional(),
+      })
       .safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Dados inválidos.", details: body.error.issues });
-    const r = db
-      .prepare("UPDATE companies SET centralgest_code = ? WHERE id = ?")
-      .run(body.data.centralgest_code, Number(req.params.id));
+    const sets: string[] = [];
+    const params: any[] = [];
+    if (body.data.centralgest_code !== undefined) { sets.push("centralgest_code = ?"); params.push(body.data.centralgest_code); }
+    if (body.data.cae !== undefined) { sets.push("cae = ?"); params.push(body.data.cae); }
+    if (body.data.territory !== undefined) { sets.push("territory = ?"); params.push(body.data.territory); }
+    if (sets.length === 0) return res.status(400).json({ error: "Nada para actualizar." });
+    params.push(Number(req.params.id));
+    const r = db.prepare(`UPDATE companies SET ${sets.join(", ")} WHERE id = ?`).run(...params);
     if (r.changes === 0) return res.status(404).json({ error: "Empresa inexistente." });
-    audit(db, req.user!.id, "update", "company", Number(req.params.id), `centralgest_code=${body.data.centralgest_code}`);
-    return res.json({ centralgest_code: body.data.centralgest_code });
+    audit(db, req.user!.id, "update", "company", Number(req.params.id), JSON.stringify(body.data));
+    return res.json(body.data);
   });
 
   app.get("/api/centralgest/status", auth, requireStaff, async (_req, res) => {
@@ -385,6 +409,218 @@ export function createServer({ db, provider, storageRoot, centralgest = null }: 
     return res.json({ dispatches: rows });
   });
 
+  // ---------- Conferência (alertas) ----------
+  app.get("/api/findings", auth, (req, res) => {
+    const companyId = scopedCompanyId(req, req.query.company_id ? Number(req.query.company_id) : null);
+    const status = typeof req.query.status === "string" ? req.query.status : "aberto";
+    const scope = typeof req.query.scope === "string" ? req.query.scope : null;
+    let sql = `SELECT f.*, c.name AS company_name, d.original_name
+      FROM findings f JOIN companies c ON c.id = f.company_id LEFT JOIN documents d ON d.id = f.document_id WHERE f.status = ?`;
+    const params: any[] = [status];
+    if (companyId !== null) { sql += " AND f.company_id = ?"; params.push(companyId); }
+    if (scope) { sql += " AND f.scope = ?"; params.push(scope); }
+    // Clientes só vêem alertas que lhes dizem respeito (documentos), nunca os de balancete.
+    if (req.user!.role === "client") sql += " AND f.scope = 'documento' AND f.severity != 'info'";
+    sql += " ORDER BY CASE f.severity WHEN 'erro' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END, f.created_at DESC LIMIT 300";
+    return res.json({ findings: db.prepare(sql).all(...params) });
+  });
+
+  app.post("/api/findings/:id/resolve", auth, requireStaff, (req, res) => {
+    const body = z.object({ status: z.enum(["resolvido", "ignorado"]), note: z.string().optional() }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
+    const r = db
+      .prepare("UPDATE findings SET status = ?, resolved_by = ?, resolved_at = datetime('now'), resolution_note = ? WHERE id = ? AND status = 'aberto'")
+      .run(body.data.status, req.user!.id, body.data.note ?? null, Number(req.params.id));
+    if (r.changes === 0) return res.status(404).json({ error: "Alerta inexistente ou já fechado." });
+    audit(db, req.user!.id, "resolve_finding", "finding", Number(req.params.id), body.data.status);
+    return res.json({ status: body.data.status });
+  });
+
+  app.post("/api/audit/documents/:id", auth, requireStaff, (req, res) => {
+    const findings = auditStoredDocument(db, Number(req.params.id));
+    return res.json({ findings });
+  });
+
+  app.post("/api/audit/companies/:companyId", auth, requireStaff, (req, res) => {
+    const docs = db.prepare("SELECT id FROM documents WHERE company_id = ? AND extracted_json IS NOT NULL").all(Number(req.params.companyId)) as any[];
+    let total = 0;
+    for (const d of docs) total += auditStoredDocument(db, d.id).length;
+    return res.json({ documents: docs.length, findings: total });
+  });
+
+  app.post("/api/findings/:id/second-opinion", auth, requireStaff, async (req, res) => {
+    const f = db.prepare("SELECT f.*, d.stored_path FROM findings f LEFT JOIN documents d ON d.id = f.document_id WHERE f.id = ?").get(Number(req.params.id)) as any;
+    if (!f) return res.status(404).json({ error: "Alerta inexistente." });
+    if (!agents.enabled) return res.status(409).json({ error: "Agente de IA não configurado (ANTHROPIC_API_KEY em falta)." });
+    let excerpt = "";
+    if (f.stored_path) {
+      const abs = path.join(storageRoot, f.stored_path);
+      if (fs.existsSync(abs)) excerpt = fs.readFileSync(abs, "utf8");
+    }
+    const opinion = await agents.reviewVatFinding({ code: f.code, message: f.message }, excerpt);
+    return res.json({ opinion });
+  });
+
+  // ---------- Balancetes e padrões ----------
+  app.post("/api/balances/:companyId/import", auth, requireStaff, upload.single("file"), (req, res) => {
+    const companyId = Number(req.params.companyId);
+    const period = String(req.body?.period ?? "");
+    if (!/^\d{4}(-\d{2})?$/.test(period)) return res.status(400).json({ error: "Período inválido (use AAAA ou AAAA-MM)." });
+    if (!req.file) return res.status(400).json({ error: "Ficheiro CSV em falta (campo 'file')." });
+    try {
+      const lines = parseBalanceCsv(req.file.buffer.toString("utf8"));
+      if (lines.length === 0) return res.status(400).json({ error: "CSV sem linhas de contas." });
+      const id = saveTrialBalance(db, { companyId, period, source: "importado", lines }, req.user!.id);
+      audit(db, req.user!.id, "import_balance", "trial_balance", id, period);
+      return res.status(201).json({ id, lines: lines.length });
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/balances/:companyId/derive", auth, requireStaff, (req, res) => {
+    const companyId = Number(req.params.companyId);
+    const period = String(req.body?.period ?? "");
+    if (!/^\d{4}(-\d{2})?$/.test(period)) return res.status(400).json({ error: "Período inválido (use AAAA ou AAAA-MM)." });
+    const lines = deriveBalanceFromEntries(db, companyId, period);
+    if (lines.length === 0) return res.status(404).json({ error: "Sem lançamentos aprovados nesse período." });
+    const id = saveTrialBalance(db, { companyId, period, source: "derivado", lines }, req.user!.id);
+    return res.status(201).json({ id, lines: lines.length });
+  });
+
+  app.get("/api/balances/:companyId", auth, (req, res) => {
+    const companyId = Number(req.params.companyId);
+    if (req.user!.role === "client" && companyId !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
+    const rows = db.prepare("SELECT id, period, source, created_at FROM trial_balances WHERE company_id = ? ORDER BY period DESC").all(companyId);
+    return res.json({ balances: rows });
+  });
+
+  app.get("/api/balances/:companyId/:period", auth, (req, res) => {
+    const companyId = Number(req.params.companyId);
+    if (req.user!.role === "client" && companyId !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
+    const tb = loadTrialBalance(db, companyId, String(req.params.period));
+    if (!tb) return res.status(404).json({ error: "Balancete inexistente." });
+    return res.json({ ...tb, financials: computeFinancials(tb.lines) });
+  });
+
+  app.post("/api/balances/:companyId/:period/check", auth, requireStaff, (req, res) => {
+    const companyId = Number(req.params.companyId);
+    const period = String(req.params.period);
+    const tb = loadTrialBalance(db, companyId, period);
+    if (!tb) return res.status(404).json({ error: "Balancete inexistente. Importe-o primeiro." });
+    const prev = loadTrialBalance(db, companyId, previousPeriod(period));
+    const findings = evaluateRules(listRules(db, companyId), tb.lines, prev?.lines ?? null);
+    persistBalanceFindings(db, companyId, period, findings);
+    audit(db, req.user!.id, "check_balance", "trial_balance", null, `${companyId}/${period}: ${findings.length} alertas`);
+    return res.json({ period, previousPeriod: prev ? previousPeriod(period) : null, findings });
+  });
+
+  app.get("/api/rules", auth, requireStaff, (req, res) => {
+    const companyId = req.query.company_id ? Number(req.query.company_id) : null;
+    return res.json({ rules: listRules(db, companyId) });
+  });
+
+  const ruleSchema = z.object({
+    company_id: z.number().int().positive().nullable().optional(),
+    name: z.string().min(3),
+    type: z.enum(["saldo_sinal", "variacao_percentual", "variacao_absoluta", "saldo_maximo", "saldo_minimo", "racio"]),
+    account_prefixes: z.array(z.string().min(1)).min(1),
+    param: z.string().nullable().optional(),
+    threshold: z.number().nullable().optional(),
+    severity: z.enum(["info", "aviso", "erro"]).default("aviso"),
+    enabled: z.boolean().default(true),
+  });
+
+  app.post("/api/rules", auth, requireStaff, (req, res) => {
+    const body = ruleSchema.safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos.", details: body.error.issues });
+    const d = body.data;
+    const r = db
+      .prepare("INSERT INTO balance_rules (company_id, name, type, account_prefixes, param, threshold, severity, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(d.company_id ?? null, d.name, d.type, d.account_prefixes.join(","), d.param ?? null, d.threshold ?? null, d.severity, d.enabled ? 1 : 0);
+    audit(db, req.user!.id, "create", "balance_rule", Number(r.lastInsertRowid));
+    return res.status(201).json({ id: Number(r.lastInsertRowid) });
+  });
+
+  app.patch("/api/rules/:id", auth, requireStaff, (req, res) => {
+    const body = z.object({ enabled: z.boolean().optional(), threshold: z.number().nullable().optional(), severity: z.enum(["info", "aviso", "erro"]).optional() }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
+    const sets: string[] = []; const params: any[] = [];
+    if (body.data.enabled !== undefined) { sets.push("enabled = ?"); params.push(body.data.enabled ? 1 : 0); }
+    if (body.data.threshold !== undefined) { sets.push("threshold = ?"); params.push(body.data.threshold); }
+    if (body.data.severity !== undefined) { sets.push("severity = ?"); params.push(body.data.severity); }
+    if (!sets.length) return res.status(400).json({ error: "Nada para actualizar." });
+    params.push(Number(req.params.id));
+    const r = db.prepare(`UPDATE balance_rules SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+    if (r.changes === 0) return res.status(404).json({ error: "Padrão inexistente." });
+    return res.json({ ok: true });
+  });
+
+  app.delete("/api/rules/:id", auth, requireStaff, (req, res) => {
+    const r = db.prepare("DELETE FROM balance_rules WHERE id = ?").run(Number(req.params.id));
+    if (r.changes === 0) return res.status(404).json({ error: "Padrão inexistente." });
+    return res.json({ ok: true });
+  });
+
+  // ---------- Relatórios financeiros ----------
+  app.post("/api/reports/:companyId", auth, requireStaff, async (req, res) => {
+    const companyId = Number(req.params.companyId);
+    const period = String(req.body?.period ?? "");
+    if (!/^\d{4}(-\d{2})?$/.test(period)) return res.status(400).json({ error: "Período inválido (use AAAA ou AAAA-MM)." });
+    try {
+      const data = buildReportData(db, companyId, period);
+      if (req.body?.polish && agents.enabled) {
+        const polished = await agents.polishNarrative(data.narrative);
+        if (polished) data.narrative = polished;
+      }
+      const html = renderReportHtml(data);
+      const title = `Relatório financeiro ${data.companyName} · ${period}`;
+      const r = db
+        .prepare("INSERT INTO reports (company_id, period, template, title, summary, data_json, html, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(companyId, period, data.template, title, data.summary, JSON.stringify(data), html, req.user!.id);
+      audit(db, req.user!.id, "create", "report", Number(r.lastInsertRowid), period);
+      return res.status(201).json({ id: Number(r.lastInsertRowid), title, summary: data.summary, template: data.template });
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/reports", auth, (req, res) => {
+    const companyId = scopedCompanyId(req, req.query.company_id ? Number(req.query.company_id) : null);
+    let sql = "SELECT r.id, r.company_id, c.name AS company_name, r.period, r.template, r.title, r.summary, r.created_at FROM reports r JOIN companies c ON c.id = r.company_id WHERE 1=1";
+    const params: any[] = [];
+    if (companyId !== null) { sql += " AND r.company_id = ?"; params.push(companyId); }
+    sql += " ORDER BY r.created_at DESC LIMIT 100";
+    return res.json({ reports: db.prepare(sql).all(...params) });
+  });
+
+  app.get("/api/reports/:id/html", auth, (req, res) => {
+    const r = db.prepare("SELECT company_id, html FROM reports WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!r) return res.status(404).json({ error: "Relatório inexistente." });
+    if (req.user!.role === "client" && r.company_id !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(r.html);
+  });
+
+  app.get("/api/reports/:id", auth, (req, res) => {
+    const r = db.prepare("SELECT * FROM reports WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!r) return res.status(404).json({ error: "Relatório inexistente." });
+    if (req.user!.role === "client" && r.company_id !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
+    return res.json({ ...r, data: JSON.parse(r.data_json), data_json: undefined, html: undefined });
+  });
+
+  // ---------- Conhecimento (lei do IVA, benchmarks) ----------
+  app.get("/api/knowledge", auth, requireStaff, (_req, res) => {
+    const vat = loadVatRules();
+    const sectors = loadSectorBenchmarks();
+    return res.json({
+      status: knowledgeStatus(),
+      vat: { version: vat.version, last_verified: vat.last_verified, sources: vat.sources, territories: vat.territories, categories: vat.categories },
+      sectors: { version: sectors.version, source: sectors.source, disclaimer: sectors.disclaimer, sectors: sectors.sectors.map((s) => ({ key: s.key, label: s.label, cae_prefixes: s.cae_prefixes })) },
+      agents: { enabled: agents.enabled },
+    });
+  });
+
   // ---------- Dashboard e calendario fiscal ----------
   app.get("/api/dashboard", auth, (req, res) => {
     const companyId = scopedCompanyId(req, req.query.company_id ? Number(req.query.company_id) : null);
@@ -400,6 +636,10 @@ export function createServer({ db, provider, storageRoot, centralgest = null }: 
     const pendingRequests = db
       .prepare(`SELECT COUNT(*) AS n FROM doc_requests ${where ? where + " AND" : "WHERE"} status = 'pendente'`)
       .get(...params) as any;
+    const openFindings = db
+      .prepare(`SELECT severity, COUNT(*) AS n FROM findings ${where ? where + " AND" : "WHERE"} status = 'aberto' GROUP BY severity`)
+      .all(...params);
+    const knowledge = req.user!.role === "staff" ? knowledgeStatus() : [];
 
     const today = new Date().toISOString().slice(0, 10);
     let obligations: any[] = [];
@@ -414,6 +654,8 @@ export function createServer({ db, provider, storageRoot, centralgest = null }: 
       documents: docCounts,
       entries: entryCounts,
       pendingRequests: pendingRequests?.n ?? 0,
+      openFindings,
+      knowledge,
       obligations,
     });
   });

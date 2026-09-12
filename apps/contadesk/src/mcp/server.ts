@@ -27,6 +27,13 @@ import {
   dispatchApprovedEntries,
 } from "../integrations/centralgest.js";
 import { startCentralGestMock } from "../integrations/centralgest-mock.js";
+import { auditStoredDocument } from "../domain/vatAudit.js";
+import { parseBalanceCsv, deriveBalanceFromEntries, saveTrialBalance, loadTrialBalance, previousPeriod, computeFinancials } from "../domain/trialBalance.js";
+import { listRules, evaluateRules, persistBalanceFindings } from "../domain/balanceRules.js";
+import { buildReportData } from "../domain/financialReport.js";
+import { renderReportHtml } from "../domain/reportHtml.js";
+import { knowledgeStatus, loadVatRules } from "../knowledge/index.js";
+import { AgentGateway } from "../ai/agents.js";
 
 interface McpContext {
   db: Db;
@@ -43,9 +50,10 @@ const fail = (message: string) => ({
 });
 
 export function buildMcpServer(ctx: McpContext): McpServer {
-  const server = new McpServer({ name: "contadesk", version: "0.2.0" });
+  const server = new McpServer({ name: "contadesk", version: "0.3.0" });
   const { db, storageRoot } = ctx;
   const provider = buildProvider();
+  const agents = new AgentGateway();
 
   const requireCentralGest = (): CentralGestClient => {
     if (!ctx.centralgest) {
@@ -346,6 +354,241 @@ export function buildMcpServer(ctx: McpContext): McpServer {
       sql += " ORDER BY dp.created_at DESC LIMIT ?";
       params.push(limit);
       return ok({ despachos: db.prepare(sql).all(...params) });
+    }
+  );
+
+
+  // ---------- Agentes: conferência, balancetes, relatórios ----------
+  server.registerTool(
+    "contadesk_conferir_documentos",
+    {
+      title: "Conferir lancamentos (IVA, coerencia, duplicados)",
+      description:
+        "Reexecuta a conferencia automatica sobre os documentos de uma empresa (ou um documento) e devolve os alertas: IVA_CALCULO (valor do IVA nao bate com a taxa), TAXA_INEXISTENTE, TAXA_DESADEQUADA / TAXAS_MISTAS_POSSIVEIS (taxa aplicada nao corresponde ao produto/servico segundo o CIVA), TOTAL_INCOERENTE, DUPLICADO, DATA_FUTURA, AUMENTO_IMPOSTO_ANOMALO, NIF_TERCEIRO_EM_FALTA.",
+      inputSchema: {
+        company_id: z.number().int().positive(),
+        document_id: z.number().int().positive().optional().describe("Conferir apenas este documento"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ company_id, document_id }) => {
+      const docs = document_id
+        ? [{ id: document_id }]
+        : (db.prepare("SELECT id FROM documents WHERE company_id = ? AND extracted_json IS NOT NULL").all(company_id) as any[]);
+      const out: any[] = [];
+      for (const d of docs) {
+        const findings = auditStoredDocument(db, d.id);
+        if (findings.length) out.push({ document_id: d.id, alertas: findings });
+      }
+      return ok({ documentos_conferidos: docs.length, com_alertas: out.length, resultado: out });
+    }
+  );
+
+  server.registerTool(
+    "contadesk_listar_alertas",
+    {
+      title: "Listar alertas de conferencia",
+      description:
+        "Lista alertas abertos (ou resolvidos/ignorados) de documentos e balancetes, ordenados por gravidade (erro > aviso > info).",
+      inputSchema: {
+        company_id: z.number().int().positive().optional(),
+        scope: z.enum(["documento", "balancete"]).optional(),
+        status: z.enum(["aberto", "resolvido", "ignorado"]).default("aberto"),
+        limit: z.number().int().min(1).max(200).default(50),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ company_id, scope, status, limit }) => {
+      let sql = `SELECT f.id, f.company_id, c.name AS empresa, f.scope, f.document_id, d.original_name AS documento, f.period, f.code, f.severity, f.message, f.detail_json, f.created_at
+        FROM findings f JOIN companies c ON c.id = f.company_id LEFT JOIN documents d ON d.id = f.document_id WHERE f.status = ?`;
+      const params: any[] = [status];
+      if (company_id) { sql += " AND f.company_id = ?"; params.push(company_id); }
+      if (scope) { sql += " AND f.scope = ?"; params.push(scope); }
+      sql += " ORDER BY CASE f.severity WHEN 'erro' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END, f.created_at DESC LIMIT ?";
+      params.push(limit);
+      const rows = (db.prepare(sql).all(...params) as any[]).map((r) => ({ ...r, detail: r.detail_json ? JSON.parse(r.detail_json) : null, detail_json: undefined }));
+      return ok({ alertas: rows });
+    }
+  );
+
+  server.registerTool(
+    "contadesk_resolver_alerta",
+    {
+      title: "Resolver ou ignorar um alerta",
+      description: "Fecha um alerta aberto como 'resolvido' (corrigido) ou 'ignorado' (falso positivo), com nota opcional.",
+      inputSchema: {
+        finding_id: z.number().int().positive(),
+        status: z.enum(["resolvido", "ignorado"]),
+        note: z.string().optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ finding_id, status, note }) => {
+      const r = db
+        .prepare("UPDATE findings SET status = ?, resolved_at = datetime('now'), resolution_note = ? WHERE id = ? AND status = 'aberto'")
+        .run(status, note ?? null, finding_id);
+      if (r.changes === 0) return fail(`Alerta ${finding_id} inexistente ou ja fechado.`);
+      return ok({ finding_id, status });
+    }
+  );
+
+  server.registerTool(
+    "contadesk_segunda_opiniao_iva",
+    {
+      title: "Segunda opiniao de IA sobre um alerta de IVA",
+      description:
+        "Pede ao agente fiscal (Claude) uma segunda opiniao sobre um alerta, com base no texto do documento. Devolve {concorda, justificacao, confianca}. Requer ANTHROPIC_API_KEY; sem ela devolve erro accionavel.",
+      inputSchema: { finding_id: z.number().int().positive() },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ finding_id }) => {
+      if (!agents.enabled) return fail("Agente de IA nao configurado: defina ANTHROPIC_API_KEY e reinicie o servidor MCP.");
+      const f = db.prepare("SELECT f.*, d.stored_path FROM findings f LEFT JOIN documents d ON d.id = f.document_id WHERE f.id = ?").get(finding_id) as any;
+      if (!f) return fail(`Alerta ${finding_id} inexistente.`);
+      let excerpt = "";
+      if (f.stored_path) {
+        const abs = path.join(storageRoot, f.stored_path);
+        if (fs.existsSync(abs)) excerpt = fs.readFileSync(abs, "utf8");
+      }
+      const opinion = await agents.reviewVatFinding({ code: f.code, message: f.message }, excerpt);
+      return opinion ? ok({ finding_id, opinion }) : fail("O agente nao devolveu uma opiniao valida.");
+    }
+  );
+
+  server.registerTool(
+    "contadesk_importar_balancete",
+    {
+      title: "Importar ou derivar um balancete",
+      description:
+        "Guarda o balancete de um periodo (AAAA ou AAAA-MM) a partir de CSV (conta;descricao;debito;credito[;saldo]) exportado do software de contabilidade, ou deriva-o dos lancamentos aprovados no ContaDesk quando csv nao e fornecido.",
+      inputSchema: {
+        company_id: z.number().int().positive(),
+        period: z.string().regex(/^\d{4}(-\d{2})?$/),
+        csv: z.string().optional().describe("Conteudo CSV; se omitido deriva dos lancamentos aprovados"),
+        csv_path: z.string().optional().describe("Alternativa: caminho local do CSV"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ company_id, period, csv, csv_path }) => {
+      try {
+        let lines;
+        let source: "importado" | "derivado";
+        if (csv || csv_path) {
+          const text = csv ?? fs.readFileSync(csv_path!, "utf8");
+          lines = parseBalanceCsv(text);
+          source = "importado";
+        } else {
+          lines = deriveBalanceFromEntries(db, company_id, period);
+          source = "derivado";
+        }
+        if (lines.length === 0) return fail("Balancete vazio: sem linhas no CSV ou sem lancamentos aprovados no periodo.");
+        const id = saveTrialBalance(db, { companyId: company_id, period, source, lines }, null);
+        return ok({ trial_balance_id: id, period, source, linhas: lines.length, indicadores: computeFinancials(lines) });
+      } catch (e: any) {
+        return fail(e.message);
+      }
+    }
+  );
+
+  server.registerTool(
+    "contadesk_conferir_balancete",
+    {
+      title: "Conferir balancete contra os padroes",
+      description:
+        "Avalia o balancete de um periodo contra os padroes configurados (sinal dos saldos, variacoes anormais face ao periodo anterior, racios) e devolve os alertas, que ficam registados.",
+      inputSchema: { company_id: z.number().int().positive(), period: z.string().regex(/^\d{4}(-\d{2})?$/) },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ company_id, period }) => {
+      const tb = loadTrialBalance(db, company_id, period);
+      if (!tb) return fail(`Nao existe balancete ${period} para a empresa ${company_id}. Use contadesk_importar_balancete primeiro.`);
+      const prev = loadTrialBalance(db, company_id, previousPeriod(period));
+      const findings = evaluateRules(listRules(db, company_id), tb.lines, prev?.lines ?? null);
+      persistBalanceFindings(db, company_id, period, findings);
+      return ok({ period, periodo_anterior: prev ? previousPeriod(period) : null, alertas: findings, indicadores: computeFinancials(tb.lines) });
+    }
+  );
+
+  server.registerTool(
+    "contadesk_listar_padroes",
+    {
+      title: "Listar padroes de conferencia de balancetes",
+      description: "Lista os padroes (globais e da empresa) usados na conferencia de balancetes, com tipo, contas, limiar e gravidade.",
+      inputSchema: { company_id: z.number().int().positive().optional() },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ company_id }) => ok({ padroes: listRules(db, company_id ?? null) })
+  );
+
+  server.registerTool(
+    "contadesk_definir_padrao",
+    {
+      title: "Criar um padrao de conferencia",
+      description:
+        "Cria um padrao para a conferencia de balancetes. Tipos: saldo_sinal (param 'devedor'|'credor'), variacao_percentual (threshold em %), variacao_absoluta (threshold em euros), saldo_maximo, saldo_minimo, racio (param = prefixos do denominador separados por virgula, threshold em %).",
+      inputSchema: {
+        company_id: z.number().int().positive().nullable().default(null).describe("null = padrao global do gabinete"),
+        name: z.string().min(3),
+        type: z.enum(["saldo_sinal", "variacao_percentual", "variacao_absoluta", "saldo_maximo", "saldo_minimo", "racio"]),
+        account_prefixes: z.array(z.string().min(1)).min(1),
+        param: z.string().nullable().default(null),
+        threshold: z.number().nullable().default(null),
+        severity: z.enum(["info", "aviso", "erro"]).default("aviso"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (a) => {
+      const r = db
+        .prepare("INSERT INTO balance_rules (company_id, name, type, account_prefixes, param, threshold, severity, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, 1)")
+        .run(a.company_id, a.name, a.type, a.account_prefixes.join(","), a.param, a.threshold, a.severity);
+      return ok({ rule_id: Number(r.lastInsertRowid) });
+    }
+  );
+
+  server.registerTool(
+    "contadesk_gerar_relatorio",
+    {
+      title: "Gerar relatorio financeiro para o cliente",
+      description:
+        "Gera o relatorio financeiro de um periodo a partir do balancete guardado: KPIs, racios comparados com o sector de actividade (CAE da empresa), estrutura de gastos, graficos e memoria descritiva. Com polish=true e ANTHROPIC_API_KEY, a memoria e reescrita pelo agente sem alterar numeros. Devolve o id, o resumo e a memoria; o HTML fica disponivel no portal do cliente.",
+      inputSchema: {
+        company_id: z.number().int().positive(),
+        period: z.string().regex(/^\d{4}(-\d{2})?$/),
+        polish: z.boolean().default(false),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ company_id, period, polish }) => {
+      try {
+        const data = buildReportData(db, company_id, period);
+        if (polish && agents.enabled) {
+          const polished = await agents.polishNarrative(data.narrative);
+          if (polished) data.narrative = polished;
+        }
+        const html = renderReportHtml(data);
+        const title = `Relatorio financeiro ${data.companyName} - ${period}`;
+        const r = db
+          .prepare("INSERT INTO reports (company_id, period, template, title, summary, data_json, html, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)")
+          .run(company_id, period, data.template, title, data.summary, JSON.stringify(data), html);
+        return ok({ report_id: Number(r.lastInsertRowid), title, template: data.template, sector: data.sector?.label ?? null, resumo: data.summary, memoria_descritiva: data.narrative, racios: data.ratios });
+      } catch (e: any) {
+        return fail(e.message);
+      }
+    }
+  );
+
+  server.registerTool(
+    "contadesk_conhecimento_fiscal",
+    {
+      title: "Estado do conhecimento fiscal (taxas de IVA, listas, benchmarks)",
+      description:
+        "Devolve a versao e data de verificacao das regras de IVA e dos benchmarks sectoriais, se estao desactualizadas, as taxas por territorio e as categorias de produtos/servicos com base legal. Use para confirmar que o agente esta a aplicar a lei em vigor.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async () => {
+      const vat = loadVatRules();
+      return ok({ estado: knowledgeStatus(), taxas: vat.territories, fontes: vat.sources, categorias: vat.categories.map((c) => ({ key: c.key, label: c.label, band: c.band, legal_basis: c.legal_basis })) });
     }
   );
 

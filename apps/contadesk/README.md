@@ -15,6 +15,15 @@ Portal digital para gabinetes de contabilidade, inspirado no Kangaroo Files: rec
 - **Calendário fiscal:** próximas obrigações (IVA mensal/trimestral, DMR, SAF-T, Modelo 22, IES, pagamentos por conta) conforme o regime de IVA de cada empresa.
 - **Audit log:** todas as escritas e acessos a documentos ficam registados.
 
+## Agentes de análise (conferência, balancetes, relatórios)
+
+- **Conferência de lançamentos:** cada documento é conferido automaticamente na entrada e a pedido. Alertas: `IVA_CALCULO` (valor do IVA não bate com a taxa), `TAXA_INEXISTENTE` (taxa não existe no território/data), `TAXA_DESADEQUADA` / `TAXAS_MISTAS_POSSIVEIS` (taxa aplicada não corresponde ao produto/serviço segundo as Listas I e II do CIVA), `TOTAL_INCOERENTE`, `DUPLICADO` (mesmo número do mesmo emissor), `DATA_FUTURA`, `AUMENTO_IMPOSTO_ANOMALO` (taxa efectiva sobe face ao histórico do terceiro) e `NIF_TERCEIRO_EM_FALTA`. Os alertas são conservadores: assinalam, nunca corrigem.
+- **Conhecimento fiscal versionado:** taxas por território (Continente, Açores, Madeira), histórico de taxas e categorias de produtos/serviços com base legal vivem em `src/knowledge/vat-rules.json` com `version` e `last_verified`. Quando a data ultrapassa o prazo de revisão, o painel e o MCP sinalizam conhecimento desactualizado; a actualização da lei é uma alteração de dados revista em git, não de código.
+- **Conferência de balancetes:** importação de CSV (`conta;descricao;debito;credito[;saldo]`) ou derivação dos lançamentos aprovados; avaliação contra **padrões configuráveis** (sinal dos saldos, variação % ou € face ao período anterior, saldo máximo/mínimo, rácios) na área "Balancetes"; 10 padrões por omissão, mais padrões por empresa.
+- **Relatórios financeiros para clientes:** KPIs, rácios comparados com o sector de actividade (CAE → 6 modelos sectoriais em `src/knowledge/sector-benchmarks.json`), estrutura de gastos, gráficos SVG (paleta validada, legíveis em modo claro/escuro) e memória descritiva determinística; com `ANTHROPIC_API_KEY` o agente reescreve a memória (modelo `claude-opus-5`) sem alterar números. Os relatórios ficam na área reservada do cliente.
+- **Fontes externas:** o Banco de Portugal (BPstat) tem API REST pública, verificada neste ambiente; o INE tem API JSON. Não é preciso scraping. Ver `docs/fontes-externas.md`.
+- **Área reservada (web app):** o portal do cliente é instalável (manifest + service worker) e mostra documentos, alertas que lhe dizem respeito, pedidos e relatórios.
+
 ## Gateway de IA
 
 Toda a inteligência passa pelo módulo `src/ai/provider.ts`. Por omissão usa o motor heurístico determinístico (funciona offline). Com `ANTHROPIC_API_KEY` definida, as classificações de confiança baixa são refinadas com `claude-haiku-4-5`; uma falha da IA nunca pára o pipeline (o resultado heurístico prevalece). Nenhum outro módulo chama APIs de IA directamente.
@@ -34,6 +43,13 @@ O ContaDesk inclui um servidor MCP (Model Context Protocol) em `src/mcp/server.t
 | `contadesk_decidir_lancamento` | Aprovar (com edição de linhas) ou rejeitar com motivo |
 | `centralgest_lancar` | Enviar os aprovados para o CentralGest (idempotente) |
 | `centralgest_listar_despachos` | Historial de despachos com números remotos e erros |
+| `contadesk_conferir_documentos` | Reexecutar a conferência de IVA/coerência/duplicados |
+| `contadesk_listar_alertas` / `contadesk_resolver_alerta` | Gerir alertas de documentos e balancetes |
+| `contadesk_segunda_opiniao_iva` | Segunda opinião do agente fiscal sobre um alerta |
+| `contadesk_importar_balancete` / `contadesk_conferir_balancete` | Balancetes e padrões |
+| `contadesk_listar_padroes` / `contadesk_definir_padrao` | Configurar padrões de conferência |
+| `contadesk_gerar_relatorio` | Relatório financeiro com comparação sectorial |
+| `contadesk_conhecimento_fiscal` | Versão e estado das regras de IVA e benchmarks |
 
 Toda a escrita no CentralGest passa pelo despachante determinístico e idempotente; o mesmo lançamento nunca é enviado duas vezes, mesmo que o agente repita a ferramenta.
 
@@ -79,12 +95,15 @@ Variáveis de ambiente: `PORT` (3000), `DB_PATH` (`data/contadesk.db`), `STORAGE
 
 ```bash
 npm run typecheck
-npm test   # 47 testes: dominio, API end-to-end, despacho CentralGest e servidor MCP
+npm test   # 82 testes: dominio, conferencia IVA, balancetes, relatorios, API end-to-end, CentralGest e MCP
 ```
 
 Os testes cobrem o fluxo completo (upload → proposta → validação → exportação), a idempotência da exportação, a deduplicação por hash e o isolamento entre empresas (um cliente nunca vê nem carrega documentos de outra).
 
 ## Limitações da v1 (assumidas)
+
+- Os benchmarks sectoriais são valores indicativos; devem ser actualizados com os Quadros do Setor via BPstat antes de entregar relatórios a clientes (fluxo em `docs/fontes-externas.md`).
+- A categorização produto → taxa de IVA é por palavras-chave e emite avisos (nunca erros): a decisão final sobre a taxa legal é do contabilista.
 
 - Só extrai texto de ficheiros de texto (TXT/CSV/XML/JSON); PDFs e imagens são arquivados e classificados pelo nome do ficheiro, ficando os detalhes para o revisor (OCR fica para a v2).
 - Recepção por email/WhatsApp: o esquema já tem o campo `channel`, mas só o canal portal está implementado.

@@ -105,6 +105,72 @@ CREATE TABLE IF NOT EXISTS dispatches (
   UNIQUE (entry_id, channel)
 );
 
+CREATE TABLE IF NOT EXISTS findings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  scope TEXT NOT NULL CHECK (scope IN ('documento', 'balancete', 'conhecimento')),
+  document_id INTEGER REFERENCES documents(id),
+  period TEXT,
+  code TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('info', 'aviso', 'erro')),
+  message TEXT NOT NULL,
+  detail_json TEXT,
+  status TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto', 'resolvido', 'ignorado')),
+  resolved_by INTEGER REFERENCES users(id),
+  resolved_at TEXT,
+  resolution_note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS trial_balances (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  period TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('importado', 'derivado')),
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (company_id, period)
+);
+
+CREATE TABLE IF NOT EXISTS trial_balance_lines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  trial_balance_id INTEGER NOT NULL REFERENCES trial_balances(id),
+  account TEXT NOT NULL,
+  description TEXT,
+  debit REAL NOT NULL DEFAULT 0,
+  credit REAL NOT NULL DEFAULT 0,
+  balance REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS balance_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER REFERENCES companies(id),
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  account_prefixes TEXT NOT NULL,
+  param TEXT,
+  threshold REAL,
+  severity TEXT NOT NULL DEFAULT 'aviso',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  period TEXT NOT NULL,
+  template TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  data_json TEXT NOT NULL,
+  html TEXT NOT NULL,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_findings_company ON findings(company_id, status);
+CREATE INDEX IF NOT EXISTS idx_reports_company ON reports(company_id, created_at);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
@@ -137,6 +203,12 @@ function migrate(db: Db): void {
   const companyCols = db.prepare("PRAGMA table_info(companies)").all() as any[];
   if (!companyCols.some((c) => c.name === "centralgest_code")) {
     db.exec("ALTER TABLE companies ADD COLUMN centralgest_code TEXT");
+  }
+  if (!companyCols.some((c) => c.name === "cae")) {
+    db.exec("ALTER TABLE companies ADD COLUMN cae TEXT");
+  }
+  if (!companyCols.some((c) => c.name === "territory")) {
+    db.exec("ALTER TABLE companies ADD COLUMN territory TEXT NOT NULL DEFAULT 'continente'");
   }
 }
 

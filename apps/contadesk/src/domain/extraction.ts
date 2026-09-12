@@ -4,8 +4,16 @@
  * provider can replace it behind the same interface (see src/ai/provider.ts).
  */
 
+export interface LineItem {
+  description: string;
+  quantity: number | null;
+  unitPrice: number | null;
+  lineTotal: number | null;
+}
+
 export interface ExtractedData {
   nifs: string[];
+  items: LineItem[];
   issuerNif: string | null;
   docNumber: string | null;
   docDate: string | null; // YYYY-MM-DD
@@ -54,6 +62,29 @@ function normalizeDate(raw: string): string | null {
 }
 
 const AMOUNT = String.raw`(\d{1,3}(?:[\s.]\d{3})*(?:,\d{1,2})|\d+(?:[.,]\d{1,2})?)`;
+
+/**
+ * Parses tabular line items such as
+ *   "Farinha tipo 65 (saco 25kg)         10    18,50"
+ * (description, quantity, unit price separated by 2+ spaces). Lines that
+ * look like totals/headers are ignored.
+ */
+export function extractLineItems(text: string): LineItem[] {
+  const items: LineItem[] = [];
+  const skip = /^(descri|total|iva|incid|base|subtotal|qtd|quant|data|nif|factura|fatura|recibo|cliente)/i;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    const m = line.match(/^(.+?\S)\s{2,}(\d+(?:[.,]\d+)?)\s+(\d{1,3}(?:[\s.]\d{3})*(?:,\d{1,2})|\d+(?:[.,]\d{1,2})?)\s*$/);
+    if (!m) continue;
+    const description = m[1]!.trim();
+    if (skip.test(description) || description.length < 3) continue;
+    const quantity = Number(m[2]!.replace(",", "."));
+    const unitPrice = parseAmount(m[3]!);
+    const lineTotal = unitPrice !== null && Number.isFinite(quantity) ? Math.round(quantity * unitPrice * 100) / 100 : null;
+    items.push({ description, quantity: Number.isFinite(quantity) ? quantity : null, unitPrice, lineTotal });
+  }
+  return items;
+}
 
 export function extractFromText(text: string): ExtractedData {
   const nifs: string[] = [];
@@ -127,6 +158,7 @@ export function extractFromText(text: string): ExtractedData {
 
   return {
     nifs,
+    items: extractLineItems(text),
     issuerNif,
     docNumber,
     docDate,

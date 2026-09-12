@@ -1,0 +1,42 @@
+{
+  "version": "2026.09",
+  "last_verified": "2026-09-12",
+  "review_after_days": 90,
+  "sources": [
+    "Código do IVA, artigo 18.º (taxas) e Listas I e II anexas",
+    "Decreto Legislativo Regional (Açores) - taxas 16% / 9% / 4%",
+    "Decreto Legislativo Regional (Madeira) - taxas 22% / 12% / 4%",
+    "Portal das Finanças - tabela de taxas de IVA em vigor"
+  ],
+  "territories": {
+    "continente": { "label": "Continente", "normal": 23, "intermedia": 13, "reduzida": 6 },
+    "acores": { "label": "Açores", "normal": 16, "intermedia": 9, "reduzida": 4 },
+    "madeira": { "label": "Madeira", "normal": 22, "intermedia": 12, "reduzida": 4 }
+  },
+  "history": [
+    { "territory": "continente", "effective_from": "2011-01-01", "normal": 23, "intermedia": 13, "reduzida": 6 }
+  ],
+  "categories": [
+    { "key": "pao_cereais", "label": "Pão, farinhas e cereais", "band": "reduzida", "legal_basis": "Lista I, verba 1.1", "keywords": ["pao", "broa", "farinha", "cereal", "arroz", "massa alimenticia"] },
+    { "key": "lacticinios_ovos", "label": "Leite, lacticínios e ovos", "band": "reduzida", "legal_basis": "Lista I, verbas 1.4 e 1.5", "keywords": ["leite", "queijo", "iogurte", "manteiga", "ovos"] },
+    { "key": "carne_peixe", "label": "Carne e peixe frescos", "band": "reduzida", "legal_basis": "Lista I, verbas 1.2 e 1.3", "keywords": ["carne", "frango", "peixe", "bacalhau", "sardinha"] },
+    { "key": "frutas_legumes", "label": "Frutas e legumes", "band": "reduzida", "legal_basis": "Lista I, verba 1.6", "keywords": ["fruta", "maca", "banana", "legume", "batata", "tomate", "cebola"] },
+    { "key": "medicamentos", "label": "Medicamentos e produtos farmacêuticos", "band": "reduzida", "legal_basis": "Lista I, verba 2.5", "keywords": ["medicamento", "farmac"] },
+    { "key": "livros_jornais", "label": "Livros, jornais e revistas", "band": "reduzida", "legal_basis": "Lista I, verba 2.1", "keywords": ["livro", "jornal", "revista", "manual escolar"] },
+    { "key": "alojamento", "label": "Alojamento hoteleiro", "band": "reduzida", "legal_basis": "Lista I, verba 2.17", "keywords": ["alojamento", "dormida", "quarto de hotel", "estadia"] },
+    { "key": "transporte_passageiros", "label": "Transporte de passageiros", "band": "reduzida", "legal_basis": "Lista I, verba 2.14", "keywords": ["bilhete", "transporte de passageiros", "viagem de comboio", "autocarro"] },
+    { "key": "restauracao", "label": "Refeições em restauração (excepto bebidas alcoólicas e refrigerantes)", "band": "intermedia", "legal_basis": "Lista II, verba 3.1", "keywords": ["refeicao", "almoco", "jantar", "menu", "prato do dia", "restaurante"] },
+    { "key": "vinho", "label": "Vinhos comuns", "band": "intermedia", "legal_basis": "Lista II, verba 1.10", "keywords": ["vinho"] },
+    { "key": "conservas", "label": "Conservas de carne, peixe e frutas", "band": "intermedia", "legal_basis": "Lista II, verbas 1.1 a 1.3", "keywords": ["conserva", "atum em lata", "enlatado"] },
+    { "key": "oleos", "label": "Óleos alimentares", "band": "intermedia", "legal_basis": "Lista II, verba 1.6", "keywords": ["oleo alimentar", "oleo de girassol"] },
+    { "key": "bebidas_alcoolicas", "label": "Bebidas alcoólicas (excepto vinho) e refrigerantes", "band": "normal", "legal_basis": "Fora das Listas I e II", "keywords": ["cerveja", "whisky", "gin", "vodka", "refrigerante", "cola", "sumo"] },
+    { "key": "servicos_gerais", "label": "Serviços gerais (manutenção, consultoria, reparações)", "band": "normal", "legal_basis": "Artigo 18.º, n.º 1, alínea c)", "keywords": ["manutencao", "reparacao", "consultoria", "assistencia tecnica", "servico de", "instalacao", "avenca", "honorarios"] },
+    { "key": "equipamentos", "label": "Equipamentos, máquinas e material informático", "band": "normal", "legal_basis": "Artigo 18.º, n.º 1, alínea c)", "keywords": ["equipamento", "maquina", "computador", "portatil", "impressora", "software", "licenca"] },
+    { "key": "combustiveis", "label": "Combustíveis e portagens", "band": "normal", "legal_basis": "Artigo 18.º, n.º 1, alínea c)", "keywords": ["gasolina", "gasoleo", "combustivel", "portagem"] },
+    { "key": "telecomunicacoes", "label": "Telecomunicações e energia", "band": "normal", "legal_basis": "Artigo 18.º, n.º 1, alínea c) (electricidade e gás: excepções parciais na Lista I)", "keywords": ["telemovel", "internet", "fibra", "telecomunicac", "electricidade", "gas natural"] }
+  ],
+  "anomaly": {
+    "effective_rate_jump_points": 5,
+    "min_history_documents": 3
+  }
+}

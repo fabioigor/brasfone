@@ -68,6 +68,13 @@ const STATUS_BADGE = {
   lancado: "ok",
   ja_existia: "info",
   erro: "bad",
+  aviso: "warn",
+  info: "info",
+  aberto: "warn",
+  resolvido: "ok",
+  ignorado: "",
+  activo: "ok",
+  inactivo: "",
 };
 
 const DOC_TYPE_LABEL = {
@@ -119,8 +126,23 @@ async function viewDashboard(main) {
         el("div", { class: "n" }, String(data.pendingRequests)),
         el("div", { class: "l" }, "Pedidos pendentes"),
       ]),
+      el("div", { class: "card stat" }, [
+        el("div", { class: "n" }, String((data.openFindings || []).reduce((s, x) => s + x.n, 0))),
+        el("div", { class: "l" }, "Alertas de conferência abertos"),
+      ]),
     ])
   );
+
+  if (isStaff && data.knowledge && data.knowledge.length) {
+    const stale = data.knowledge.filter((k) => k.stale);
+    main.append(
+      el("div", { class: "card" }, [
+        el("h2", {}, "Conhecimento fiscal do agente"),
+        el("div", { class: "muted small" }, data.knowledge.map((k) => k.name.replace("_", " ") + " v" + k.version + " (verificado em " + k.lastVerified + ", há " + k.ageDays + " dias)").join(" · ")),
+        stale.length ? el("p", { class: "error" }, "Atenção: " + stale.map((k) => k.name).join(", ") + " ultrapassou o prazo de revisão. Confirme a lei em vigor antes de confiar nos alertas de IVA.") : el("p", { class: "muted small" }, "Regras dentro do prazo de revisão."),
+      ])
+    );
+  }
 
   const obl = el("tbody");
   for (const o of data.obligations) {
@@ -390,12 +412,15 @@ async function viewCompanies(main) {
         toast(e.message, true);
       }
     });
-    const cgInput = el("input", { value: c.centralgest_code || "", placeholder: "ex.: PADARIA", style: "width:110px" });
+    const cgInput = el("input", { value: c.centralgest_code || "", placeholder: "ex.: PADARIA", style: "width:100px" });
+    const caeInput = el("input", { value: c.cae || "", placeholder: "CAE", style: "width:70px" });
+    const terrSel = el("select", {}, ["continente", "acores", "madeira"].map((t) => el("option", { value: t }, t)));
+    terrSel.value = c.territory || "continente";
     const cgBtn = el("button", { class: "btn small" }, "Guardar");
     cgBtn.addEventListener("click", async () => {
       try {
-        await api("/api/companies/" + c.id, { method: "PATCH", json: { centralgest_code: cgInput.value.trim() || null } });
-        toast("Código CentralGest guardado.");
+        await api("/api/companies/" + c.id, { method: "PATCH", json: { centralgest_code: cgInput.value.trim() || null, cae: caeInput.value.trim() || null, territory: terrSel.value } });
+        toast("Empresa actualizada.");
         await loadCompanies();
       } catch (e) {
         toast(e.message, true);
@@ -405,6 +430,7 @@ async function viewCompanies(main) {
       el("td", {}, c.name),
       el("td", {}, c.nif),
       el("td", {}, c.vat_regime),
+      el("td", {}, [caeInput, " ", terrSel]),
       el("td", {}, [cgInput, " ", cgBtn]),
       el("td", {}, userBtn),
     ]));
@@ -412,7 +438,7 @@ async function viewCompanies(main) {
   main.append(
     el("div", { class: "card table-wrap" },
       el("table", {}, [
-        el("thead", {}, el("tr", {}, [el("th", {}, "Nome"), el("th", {}, "NIF"), el("th", {}, "Regime IVA"), el("th", {}, "Código CentralGest"), el("th", {}, "")])),
+        el("thead", {}, el("tr", {}, [el("th", {}, "Nome"), el("th", {}, "NIF"), el("th", {}, "Regime IVA"), el("th", {}, "CAE / território"), el("th", {}, "Código CentralGest"), el("th", {}, "")])),
         tbody,
       ])
     )
@@ -523,19 +549,213 @@ async function viewExport(main) {
   );
 }
 
+/* ---------- Conferência (alertas) ---------- */
+
+async function viewAudit(main) {
+  const isStaff = user.role === "staff";
+  main.append(el("h2", {}, isStaff ? "Conferência de lançamentos e balancetes" : "Alertas sobre os meus documentos"));
+
+  if (isStaff) {
+    const companySelect = el("select");
+    companyOptions(companySelect, false);
+    const runBtn = el("button", { class: "btn primary" }, "Reconferir documentos da empresa");
+    runBtn.addEventListener("click", async () => {
+      runBtn.disabled = true;
+      try {
+        const out = await api("/api/audit/companies/" + companySelect.value, { method: "POST" });
+        toast(out.documents + " documento(s) conferido(s), " + out.findings + " alerta(s).");
+        render();
+      } catch (e) { toast(e.message, true); } finally { runBtn.disabled = false; }
+    });
+    main.append(el("div", { class: "card form-row" }, [el("label", {}, ["Empresa", companySelect]), runBtn]));
+  }
+
+  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const status = params.get("estado") || "aberto";
+  main.append(el("div", { class: "form-row" }, ["aberto", "resolvido", "ignorado"].map((s) =>
+    el("a", { href: "#conferencia?estado=" + s, class: "btn small" + (s === status ? " primary" : "") }, s.charAt(0).toUpperCase() + s.slice(1) + "s")
+  )));
+
+  const findings = (await api("/api/findings?status=" + status)).findings;
+  if (!findings.length) { main.append(el("div", { class: "card muted" }, "Sem alertas " + status + "s.")); return; }
+
+  const tbody = el("tbody");
+  for (const f of findings) {
+    const actions = el("td");
+    if (isStaff && f.status === "aberto") {
+      const note = el("input", { placeholder: "Nota (opcional)", style: "width:150px;font-size:12px" });
+      const resolve = async (st) => {
+        try { await api("/api/findings/" + f.id + "/resolve", { method: "POST", json: { status: st, note: note.value || undefined } }); toast("Alerta " + st + "."); render(); }
+        catch (e) { toast(e.message, true); }
+      };
+      actions.append(note, " ", el("button", { class: "btn small primary", onclick: () => resolve("resolvido") }, "Resolvido"), " ", el("button", { class: "btn small", onclick: () => resolve("ignorado") }, "Ignorar"));
+    }
+    tbody.append(el("tr", {}, [
+      el("td", {}, badge(f.severity)),
+      el("td", {}, [el("strong", {}, f.code), el("div", { class: "small" }, f.message)]),
+      el("td", {}, [f.scope === "documento" ? (f.original_name || "documento #" + f.document_id) : "Balancete " + (f.period || ""), el("div", { class: "muted small" }, f.company_name)]),
+      actions,
+    ]));
+  }
+  main.append(el("div", { class: "card table-wrap" }, el("table", {}, [
+    el("thead", {}, el("tr", {}, [el("th", {}, "Gravidade"), el("th", {}, "Alerta"), el("th", {}, "Origem"), el("th", {}, "")])),
+    tbody,
+  ])));
+}
+
+/* ---------- Balancetes e padrões ---------- */
+
+const RULE_TYPE_LABEL = {
+  saldo_sinal: "Sinal do saldo", variacao_percentual: "Variação %", variacao_absoluta: "Variação €",
+  saldo_maximo: "Saldo máximo", saldo_minimo: "Saldo mínimo", racio: "Rácio",
+};
+
+async function viewBalances(main) {
+  main.append(el("h2", {}, "Balancetes"));
+
+  const companySelect = el("select");
+  companyOptions(companySelect, false);
+  const period = el("input", { type: "month", required: "true" });
+  const file = el("input", { type: "file", accept: ".csv,text/csv" });
+  const importBtn = el("button", { class: "btn primary", type: "submit" }, "Importar CSV");
+  const deriveBtn = el("button", { class: "btn", type: "button" }, "Derivar dos lançamentos");
+  const form = el("form", { class: "form-row" }, [
+    el("label", {}, ["Empresa", companySelect]), el("label", {}, ["Período", period]), el("label", { style: "flex:2" }, ["CSV (conta;descricao;debito;credito)", file]), importBtn, deriveBtn,
+  ]);
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!file.files[0] || !period.value) return;
+    try {
+      const fd = new FormData(); fd.append("file", file.files[0]); fd.append("period", period.value);
+      const out = await api("/api/balances/" + companySelect.value + "/import", { method: "POST", body: fd });
+      toast("Balancete importado (" + out.lines + " contas)."); render();
+    } catch (e) { toast(e.message, true); }
+  });
+  deriveBtn.addEventListener("click", async () => {
+    if (!period.value) return toast("Indique o período.", true);
+    try {
+      const out = await api("/api/balances/" + companySelect.value + "/derive", { method: "POST", json: { period: period.value } });
+      toast("Balancete derivado (" + out.lines + " contas)."); render();
+    } catch (e) { toast(e.message, true); }
+  });
+  main.append(el("div", { class: "card" }, [el("h2", {}, "Novo balancete"), form]));
+
+  for (const c of companies) {
+    const list = (await api("/api/balances/" + c.id)).balances;
+    if (!list.length) continue;
+    const tbody = el("tbody");
+    for (const b of list) {
+      const checkBtn = el("button", { class: "btn small primary" }, "Conferir");
+      checkBtn.addEventListener("click", async () => {
+        try {
+          const out = await api("/api/balances/" + c.id + "/" + b.period + "/check", { method: "POST" });
+          toast(out.findings.length + " alerta(s) para " + b.period + (out.previousPeriod ? " (vs " + out.previousPeriod + ")" : " (sem período anterior)"));
+          location.hash = "#conferencia";
+        } catch (e) { toast(e.message, true); }
+      });
+      const reportBtn = el("button", { class: "btn small" }, "Gerar relatório");
+      reportBtn.addEventListener("click", async () => {
+        try {
+          const out = await api("/api/reports/" + c.id, { method: "POST", json: { period: b.period } });
+          toast("Relatório gerado: " + out.summary.slice(0, 80));
+          location.hash = "#relatorios";
+        } catch (e) { toast(e.message, true); }
+      });
+      tbody.append(el("tr", {}, [el("td", {}, b.period), el("td", {}, b.source), el("td", {}, b.created_at), el("td", {}, [checkBtn, " ", reportBtn])]));
+    }
+    main.append(el("div", { class: "card table-wrap" }, [el("h2", {}, c.name), el("table", {}, [
+      el("thead", {}, el("tr", {}, [el("th", {}, "Período"), el("th", {}, "Origem"), el("th", {}, "Importado em"), el("th", {}, "")])), tbody,
+    ])]));
+  }
+
+  const rules = (await api("/api/rules")).rules;
+  const rname = el("input", { placeholder: "Nome do padrão", required: "true" });
+  const rtype = el("select", {}, Object.entries(RULE_TYPE_LABEL).map(([k, v]) => el("option", { value: k }, v)));
+  const rprefix = el("input", { placeholder: "Contas (ex.: 62 ou 71,72)", required: "true" });
+  const rparam = el("input", { placeholder: "devedor/credor ou contas do denominador" });
+  const rthr = el("input", { type: "number", step: "0.01", placeholder: "Limiar" });
+  const rsev = el("select", {}, [el("option", { value: "aviso" }, "Aviso"), el("option", { value: "erro" }, "Erro"), el("option", { value: "info" }, "Info")]);
+  const rcompany = el("select");
+  rcompany.append(el("option", { value: "" }, "Global (todas)"));
+  for (const c of companies) rcompany.append(el("option", { value: c.id }, c.name));
+  const rform = el("form", { class: "form-row" }, [
+    el("label", { style: "flex:2" }, ["Nome", rname]), el("label", {}, ["Tipo", rtype]), el("label", {}, ["Contas", rprefix]),
+    el("label", {}, ["Parâmetro", rparam]), el("label", {}, ["Limiar", rthr]), el("label", {}, ["Gravidade", rsev]), el("label", {}, ["Âmbito", rcompany]),
+    el("button", { class: "btn primary", type: "submit" }, "Criar padrão"),
+  ]);
+  rform.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("/api/rules", { method: "POST", json: {
+        company_id: rcompany.value ? Number(rcompany.value) : null, name: rname.value, type: rtype.value,
+        account_prefixes: rprefix.value.split(",").map((x) => x.trim()).filter(Boolean),
+        param: rparam.value || null, threshold: rthr.value === "" ? null : Number(rthr.value), severity: rsev.value,
+      } });
+      toast("Padrão criado."); render();
+    } catch (e) { toast(e.message, true); }
+  });
+  const rbody = el("tbody");
+  for (const r of rules) {
+    const toggle = el("button", { class: "btn small" }, r.enabled ? "Desactivar" : "Activar");
+    toggle.addEventListener("click", async () => { await api("/api/rules/" + r.id, { method: "PATCH", json: { enabled: !r.enabled } }); render(); });
+    const del = el("button", { class: "btn small danger" }, "Apagar");
+    del.addEventListener("click", async () => { if (confirm("Apagar o padrão \"" + r.name + "\"?")) { await api("/api/rules/" + r.id, { method: "DELETE" }); render(); } });
+    rbody.append(el("tr", {}, [
+      el("td", {}, [r.name, el("div", { class: "muted small" }, r.companyId ? (companies.find((c) => c.id === r.companyId) || {}).name || "" : "Global")]),
+      el("td", {}, RULE_TYPE_LABEL[r.type] || r.type), el("td", {}, r.accountPrefixes.join(", ")),
+      el("td", {}, [r.param || "", r.threshold !== null ? " " + r.threshold : ""]), el("td", {}, badge(r.severity)),
+      el("td", {}, r.enabled ? badge("activo") : badge("inactivo")), el("td", {}, [toggle, " ", del]),
+    ]));
+  }
+  main.append(el("div", { class: "card" }, [el("h2", {}, "Padrões de conferência"), el("p", { class: "muted small" }, "Regras que disparam alertas ao conferir um balancete: sinal dos saldos, variações anormais face ao período anterior, saldos limite e rácios."), rform]));
+  main.append(el("div", { class: "card table-wrap" }, el("table", {}, [
+    el("thead", {}, el("tr", {}, [el("th", {}, "Padrão"), el("th", {}, "Tipo"), el("th", {}, "Contas"), el("th", {}, "Parâmetro / limiar"), el("th", {}, "Gravidade"), el("th", {}, "Estado"), el("th", {}, "")])), rbody,
+  ])));
+}
+
+/* ---------- Relatórios financeiros ---------- */
+
+async function viewReports(main) {
+  const isStaff = user.role === "staff";
+  main.append(el("h2", {}, isStaff ? "Relatórios financeiros para clientes" : "Os meus relatórios financeiros"));
+  if (isStaff) main.append(el("p", { class: "muted" }, "Os relatórios são gerados a partir do balancete do período (vista Balancetes), com comparação ao sector de actividade da empresa (CAE) e memória descritiva."));
+
+  const reports = (await api("/api/reports")).reports;
+  if (!reports.length) { main.append(el("div", { class: "card muted" }, "Ainda não há relatórios.")); return; }
+  for (const r of reports) {
+    const openBtn = el("button", { class: "btn small primary" }, "Abrir relatório");
+    openBtn.addEventListener("click", async () => {
+      const res = await fetch("/api/reports/" + r.id + "/html", { headers: { Authorization: "Bearer " + token } });
+      const html = await res.text();
+      const w = window.open("", "_blank");
+      if (w) { w.document.open(); w.document.write(html); w.document.close(); }
+    });
+    main.append(el("div", { class: "card" }, [
+      el("div", { class: "form-row" }, [
+        el("div", { style: "flex:1" }, [el("strong", {}, r.title), el("div", { class: "muted small" }, r.company_name + " · modelo: " + r.template + " · " + r.created_at)]),
+        openBtn,
+      ]),
+      el("p", {}, r.summary),
+    ]));
+  }
+}
+
 /* ---------- navegacao ---------- */
 
 const ROUTES = {
   painel: { label: "Painel", view: viewDashboard, roles: ["staff", "client"] },
   documentos: { label: "Documentos", view: viewDocuments, roles: ["staff", "client"] },
   validacao: { label: "Validação", view: viewValidation, roles: ["staff"] },
+  conferencia: { label: "Conferência", view: viewAudit, roles: ["staff", "client"] },
+  balancetes: { label: "Balancetes", view: viewBalances, roles: ["staff"] },
+  relatorios: { label: "Relatórios", view: viewReports, roles: ["staff", "client"] },
   pedidos: { label: "Pedidos", view: viewRequests, roles: ["staff", "client"] },
   empresas: { label: "Empresas", view: viewCompanies, roles: ["staff"] },
   exportacao: { label: "Exportação", view: viewExport, roles: ["staff"] },
 };
 
 function currentRoute() {
-  const hash = location.hash.replace("#", "") || "painel";
+  const hash = (location.hash.replace("#", "").split("?")[0]) || "painel";
   const route = ROUTES[hash];
   if (!route || !route.roles.includes(user.role)) return "painel";
   return hash;

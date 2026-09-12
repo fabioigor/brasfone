@@ -59,6 +59,16 @@ describe("servidor MCP", () => {
       "contadesk_decidir_lancamento",
       "centralgest_lancar",
       "centralgest_listar_despachos",
+      "contadesk_conferir_documentos",
+      "contadesk_listar_alertas",
+      "contadesk_resolver_alerta",
+      "contadesk_segunda_opiniao_iva",
+      "contadesk_importar_balancete",
+      "contadesk_conferir_balancete",
+      "contadesk_listar_padroes",
+      "contadesk_definir_padrao",
+      "contadesk_gerar_relatorio",
+      "contadesk_conhecimento_fiscal",
     ]) {
       expect(names).toContain(expected);
     }
@@ -133,6 +143,42 @@ describe("servidor MCP", () => {
     });
     expect(out._isError).toBe(true);
     expect(out.erro).toMatch(/desbalanceadas/);
+  });
+
+  it("agentes: conferir documento com IVA errado, balancete e relatorio", async () => {
+    const processed = await callTool("contadesk_processar_documento", {
+      company_id: 1,
+      content: fixture("factura-iva-errado.txt"),
+      filename: "factura-iva-errado.txt",
+    });
+    expect(processed.findings.some((f: any) => f.code === "IVA_CALCULO")).toBe(true);
+
+    const alerts = await callTool("contadesk_listar_alertas", { company_id: 1, scope: "documento" });
+    expect(alerts.alertas.some((a: any) => a.code === "TAXA_DESADEQUADA")).toBe(true);
+
+    const jun = await callTool("contadesk_importar_balancete", { company_id: 1, period: "2026-06", csv: fixture("balancete-2026-06.csv") });
+    expect(jun._isError).toBe(false);
+    const jul = await callTool("contadesk_importar_balancete", { company_id: 1, period: "2026-07", csv: fixture("balancete-2026-07.csv") });
+    expect(jul.indicadores.vendas).toBe(42040);
+
+    const check = await callTool("contadesk_conferir_balancete", { company_id: 1, period: "2026-07" });
+    expect(check.alertas.some((a: any) => a.code === "VARIACAO_ANOMALA")).toBe(true);
+
+    const rule = await callTool("contadesk_definir_padrao", { company_id: 1, name: "Caixa acima de 100", type: "saldo_maximo", account_prefixes: ["11"], threshold: 100, severity: "info" });
+    expect(rule.rule_id).toBeGreaterThan(0);
+    const check2 = await callTool("contadesk_conferir_balancete", { company_id: 1, period: "2026-07" });
+    expect(check2.alertas.some((a: any) => a.code === "SALDO_FORA_DO_PADRAO")).toBe(true);
+
+    const report = await callTool("contadesk_gerar_relatorio", { company_id: 1, period: "2026-07" });
+    expect(report.template).toBe("restauracao_alimentar");
+    expect(report.memoria_descritiva.length).toBeGreaterThan(2);
+
+    const know = await callTool("contadesk_conhecimento_fiscal");
+    expect(know.taxas.continente.normal).toBe(23);
+
+    const missing = await callTool("contadesk_conferir_balancete", { company_id: 2, period: "2026-07" });
+    expect(missing._isError).toBe(true);
+    expect(missing.erro).toMatch(/importar_balancete/);
   });
 
   it("rejeitar sem motivo devolve erro accionavel", async () => {

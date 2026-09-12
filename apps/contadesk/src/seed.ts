@@ -1,19 +1,21 @@
 import { Db, openDb } from "./db.js";
 import { hashPassword } from "./auth.js";
+import { seedDefaultRules } from "./domain/balanceRules.js";
 
 /**
  * Seeds a demo firm with one staff user and two client companies.
  * Passwords here are demo-only; real deployments must change them.
  */
 export function seedDemo(db: Db): void {
+  seedDefaultRules(db);
   const hasUsers = (db.prepare("SELECT COUNT(*) AS n FROM users").get() as any).n > 0;
   if (hasUsers) return;
 
   const insertCompany = db.prepare(
-    "INSERT INTO companies (name, nif, vat_regime, activity) VALUES (?, ?, ?, ?)"
+    "INSERT INTO companies (name, nif, vat_regime, activity, cae) VALUES (?, ?, ?, ?, ?)"
   );
-  const c1 = Number(insertCompany.run("Padaria Central Lda", "506284417", "trimestral", "Padaria e pastelaria").lastInsertRowid);
-  const c2 = Number(insertCompany.run("TecnoNorte Unipessoal Lda", "509442013", "mensal", "Consultoria informatica").lastInsertRowid);
+  const c1 = Number(insertCompany.run("Padaria Central Lda", "506284417", "trimestral", "Padaria e pastelaria", "10711").lastInsertRowid);
+  const c2 = Number(insertCompany.run("TecnoNorte Unipessoal Lda", "509442013", "mensal", "Consultoria informatica", "62020").lastInsertRowid);
 
   const insertUser = db.prepare(
     "INSERT INTO users (email, name, password_hash, role, company_id) VALUES (?, ?, ?, ?, ?)"

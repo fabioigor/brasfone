@@ -11,6 +11,7 @@ import { Db, audit } from "./db.js";
 import { AiProvider } from "./ai/provider.js";
 import { archivePath } from "./domain/classification.js";
 import { proposeEntry } from "./domain/entries.js";
+import { auditDocument, buildAuditContext, persistDocumentFindings } from "./domain/vatAudit.js";
 
 export interface IngestInput {
   companyId: number;
@@ -28,6 +29,7 @@ export interface IngestOutcome {
   docType: string;
   status: string;
   entryId: number | null;
+  findings: { code: string; severity: string; message: string }[];
 }
 
 const TEXT_MIME = /^(text\/|application\/(json|xml|csv))/;
@@ -59,6 +61,7 @@ export async function ingestDocument(
       docType: existing.doc_type,
       status: existing.status,
       entryId: null,
+      findings: [],
     };
   }
 
@@ -142,6 +145,11 @@ export async function ingestDocument(
     audit(db, null, "propose", "entry", entryId, `confianca ${proposal.confidence}`);
   }
 
+  // Conferencia automatica do documento (IVA, coerencia, duplicados).
+  const auditCtx = buildAuditContext(db, input.companyId, extracted, documentId);
+  const findings = auditDocument(classification.docType, extracted, auditCtx);
+  persistDocumentFindings(db, input.companyId, documentId, findings);
+
   // Fulfil a document request only when the upload targets it explicitly.
   if (input.requestId) {
     const updated = db
@@ -154,5 +162,12 @@ export async function ingestDocument(
     }
   }
 
-  return { documentId, duplicate: false, docType: classification.docType, status, entryId };
+  return {
+    documentId,
+    duplicate: false,
+    docType: classification.docType,
+    status,
+    entryId,
+    findings: findings.map((f) => ({ code: f.code, severity: f.severity, message: f.message })),
+  };
 }

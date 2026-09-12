@@ -1,0 +1,16 @@
+DISTRIBUIDORA ALIMENTAR SA
+NIF: 501442600
+
+FACTURA FT B/2026-0099
+Data de emissao: 03/08/2026
+
+Cliente: Padaria Central Lda
+NIF: 506284417
+
+Descricao                          Qtd    Preco
+Leite meio gordo (pack 6)           40     4,20
+Manteiga com sal (250g)             30     2,10
+
+Incidencia: 231,00
+IVA (23%): 48,00
+Total a pagar: 279,00 EUR
