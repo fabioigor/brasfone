@@ -19,7 +19,7 @@ export type DocType =
 export interface Classification {
   docType: DocType;
   confidence: number;
-  source: "heuristica" | "ia";
+  source: "heuristica" | "ia" | "qr";
 }
 
 const norm = (s: string) =>

@@ -1,18 +1,23 @@
 /**
  * Document processing pipeline:
  *   recebido -> classificado -> proposto (entry pending validation)
- * The pipeline never approves anything: every proposal waits for a human
- * decision in the validation queue.
+ * Text comes from the OCR cascade, fields from the reconciliation of the AT
+ * QR code, the AI extractor and the heuristic extractor; the proposal uses
+ * the supplier memory learned from previous approvals. The pipeline never
+ * approves anything: every proposal waits for a human decision.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Db, audit } from "./db.js";
 import { AiProvider } from "./ai/provider.js";
-import { archivePath } from "./domain/classification.js";
+import { archivePath, DocType } from "./domain/classification.js";
 import { proposeEntry } from "./domain/entries.js";
 import { auditDocument, buildAuditContext, persistDocumentFindings, Finding } from "./domain/vatAudit.js";
 import { OcrEngine, OcrResult } from "./ocr/engine.js";
+import { analyseDocument, DocumentAnalysis } from "./extraction/analyse.js";
+import { ClaudeStructuredExtractor } from "./extraction/structured.js";
+import { counterpartyNif, getProfile, touchProfile } from "./domain/supplierMemory.js";
 
 export interface IngestInput {
   companyId: number;
@@ -32,6 +37,13 @@ export interface IngestOutcome {
   entryId: number | null;
   findings: { code: string; severity: string; message: string }[];
   ocr: { method: string; confidence: number; pages: number; warnings: string[] };
+  sources: string[];
+  qr: boolean;
+}
+
+export interface PipelineDeps {
+  ocr: OcrEngine;
+  structured?: ClaudeStructuredExtractor | null;
 }
 
 /** OCR confidence below this threshold asks the reviewer to double-check. */
@@ -44,7 +56,9 @@ export function ocrFindings(ocr: OcrResult): Finding[] {
     out.push({
       code: "TEXTO_NAO_EXTRAIDO",
       severity: "aviso",
-      message: "Não foi possível extrair texto do documento; classificação baseada apenas no nome do ficheiro." + (ocr.warnings.length ? ` (${ocr.warnings.join("; ")})` : ""),
+      message:
+        "Não foi possível extrair texto do documento; classificação baseada apenas no nome do ficheiro." +
+        (ocr.warnings.length ? ` (${ocr.warnings.join("; ")})` : ""),
     });
   } else if ((ocr.method === "tesseract" || ocr.method === "claude_visao") && ocr.confidence < OCR_LOW_CONFIDENCE) {
     out.push({
@@ -57,12 +71,99 @@ export function ocrFindings(ocr: OcrResult): Finding[] {
   return out;
 }
 
+interface CompanyRow {
+  id: number;
+  nif: string;
+  name: string;
+  territory: "continente" | "acores" | "madeira";
+}
+
+async function analyse(
+  db: Db,
+  provider: AiProvider,
+  deps: PipelineDeps,
+  company: CompanyRow,
+  buffer: Buffer,
+  mimeType: string,
+  filename: string
+): Promise<DocumentAnalysis> {
+  return analyseDocument(buffer, mimeType, filename, company.nif, company.territory ?? "continente", {
+    ocr: deps.ocr,
+    provider,
+    structured: deps.structured ?? null,
+  });
+}
+
+/** Writes the proposal (if any) and the findings for an analysed document. */
+function proposeAndAudit(
+  db: Db,
+  company: CompanyRow,
+  documentId: number,
+  a: DocumentAnalysis,
+  opts: { replacePending: boolean }
+): { entryId: number | null; status: string; findings: Finding[] } {
+  const otherNif = counterpartyNif(a.extracted, company.nif);
+  const counterparty = a.extracted.issuerName && otherNif && a.extracted.issuerNif === otherNif
+    ? `${a.extracted.issuerName} (NIF ${otherNif})`
+    : otherNif ? `NIF ${otherNif}` : "Terceiro por identificar";
+  const profile = getProfile(db, company.id, otherNif);
+  touchProfile(db, company.id, otherNif, a.extracted.issuerNif === otherNif ? a.extracted.issuerName : null);
+
+  let entryId: number | null = null;
+  let status = "classificado";
+  const decided = db.prepare("SELECT id FROM entries WHERE document_id = ? AND status != 'pendente'").get(documentId) as any;
+  if (!decided) {
+    const pending = db.prepare("SELECT id FROM entries WHERE document_id = ? AND status = 'pendente'").get(documentId) as any;
+    if (pending && opts.replacePending) db.prepare("DELETE FROM entries WHERE id = ?").run(pending.id);
+    const proposal = a.extracted.docStatus === "A"
+      ? null
+      : proposeEntry(a.classification.docType, a.extracted, a.classification.confidence, counterparty, {
+          preferredExpenseAccount: profile?.expenseAccount ?? null,
+          preferredRevenueAccount: profile?.revenueAccount ?? null,
+        });
+    if (proposal) {
+      const e = db
+        .prepare(
+          `INSERT INTO entries (document_id, company_id, entry_date, journal, description, lines_json, confidence)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(documentId, company.id, proposal.entryDate, proposal.journal, proposal.description, JSON.stringify(proposal.lines), proposal.confidence);
+      entryId = Number(e.lastInsertRowid);
+      status = "proposto";
+      audit(db, null, "propose", "entry", entryId, `confianca ${proposal.confidence}${profile?.expenseAccount ? " conta aprendida " + profile.expenseAccount : ""}`);
+    }
+    db.prepare("UPDATE documents SET status = ? WHERE id = ?").run(status, documentId);
+  } else {
+    status = (db.prepare("SELECT status FROM documents WHERE id = ?").get(documentId) as any).status;
+  }
+
+  const auditCtx = buildAuditContext(db, company.id, a.extracted, documentId);
+  auditCtx.divergences = a.divergences;
+  auditCtx.qrCount = a.qrCount;
+  const findings = [...ocrFindings(a.ocr), ...auditDocument(a.classification.docType as DocType, a.extracted, auditCtx)];
+  persistDocumentFindings(db, company.id, documentId, findings);
+  return { entryId, status, findings };
+}
+
+const outcomeOf = (documentId: number, a: DocumentAnalysis, r: { entryId: number | null; status: string; findings: Finding[] }): IngestOutcome => ({
+  documentId,
+  duplicate: false,
+  docType: a.classification.docType,
+  status: r.status,
+  entryId: r.entryId,
+  findings: r.findings.map((f) => ({ code: f.code, severity: f.severity, message: f.message })),
+  ocr: { method: a.ocr.method, confidence: a.ocr.confidence, pages: a.ocr.pages, warnings: a.ocr.warnings },
+  sources: a.extracted.sources,
+  qr: a.qr !== null,
+});
+
 export async function ingestDocument(
   db: Db,
   provider: AiProvider,
   storageRoot: string,
   input: IngestInput,
-  ocr: OcrEngine
+  ocr: OcrEngine,
+  structured?: ClaudeStructuredExtractor | null
 ): Promise<IngestOutcome> {
   const sha256 = crypto.createHash("sha256").update(input.buffer).digest("hex");
 
@@ -78,29 +179,22 @@ export async function ingestDocument(
       entryId: null,
       findings: [],
       ocr: { method: "duplicado", confidence: 1, pages: 0, warnings: [] },
+      sources: [],
+      qr: false,
     };
   }
 
-  const company = db.prepare("SELECT id, nif, name FROM companies WHERE id = ?").get(input.companyId) as any;
+  const company = db.prepare("SELECT id, nif, name, territory FROM companies WHERE id = ?").get(input.companyId) as CompanyRow | undefined;
   if (!company) throw new Error("Empresa inexistente");
 
-  const ocrResult = await ocr.extract(input.buffer, input.mimeType, input.originalName);
-  const text = ocrResult.text;
-  const { extracted, classification } = await provider.analyseDocument(
-    text,
-    input.originalName,
-    company.nif
-  );
+  const a = await analyse(db, provider, { ocr, structured }, company, input.buffer, input.mimeType, input.originalName);
 
   // Archive per DL 28/2019: empresa / ano / mes / tipo.
-  const relDir = archivePath(input.companyId, extracted.docDate, classification.docType);
-  const absDir = path.join(storageRoot, relDir);
-  fs.mkdirSync(absDir, { recursive: true });
+  const relDir = archivePath(input.companyId, a.extracted.docDate, a.classification.docType);
+  fs.mkdirSync(path.join(storageRoot, relDir), { recursive: true });
   const safeName = `${sha256.slice(0, 12)}-${input.originalName.replace(/[^\w.\-]+/g, "_")}`;
   const relPath = path.join(relDir, safeName);
   fs.writeFileSync(path.join(storageRoot, relPath), input.buffer);
-
-  const period = extracted.docDate ? extracted.docDate.slice(0, 7) : null;
 
   const result = db
     .prepare(
@@ -111,137 +205,59 @@ export async function ingestDocument(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'classificado')`
     )
     .run(
-      input.companyId,
-      input.uploaderId,
-      input.originalName,
-      relPath,
-      input.mimeType,
-      input.buffer.length,
-      sha256,
-      input.channel ?? "portal",
-      classification.docType,
-      extracted.docDate,
-      period,
-      classification.confidence,
-      classification.source,
-      JSON.stringify(extracted),
-      ocrResult.method === "texto" ? null : text || null,
-      ocrResult.method,
-      ocrResult.confidence
+      input.companyId, input.uploaderId, input.originalName, relPath, input.mimeType, input.buffer.length, sha256,
+      input.channel ?? "portal", a.classification.docType, a.extracted.docDate,
+      a.extracted.docDate ? a.extracted.docDate.slice(0, 7) : null,
+      a.classification.confidence, a.classification.source, JSON.stringify(a.extracted),
+      a.ocr.method === "texto" ? null : a.text || null, a.ocr.method, a.ocr.confidence
     );
   const documentId = Number(result.lastInsertRowid);
-  if (ocrResult.method !== "texto") {
-    audit(db, null, "ocr", "document", documentId, `${ocrResult.method} conf=${ocrResult.confidence.toFixed(2)} pags=${ocrResult.pages}`);
+  audit(db, input.uploaderId, "upload", "document", documentId, `${input.originalName} via ${input.channel ?? "portal"}`);
+  if (a.ocr.method !== "texto") {
+    audit(db, null, "ocr", "document", documentId, `${a.ocr.method} conf=${a.ocr.confidence.toFixed(2)} pags=${a.ocr.pages}`);
   }
-  audit(db, input.uploaderId, "upload", "document", documentId, input.originalName);
+  if (a.qr) audit(db, null, "qr", "document", documentId, `ATCUD ${a.qr.atcud || "-"} ${a.qr.docType} ${a.qr.docNumber}`);
 
-  // Counterparty label: another NIF on the document that is not the company's.
-  const otherNif = extracted.nifs.find((n) => n !== company.nif);
-  const counterparty = otherNif ? `NIF ${otherNif}` : "Terceiro por identificar";
-
-  let entryId: number | null = null;
-  let status = "classificado";
-  const proposal = proposeEntry(
-    classification.docType,
-    extracted,
-    classification.confidence,
-    counterparty
-  );
-  if (proposal) {
-    const e = db
-      .prepare(
-        `INSERT INTO entries (document_id, company_id, entry_date, journal, description, lines_json, confidence)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        documentId,
-        input.companyId,
-        proposal.entryDate,
-        proposal.journal,
-        proposal.description,
-        JSON.stringify(proposal.lines),
-        proposal.confidence
-      );
-    entryId = Number(e.lastInsertRowid);
-    status = "proposto";
-    db.prepare("UPDATE documents SET status = 'proposto' WHERE id = ?").run(documentId);
-    audit(db, null, "propose", "entry", entryId, `confianca ${proposal.confidence}`);
-  }
-
-  // Conferencia automatica do documento (IVA, coerencia, duplicados).
-  const auditCtx = buildAuditContext(db, input.companyId, extracted, documentId);
-  const findings = [...ocrFindings(ocrResult), ...auditDocument(classification.docType, extracted, auditCtx)];
-  persistDocumentFindings(db, input.companyId, documentId, findings);
+  const r = proposeAndAudit(db, company, documentId, a, { replacePending: false });
 
   // Fulfil a document request only when the upload targets it explicitly.
   if (input.requestId) {
     const updated = db
-      .prepare(
-        "UPDATE doc_requests SET status = 'cumprido', fulfilled_document_id = ? WHERE id = ? AND company_id = ? AND status = 'pendente'"
-      )
+      .prepare("UPDATE doc_requests SET status = 'cumprido', fulfilled_document_id = ? WHERE id = ? AND company_id = ? AND status = 'pendente'")
       .run(documentId, input.requestId, input.companyId);
-    if (updated.changes > 0) {
-      audit(db, input.uploaderId, "fulfil", "doc_request", input.requestId, `documento ${documentId}`);
-    }
+    if (updated.changes > 0) audit(db, input.uploaderId, "fulfil", "doc_request", input.requestId, `documento ${documentId}`);
   }
 
-  return {
-    documentId,
-    duplicate: false,
-    docType: classification.docType,
-    status,
-    entryId,
-    findings: findings.map((f) => ({ code: f.code, severity: f.severity, message: f.message })),
-    ocr: { method: ocrResult.method, confidence: ocrResult.confidence, pages: ocrResult.pages, warnings: ocrResult.warnings },
-  };
+  return outcomeOf(documentId, a, r);
 }
 
 /**
- * Re-runs OCR + classification + audit on an already stored document
- * (e.g. after enabling a better OCR engine). Entries already decided are
- * left untouched; a pending proposal is replaced.
+ * Re-runs the full analysis on an already stored document (e.g. after
+ * enabling a better OCR engine). Entries already decided are left
+ * untouched; a pending proposal is replaced.
  */
-export async function reprocessDocument(db: Db, provider: AiProvider, storageRoot: string, documentId: number, ocr: OcrEngine): Promise<IngestOutcome> {
+export async function reprocessDocument(
+  db: Db,
+  provider: AiProvider,
+  storageRoot: string,
+  documentId: number,
+  ocr: OcrEngine,
+  structured?: ClaudeStructuredExtractor | null
+): Promise<IngestOutcome> {
   const doc = db.prepare("SELECT * FROM documents WHERE id = ?").get(documentId) as any;
   if (!doc) throw new Error("Documento inexistente");
-  const company = db.prepare("SELECT nif FROM companies WHERE id = ?").get(doc.company_id) as any;
+  const company = db.prepare("SELECT id, nif, name, territory FROM companies WHERE id = ?").get(doc.company_id) as CompanyRow;
   const buffer = fs.readFileSync(path.join(storageRoot, doc.stored_path));
-  const ocrResult = await ocr.extract(buffer, doc.mime_type, doc.original_name);
-  const { extracted, classification } = await provider.analyseDocument(ocrResult.text, doc.original_name, company.nif);
+  const a = await analyse(db, provider, { ocr, structured }, company, buffer, doc.mime_type, doc.original_name);
   db.prepare(
     `UPDATE documents SET doc_type = ?, doc_date = ?, period = ?, classification_confidence = ?, classification_source = ?,
        extracted_json = ?, ocr_text = ?, ocr_method = ?, ocr_confidence = ? WHERE id = ?`
   ).run(
-    classification.docType, extracted.docDate, extracted.docDate ? extracted.docDate.slice(0, 7) : null,
-    classification.confidence, classification.source, JSON.stringify(extracted),
-    ocrResult.method === "texto" ? null : ocrResult.text || null, ocrResult.method, ocrResult.confidence, documentId
+    a.classification.docType, a.extracted.docDate, a.extracted.docDate ? a.extracted.docDate.slice(0, 7) : null,
+    a.classification.confidence, a.classification.source, JSON.stringify(a.extracted),
+    a.ocr.method === "texto" ? null : a.text || null, a.ocr.method, a.ocr.confidence, documentId
   );
-  let entryId: number | null = null;
-  const pending = db.prepare("SELECT id FROM entries WHERE document_id = ? AND status = 'pendente'").get(documentId) as any;
-  const decided = db.prepare("SELECT id FROM entries WHERE document_id = ? AND status != 'pendente'").get(documentId) as any;
-  if (!decided) {
-    const otherNif = extracted.nifs.find((n) => n !== company.nif);
-    const proposal = proposeEntry(classification.docType, extracted, classification.confidence, otherNif ? `NIF ${otherNif}` : "Terceiro por identificar");
-    if (pending) db.prepare("DELETE FROM entries WHERE id = ?").run(pending.id);
-    if (proposal) {
-      const e = db
-        .prepare("INSERT INTO entries (document_id, company_id, entry_date, journal, description, lines_json, confidence) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(documentId, doc.company_id, proposal.entryDate, proposal.journal, proposal.description, JSON.stringify(proposal.lines), proposal.confidence);
-      entryId = Number(e.lastInsertRowid);
-      db.prepare("UPDATE documents SET status = 'proposto' WHERE id = ?").run(documentId);
-    } else {
-      db.prepare("UPDATE documents SET status = 'classificado' WHERE id = ?").run(documentId);
-    }
-  }
-  const auditCtx = buildAuditContext(db, doc.company_id, extracted, documentId);
-  const findings = [...ocrFindings(ocrResult), ...auditDocument(classification.docType, extracted, auditCtx)];
-  persistDocumentFindings(db, doc.company_id, documentId, findings);
-  audit(db, null, "reprocess", "document", documentId, `${ocrResult.method} conf=${ocrResult.confidence.toFixed(2)}`);
-  return {
-    documentId, duplicate: false, docType: classification.docType,
-    status: (db.prepare("SELECT status FROM documents WHERE id = ?").get(documentId) as any).status,
-    entryId,
-    findings: findings.map((f) => ({ code: f.code, severity: f.severity, message: f.message })),
-    ocr: { method: ocrResult.method, confidence: ocrResult.confidence, pages: ocrResult.pages, warnings: ocrResult.warnings },
-  };
+  const r = proposeAndAudit(db, company, documentId, a, { replacePending: true });
+  audit(db, null, "reprocess", "document", documentId, `${a.ocr.method} conf=${a.ocr.confidence.toFixed(2)} fontes=${a.extracted.sources.join("+")}`);
+  return outcomeOf(documentId, a, r);
 }

@@ -92,6 +92,17 @@ const DOC_TYPE_LABEL = {
 const badge = (s) => el("span", { class: "badge " + (STATUS_BADGE[s] || "") }, s);
 
 const OCR_LABEL = { texto: "texto", pdf_texto: "PDF com texto", tesseract: "OCR local", claude_visao: "OCR Claude", indisponivel: "sem texto" };
+const SOURCE_LABEL = { qr: "QR AT", ia: "IA", heuristica: "regras" };
+const sourcesBadges = (d) => {
+  let sources = [];
+  try { sources = (JSON.parse(d.extracted_json || "{}").sources) || []; } catch (e) { /* ignore */ }
+  const wrap = el("span", {});
+  for (const src of sources) {
+    if (src === "heuristica" && sources.length > 1) continue;
+    wrap.append(el("span", { class: "badge " + (src === "qr" ? "ok" : src === "ia" ? "info" : ""), style: "margin-right:4px", title: src === "qr" ? "Dados lidos do QR code da AT (exactos)" : src === "ia" ? "Extracção estruturada por IA" : "Extracção por regras" }, SOURCE_LABEL[src] || src));
+  }
+  return wrap;
+};
 const ocrBadge = (d) => {
   if (!d.ocr_method || d.ocr_method === "texto") return el("span", { class: "muted small" }, "texto");
   const cls = d.ocr_method === "indisponivel" ? "bad" : d.ocr_confidence !== null && d.ocr_confidence < 0.85 ? "warn" : "info";
@@ -224,7 +235,7 @@ async function viewDocuments(main) {
         el("td", {}, DOC_TYPE_LABEL[d.doc_type] || d.doc_type),
         el("td", {}, d.doc_date || ""),
         el("td", {}, fmtConf(d.classification_confidence)),
-        el("td", {}, ocrBadge(d)),
+        el("td", {}, [ocrBadge(d), " ", sourcesBadges(d)]),
         el("td", {}, badge(d.status)),
         el("td", {}, [
           el("button", { class: "btn small", onclick: () => showDocumentText(d.id, d.original_name) }, "Texto"),
@@ -460,7 +471,7 @@ async function viewCompanies(main) {
       el("td", {}, c.vat_regime),
       el("td", {}, [caeInput, " ", terrSel]),
       el("td", {}, [cgInput, " ", cgBtn]),
-      el("td", {}, userBtn),
+      el("td", {}, [userBtn, " ", el("button", { class: "btn small", onclick: () => manageContacts(c) }, "Remetentes")]),
     ]));
   }
   main.append(
@@ -768,6 +779,71 @@ async function viewReports(main) {
   }
 }
 
+
+/* ---------- Recepção multi-canal ---------- */
+
+const INBOUND_STATUS_LABEL = { processado: "Processado", sem_empresa: "Remetente por associar", sem_anexos: "Sem anexos", erro: "Erro" };
+
+async function viewInbox(main) {
+  main.append(el("h2", {}, "Recepção por email e WhatsApp"));
+  const st = await api("/api/channels/status");
+  main.append(el("div", { class: "card" }, [
+    el("h2", {}, "Canais"),
+    el("div", { class: "form-row" }, [
+      el("span", { class: "badge " + (st.email_webhook ? "ok" : "") }, "Email (webhook) " + (st.email_webhook ? "activo" : "inactivo")),
+      el("span", { class: "badge " + (st.imap ? "ok" : "") }, "Email (IMAP) " + (st.imap ? "activo" : "inactivo")),
+      el("span", { class: "badge " + (st.whatsapp ? "ok" : "") }, "WhatsApp " + (st.whatsapp ? "activo" : "inactivo") + (st.whatsapp_reply ? " · confirma ao remetente" : "")),
+      el("span", { class: "badge " + (st.ai_extraction ? "ok" : "") }, "Extracção IA " + (st.ai_extraction ? "activa" : "inactiva")),
+      el("span", { class: "badge info" }, "OCR: " + st.ocr.join(" › ") + " · QR AT"),
+    ]),
+    el("p", { class: "muted small" }, "Cada empresa tem remetentes autorizados (emails e números WhatsApp) na vista Empresas. Emails para docs+<id>@... entram directamente na empresa <id>. Remetentes desconhecidos ficam aqui à espera de associação; nunca criam empresas."),
+  ]));
+
+  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const status = params.get("estado") || "";
+  main.append(el("div", { class: "form-row" }, [["", "Todas"], ["sem_empresa", "Por associar"], ["processado", "Processadas"], ["sem_anexos", "Sem anexos"], ["erro", "Erros"]].map(([k, v]) =>
+    el("a", { href: "#recepcao" + (k ? "?estado=" + k : ""), class: "btn small" + (k === status ? " primary" : "") }, v)
+  )));
+
+  const msgs = (await api("/api/inbound" + (status ? "?status=" + status : ""))).messages;
+  if (!msgs.length) { main.append(el("div", { class: "card muted" }, "Sem mensagens recebidas.")); return; }
+  const tbody = el("tbody");
+  for (const m of msgs) {
+    const actions = el("td");
+    if (m.status === "sem_empresa") {
+      const sel = el("select"); companyOptions(sel, false);
+      const btn = el("button", { class: "btn small primary" }, "Associar");
+      btn.addEventListener("click", async () => {
+        try { const out = await api("/api/inbound/" + m.id + "/assign", { method: "POST", json: { company_id: Number(sel.value) } }); toast(out.note); render(); }
+        catch (e) { toast(e.message, true); }
+      });
+      actions.append(sel, " ", btn);
+    }
+    const docs = m.document_ids ? JSON.parse(m.document_ids) : [];
+    tbody.append(el("tr", {}, [
+      el("td", {}, [el("span", { class: "badge info" }, m.channel), el("div", { class: "muted small" }, m.received_at)]),
+      el("td", {}, [m.sender, el("div", { class: "muted small" }, (m.subject || m.body_excerpt || ""))]),
+      el("td", {}, m.company_name || el("span", { class: "muted" }, "desconhecida")),
+      el("td", {}, [badge(m.status === "processado" ? "ok" : m.status === "sem_empresa" ? "aviso" : m.status === "erro" ? "erro" : "info"), " ", INBOUND_STATUS_LABEL[m.status] || m.status, m.error_detail ? el("div", { class: "error small" }, m.error_detail) : null]),
+      el("td", {}, docs.length ? docs.length + " doc." : String(m.attachments) + " anexo(s)"),
+      actions,
+    ]));
+  }
+  main.append(el("div", { class: "card table-wrap" }, el("table", {}, [
+    el("thead", {}, el("tr", {}, [el("th", {}, "Canal"), el("th", {}, "Remetente"), el("th", {}, "Empresa"), el("th", {}, "Estado"), el("th", {}, "Documentos"), el("th", {}, "")])), tbody,
+  ])));
+}
+
+async function manageContacts(company) {
+  const contacts = (await api("/api/companies/" + company.id + "/contacts")).contacts;
+  const list = contacts.map((c) => c.channel + ": " + c.address + (c.label ? " (" + c.label + ")" : "")).join("\n") || "(nenhum)";
+  const input = prompt("Remetentes autorizados de " + company.name + ":\n" + list + "\n\nAdicionar novo contacto (email ou número internacional, ex.: 351912345678). Deixe vazio para não adicionar:");
+  if (!input) return;
+  const channel = input.includes("@") ? "email" : "whatsapp";
+  try { await api("/api/companies/" + company.id + "/contacts", { method: "POST", json: { channel, address: input.trim() } }); toast("Contacto " + channel + " associado."); }
+  catch (e) { toast(e.message, true); }
+}
+
 /* ---------- navegacao ---------- */
 
 const ROUTES = {
@@ -777,6 +853,7 @@ const ROUTES = {
   conferencia: { label: "Conferência", view: viewAudit, roles: ["staff", "client"] },
   balancetes: { label: "Balancetes", view: viewBalances, roles: ["staff"] },
   relatorios: { label: "Relatórios", view: viewReports, roles: ["staff", "client"] },
+  recepcao: { label: "Recepção", view: viewInbox, roles: ["staff"] },
   pedidos: { label: "Pedidos", view: viewRequests, roles: ["staff", "client"] },
   empresas: { label: "Empresas", view: viewCompanies, roles: ["staff"] },
   exportacao: { label: "Exportação", view: viewExport, roles: ["staff"] },

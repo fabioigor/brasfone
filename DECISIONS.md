@@ -2,6 +2,13 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-13 — Recepção multicanal e OCR de nova geração (QR da AT, IA estruturada, fusão de fontes, memória)
+
+- **Decisão:** após análise de Kangaroo Files, Flowzi e BizDocs (`apps/contai/docs/analise-concorrencia.md`), adoptar: (1) QR code da AT como fonte autoritativa (NIFs, ATCUD, IVA por taxa), (2) extracção estruturada por Claude validada com zod, (3) fusão QR > IA > regras com proveniência por campo e alerta quando discordam, (4) memória de fornecedores aprendida das aprovações humanas, (5) recepção por email (webhook + IMAP) e WhatsApp (Cloud API) com remetentes autorizados por empresa.
+- **Princípios mantidos:** remetentes desconhecidos nunca criam empresas (ficam por associar); a IA propõe e o humano aprova; a memória só aprende de aprovações humanas; webhooks validam segredo/assinatura e respondem 200 de imediato.
+- **Fora desta iteração:** separação automática de PDFs com várias facturas (só alerta), reconciliação com e-Fatura (requer credenciais AT), integrações PHC/Sage.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-13 — Nome do produto: Cont.ai
 
 - **Decisão:** a aplicação passa a chamar-se **Cont.ai** (antes "ContaDesk", nome provisório). Renomeação consistente: directório `apps/contai/`, pacote `contai`, marca na UI e no manifest da web app, servidor MCP `contai` com ferramentas `contai_*`, variáveis de ambiente `CONTAI_*`, base de dados `data/contai.db`, `idExterno` no CentralGest `contai-entry-<id>`.

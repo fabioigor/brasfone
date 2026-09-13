@@ -9,19 +9,40 @@ export interface LineItem {
   quantity: number | null;
   unitPrice: number | null;
   lineTotal: number | null;
+  vatRate?: number | null;
+}
+
+/** One VAT rate present on the document: taxable base and tax amount. */
+export interface VatLine {
+  rate: number; // 0 for exempt
+  base: number;
+  vat: number;
 }
 
 export interface ExtractedData {
   nifs: string[];
   items: LineItem[];
   issuerNif: string | null;
+  issuerName?: string | null;
   docNumber: string | null;
   docDate: string | null; // YYYY-MM-DD
   totalAmount: number | null;
   vatAmount: number | null;
-  vatRate: number | null; // 6 | 13 | 23
+  vatRate: number | null; // single rate when the document has one; null when mixed
   netAmount: number | null;
   currency: string;
+  /** Per-rate breakdown (from the AT QR code or the AI extractor). */
+  vatBreakdown?: VatLine[];
+  atcud?: string | null;
+  /** AT document type code from the QR (FT, FR, NC, RC...). */
+  atDocType?: string | null;
+  /** AT status from the QR: N normal, A anulado. */
+  docStatus?: string | null;
+  /** Which sources contributed: heuristica, ia, qr. */
+  sources: string[];
+  /** Field name -> source that provided the final value. */
+  fieldSources?: Record<string, string>;
+  aiConfidence?: number;
 }
 
 /** Validates a Portuguese NIF using the check digit algorithm. */
@@ -160,6 +181,9 @@ export function extractFromText(text: string): ExtractedData {
     }
   }
 
+  const vatBreakdown: VatLine[] | undefined =
+    vatRate !== null && netAmount !== null && vatAmount !== null ? [{ rate: vatRate, base: netAmount, vat: vatAmount }] : undefined;
+
   return {
     nifs,
     items: extractLineItems(text),
@@ -171,5 +195,8 @@ export function extractFromText(text: string): ExtractedData {
     vatRate,
     netAmount,
     currency: "EUR",
+    vatBreakdown,
+    sources: ["heuristica"],
+    fieldSources: {},
   };
 }

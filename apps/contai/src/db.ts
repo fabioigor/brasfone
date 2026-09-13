@@ -171,6 +171,48 @@ CREATE TABLE IF NOT EXISTS reports (
 CREATE INDEX IF NOT EXISTS idx_findings_company ON findings(company_id, status);
 CREATE INDEX IF NOT EXISTS idx_reports_company ON reports(company_id, created_at);
 
+CREATE TABLE IF NOT EXISTS supplier_profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  nif TEXT NOT NULL,
+  name TEXT,
+  expense_account TEXT,
+  revenue_account TEXT,
+  doc_count INTEGER NOT NULL DEFAULT 0,
+  last_seen TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (company_id, nif)
+);
+
+CREATE TABLE IF NOT EXISTS company_contacts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  channel TEXT NOT NULL CHECK (channel IN ('email', 'whatsapp')),
+  address TEXT NOT NULL,
+  label TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (channel, address)
+);
+
+CREATE TABLE IF NOT EXISTS inbound_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel TEXT NOT NULL CHECK (channel IN ('email', 'whatsapp')),
+  external_id TEXT NOT NULL,
+  sender TEXT NOT NULL,
+  recipient TEXT,
+  subject TEXT,
+  body_excerpt TEXT,
+  company_id INTEGER REFERENCES companies(id),
+  status TEXT NOT NULL CHECK (status IN ('processado', 'sem_empresa', 'sem_anexos', 'erro')),
+  attachments INTEGER NOT NULL DEFAULT 0,
+  document_ids TEXT,
+  error_detail TEXT,
+  received_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (channel, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbound_status ON inbound_messages(status, received_at);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,

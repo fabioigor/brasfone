@@ -6,6 +6,9 @@ import { createServer } from "./server.js";
 import { CentralGestClient } from "./integrations/centralgest.js";
 import { startCentralGestMock } from "./integrations/centralgest-mock.js";
 import { DocumentOcr } from "./ocr/engine.js";
+import { buildStructuredExtractor } from "./extraction/analyse.js";
+import { imapConfigFromEnv, EmailPoller } from "./channels/email.js";
+import { whatsappConfigFromEnv } from "./channels/whatsapp.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const DB_PATH = process.env.DB_PATH || path.join("data", "contai.db");
@@ -26,13 +29,26 @@ async function main(): Promise<void> {
   }
 
   const ocr = DocumentOcr.fromEnv();
-  const app = createServer({ db, provider: buildProvider(), storageRoot: STORAGE_ROOT, centralgest, ocr });
+  const provider = buildProvider();
+  const structured = buildStructuredExtractor();
+  const app = createServer({ db, provider, storageRoot: STORAGE_ROOT, centralgest, ocr, structured });
+
+  const imap = imapConfigFromEnv();
+  if (imap) {
+    const sys = (): number => {
+      const row = db.prepare("SELECT id FROM users WHERE email = 'canais@contai.local'").get() as any;
+      if (row) return row.id;
+      return Number(db.prepare("INSERT INTO users (email, name, password_hash, role) VALUES ('canais@contai.local', 'Recepção automática', 'x', 'staff')").run().lastInsertRowid);
+    };
+    new EmailPoller(db, { provider, ocr, structured, storageRoot: STORAGE_ROOT, systemUserId: sys() }, imap).start();
+  }
 
   app.listen(PORT, () => {
     console.log(`Cont.ai a escutar em http://localhost:${PORT}`);
     console.log(`Fornecedor de IA: ${process.env.ANTHROPIC_API_KEY ? "Anthropic (claude-haiku-4-5)" : "heurístico local"}`);
     console.log(`CentralGest: ${centralgestLabel}`);
-    console.log(`OCR: ${ocr.engines.join(" > ")}`);
+    console.log(`OCR: ${ocr.engines.join(" > ")}${structured ? " + extracção estruturada IA" : ""} + QR AT`);
+    console.log(`Canais: email webhook ${process.env.INBOUND_EMAIL_SECRET ? "activo" : "inactivo"}, IMAP ${imap ? imap.host : "inactivo"}, WhatsApp ${whatsappConfigFromEnv() ? "activo" : "inactivo"}`);
   });
 }
 

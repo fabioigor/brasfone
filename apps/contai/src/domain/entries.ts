@@ -47,11 +47,29 @@ export function isBalanced(lines: EntryLine[]): boolean {
  * the document type does not originate entries (bank statements, transport
  * guides, unknown) or when the required amounts are missing.
  */
+export interface ProposalOptions {
+  /** Expense/purchase account learned from previous approvals for this supplier. */
+  preferredExpenseAccount?: string | null;
+  /** Revenue account learned for this customer. */
+  preferredRevenueAccount?: string | null;
+}
+
+/** VAT lines: one per rate when a breakdown is known, otherwise a single line. */
+function vatLines(extracted: ExtractedData, account: string, label: string, side: "debit" | "credit"): EntryLine[] {
+  const breakdown = (extracted.vatBreakdown ?? []).filter((b) => b.vat > 0);
+  const mk = (amount: number, desc: string): EntryLine =>
+    side === "debit" ? { account, description: desc, debit: amount, credit: 0 } : { account, description: desc, debit: 0, credit: amount };
+  if (breakdown.length > 0) return breakdown.map((b) => mk(round2(b.vat), `${label} ${b.rate}%`));
+  const vat = extracted.vatAmount ?? 0;
+  return vat > 0 ? [mk(round2(vat), label)] : [];
+}
+
 export function proposeEntry(
   docType: DocType,
   extracted: ExtractedData,
   classificationConfidence: number,
-  counterpartyLabel: string
+  counterpartyLabel: string,
+  options: ProposalOptions = {}
 ): EntryProposal | null {
   const total = extracted.totalAmount;
   if (total === null || total <= 0) return null;
@@ -60,6 +78,8 @@ export function proposeEntry(
   const vat = extracted.vatAmount ?? 0;
   const net = extracted.netAmount ?? round2(total - vat);
   const ref = extracted.docNumber ? ` ${extracted.docNumber}` : "";
+  const expenseAccount = options.preferredExpenseAccount || SNC.fse;
+  const revenueAccount = options.preferredRevenueAccount || SNC.servicos;
   let lines: EntryLine[] = [];
   let journal = "";
   let description = "";
@@ -71,22 +91,20 @@ export function proposeEntry(
       journal = "Compras";
       description = `${docType === "despesa" ? "Despesa" : "Factura de compra"}${ref} - ${counterpartyLabel}`;
       lines = [
-        { account: SNC.fse, description: "Fornecimentos e servicos externos", debit: net, credit: 0 },
+        { account: expenseAccount, description: expenseAccount === SNC.fse ? "Fornecimentos e servicos externos" : "Gasto (conta aprendida)", debit: net, credit: 0 },
+        ...vatLines(extracted, SNC.ivaDedutivel, "IVA dedutivel", "debit"),
+        { account: SNC.fornecedores, description: counterpartyLabel, debit: 0, credit: total },
       ];
-      if (vat > 0) {
-        lines.push({ account: SNC.ivaDedutivel, description: "IVA dedutivel", debit: vat, credit: 0 });
-      }
-      lines.push({ account: SNC.fornecedores, description: counterpartyLabel, debit: 0, credit: total });
       break;
     }
     case "factura_venda": {
       journal = "Vendas";
       description = `Factura de venda${ref} - ${counterpartyLabel}`;
-      lines = [{ account: SNC.clientes, description: counterpartyLabel, debit: total, credit: 0 }];
-      lines.push({ account: SNC.servicos, description: "Prestacao de servicos", debit: 0, credit: net });
-      if (vat > 0) {
-        lines.push({ account: SNC.ivaLiquidado, description: "IVA liquidado", debit: 0, credit: vat });
-      }
+      lines = [
+        { account: SNC.clientes, description: counterpartyLabel, debit: total, credit: 0 },
+        { account: revenueAccount, description: revenueAccount === SNC.servicos ? "Prestacao de servicos" : "Rendimento (conta aprendida)", debit: 0, credit: net },
+        ...vatLines(extracted, SNC.ivaLiquidado, "IVA liquidado", "credit"),
+      ];
       break;
     }
     case "nota_credito": {
@@ -94,11 +112,9 @@ export function proposeEntry(
       description = `Nota de credito${ref} - ${counterpartyLabel}`;
       lines = [
         { account: SNC.fornecedores, description: counterpartyLabel, debit: total, credit: 0 },
-        { account: SNC.fse, description: "Regularizacao FSE", debit: 0, credit: net },
+        { account: expenseAccount, description: "Regularizacao de gasto", debit: 0, credit: net },
+        ...vatLines(extracted, SNC.ivaDedutivel, "Regularizacao IVA", "credit"),
       ];
-      if (vat > 0) {
-        lines.push({ account: SNC.ivaDedutivel, description: "Regularizacao IVA", debit: 0, credit: vat });
-      }
       break;
     }
     case "recibo": {
@@ -125,6 +141,10 @@ export function proposeEntry(
   }
 
   if (!isBalanced(lines)) return null;
+
+  // Provenance: machine-issued QR data or a learned account raise confidence.
+  if (extracted.sources?.includes("qr")) confidence = Math.max(confidence, 0.95);
+  if (options.preferredExpenseAccount || options.preferredRevenueAccount) confidence = Math.min(confidence + 0.03, 0.98);
 
   // Missing pieces reduce confidence: the reviewer must look harder.
   if (extracted.docDate === null) confidence -= 0.15;

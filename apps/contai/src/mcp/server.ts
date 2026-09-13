@@ -21,6 +21,9 @@ import { seedDemo } from "../seed.js";
 import { buildProvider } from "../ai/provider.js";
 import { ingestDocument, reprocessDocument } from "../pipeline.js";
 import { OcrEngine, DocumentOcr } from "../ocr/engine.js";
+import { buildStructuredExtractor } from "../extraction/analyse.js";
+import { learnFromApproval } from "../domain/supplierMemory.js";
+import { normaliseAddress } from "../channels/inbound.js";
 import { isBalanced, EntryLine } from "../domain/entries.js";
 import {
   CentralGestClient,
@@ -63,6 +66,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   const provider = buildProvider();
   const agents = new AgentGateway();
   const ocr = ctx.ocr ?? DocumentOcr.fromEnv();
+  const structured = buildStructuredExtractor();
 
   const requireCentralGest = (): CentralGestClient => {
     if (!ctx.centralgest) {
@@ -214,7 +218,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
           mimeType: file_path ? mimeFor(name) : "text/plain",
           buffer,
           channel: "portal",
-        }, ocr);
+        }, ocr, structured);
         return ok(outcome);
       } catch (e: any) {
         return fail(e.message);
@@ -307,6 +311,8 @@ export function buildMcpServer(ctx: McpContext): McpServer {
         "UPDATE entries SET status = 'aprovado', reviewed_at = datetime('now'), lines_json = ? WHERE id = ?"
       ).run(JSON.stringify(finalLines), entry_id);
       db.prepare("UPDATE documents SET status = 'validado' WHERE id = ?").run(entry.document_id);
+      const doc = db.prepare("SELECT d.doc_type, d.extracted_json, c.nif FROM documents d JOIN companies c ON c.id = d.company_id WHERE d.id = ?").get(entry.document_id) as any;
+      if (doc?.extracted_json) learnFromApproval(db, entry.company_id, doc.doc_type, JSON.parse(doc.extracted_json), doc.nif, finalLines);
       return ok({ entry_id, status: "aprovado", linhas: finalLines });
     }
   );
@@ -395,7 +401,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     },
     async ({ document_id }) => {
       try {
-        return ok(await reprocessDocument(db, provider, storageRoot, document_id, ocr));
+        return ok(await reprocessDocument(db, provider, storageRoot, document_id, ocr, structured));
       } catch (e: any) {
         return fail(e.message);
       }
@@ -634,6 +640,89 @@ export function buildMcpServer(ctx: McpContext): McpServer {
       const vat = loadVatRules();
       return ok({ estado: knowledgeStatus(), taxas: vat.territories, fontes: vat.sources, categorias: vat.categories.map((c) => ({ key: c.key, label: c.label, band: c.band, legal_basis: c.legal_basis })) });
     }
+  );
+
+
+  // ---------- Recepção multi-canal ----------
+  server.registerTool(
+    "contai_listar_recepcoes",
+    {
+      title: "Listar mensagens recebidas por email/WhatsApp",
+      description:
+        "Lista as mensagens recebidas pelos canais (email, WhatsApp) com estado: processado (documentos criados), sem_empresa (remetente desconhecido, precisa de associacao), sem_anexos, erro. Use para encontrar remetentes por associar.",
+      inputSchema: {
+        status: z.enum(["processado", "sem_empresa", "sem_anexos", "erro"]).optional(),
+        channel: z.enum(["email", "whatsapp"]).optional(),
+        limit: z.number().int().min(1).max(200).default(50),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ status, channel, limit }) => {
+      let sql = "SELECT m.id, m.channel, m.sender, m.recipient, m.subject, m.body_excerpt, m.company_id, c.name AS empresa, m.status, m.attachments, m.document_ids, m.error_detail, m.received_at FROM inbound_messages m LEFT JOIN companies c ON c.id = m.company_id WHERE 1=1";
+      const params: any[] = [];
+      if (status) { sql += " AND m.status = ?"; params.push(status); }
+      if (channel) { sql += " AND m.channel = ?"; params.push(channel); }
+      sql += " ORDER BY m.received_at DESC LIMIT ?";
+      params.push(limit);
+      return ok({ recepcoes: db.prepare(sql).all(...params) });
+    }
+  );
+
+  server.registerTool(
+    "contai_associar_contacto",
+    {
+      title: "Associar email ou numero WhatsApp a uma empresa",
+      description:
+        "Regista um contacto (endereco de email ou numero de telefone em formato internacional, ex.: 351912345678) como remetente autorizado de uma empresa. A partir dai, os documentos que esse remetente enviar entram automaticamente na empresa certa. Nunca cria empresas novas.",
+      inputSchema: {
+        company_id: z.number().int().positive(),
+        channel: z.enum(["email", "whatsapp"]),
+        address: z.string().min(5),
+        label: z.string().optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ company_id, channel, address, label }) => {
+      if (!db.prepare("SELECT id FROM companies WHERE id = ?").get(company_id)) return fail(`Empresa ${company_id} inexistente.`);
+      const norm = normaliseAddress(channel, address);
+      const existing = db.prepare("SELECT company_id FROM company_contacts WHERE channel = ? AND address = ?").get(channel, norm) as any;
+      if (existing) {
+        return existing.company_id === company_id
+          ? ok({ company_id, channel, address: norm, nota: "ja estava associado" })
+          : fail(`O contacto ${norm} ja esta associado a empresa ${existing.company_id}. Remova-o primeiro.`);
+      }
+      db.prepare("INSERT INTO company_contacts (company_id, channel, address, label) VALUES (?, ?, ?, ?)").run(company_id, channel, norm, label ?? null);
+      db.prepare("UPDATE inbound_messages SET company_id = ? WHERE channel = ? AND sender = ? AND status = 'sem_empresa'").run(company_id, channel, norm);
+      return ok({ company_id, channel, address: norm });
+    }
+  );
+
+  server.registerTool(
+    "contai_listar_contactos",
+    {
+      title: "Listar contactos (email/WhatsApp) das empresas",
+      description: "Lista os remetentes autorizados por empresa e canal.",
+      inputSchema: { company_id: z.number().int().positive().optional() },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ company_id }) => {
+      let sql = "SELECT k.id, k.company_id, c.name AS empresa, k.channel, k.address, k.label FROM company_contacts k JOIN companies c ON c.id = k.company_id WHERE 1=1";
+      const params: any[] = [];
+      if (company_id) { sql += " AND k.company_id = ?"; params.push(company_id); }
+      return ok({ contactos: db.prepare(sql + " ORDER BY c.name, k.channel").all(...params) });
+    }
+  );
+
+  server.registerTool(
+    "contai_memoria_fornecedores",
+    {
+      title: "Memoria de fornecedores/clientes (contas aprendidas)",
+      description:
+        "Mostra, por empresa, os terceiros (NIF) ja vistos e as contas SNC aprendidas das aprovacoes humanas, que passam a ser usadas nas proximas propostas de lancamento.",
+      inputSchema: { company_id: z.number().int().positive() },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ company_id }) => ok({ terceiros: db.prepare("SELECT nif, name, expense_account, revenue_account, doc_count, last_seen FROM supplier_profiles WHERE company_id = ? ORDER BY doc_count DESC").all(company_id) })
   );
 
   return server;

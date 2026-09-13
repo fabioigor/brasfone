@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
+import { prepareForOcr } from "../extraction/preprocess.js";
 
 export type OcrMethod = "texto" | "pdf_texto" | "claude_visao" | "tesseract" | "indisponivel";
 
@@ -131,7 +132,14 @@ export class TesseractEngine {
     const worker = await this.getWorker();
     const texts: string[] = [];
     let conf = 0;
-    for (const img of images) {
+    for (const raw of images) {
+      // Grayscale + Otsu binarisation + upscale: cheap and it lifts confidence on phone photos.
+      let img = raw;
+      try {
+        img = await prepareForOcr(raw);
+      } catch {
+        /* keep the original image */
+      }
       const { data } = await worker.recognize(img);
       texts.push(data.text);
       conf += data.confidence;

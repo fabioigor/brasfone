@@ -16,6 +16,14 @@ import {
 import { AiProvider } from "./ai/provider.js";
 import { ingestDocument, reprocessDocument } from "./pipeline.js";
 import { OcrEngine, DocumentOcr } from "./ocr/engine.js";
+import { ClaudeStructuredExtractor } from "./extraction/structured.js";
+import { buildStructuredExtractor } from "./extraction/analyse.js";
+import { learnFromApproval } from "./domain/supplierMemory.js";
+import { processInbound, confirmationText, InboundDeps, normaliseAddress } from "./channels/inbound.js";
+import { parseInboundEmailJson, parseRawEmail } from "./channels/email.js";
+import {
+  WhatsAppConfig, WhatsAppClient, whatsappConfigFromEnv, verifyMetaSignature, parseWhatsAppPayload, toInboundMessage,
+} from "./channels/whatsapp.js";
 import { exportApprovedEntries } from "./domain/exportPrimavera.js";
 import { upcomingObligations } from "./domain/obligations.js";
 import { EntryLine, isBalanced } from "./domain/entries.js";
@@ -44,6 +52,12 @@ export interface ServerOptions {
   centralgest?: CentralGestClient | null;
   agents?: AgentGateway;
   ocr?: OcrEngine;
+  structured?: ClaudeStructuredExtractor | null;
+  /** Shared secret for POST /api/inbound/email (header x-contai-secret). */
+  inboundEmailSecret?: string | null;
+  whatsapp?: WhatsAppConfig | null;
+  /** Injected for tests (media download / replies). */
+  whatsappFetch?: typeof fetch;
 }
 
 const upload = multer({
@@ -51,9 +65,27 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-export function createServer({ db, provider, storageRoot, centralgest = null, agents = new AgentGateway(), ocr = DocumentOcr.fromEnv() }: ServerOptions): express.Express {
+export function createServer({
+  db, provider, storageRoot, centralgest = null, agents = new AgentGateway(), ocr = DocumentOcr.fromEnv(),
+  structured = buildStructuredExtractor(),
+  inboundEmailSecret = process.env.INBOUND_EMAIL_SECRET ?? null,
+  whatsapp = whatsappConfigFromEnv(),
+  whatsappFetch = fetch,
+}: ServerOptions): express.Express {
   const app = express();
-  app.use(express.json({ limit: "1mb" }));
+  // Raw body is needed to validate the Meta signature; keep it for webhooks only.
+  app.use(express.json({ limit: "25mb", verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
+
+  // Service user that owns channel intakes (created lazily).
+  const systemUserId = (): number => {
+    const row = db.prepare("SELECT id FROM users WHERE email = 'canais@contai.local'").get() as any;
+    if (row) return row.id;
+    const r = db
+      .prepare("INSERT INTO users (email, name, password_hash, role, company_id) VALUES ('canais@contai.local', 'Recepção automática', 'x', 'staff', NULL)")
+      .run();
+    return Number(r.lastInsertRowid);
+  };
+  const inboundDeps = (): InboundDeps => ({ provider, ocr, structured, storageRoot, systemUserId: systemUserId() });
 
   const auth = authenticate(db);
 
@@ -158,14 +190,14 @@ export function createServer({ db, provider, storageRoot, centralgest = null, ag
       buffer: req.file.buffer,
       channel: "portal",
       requestId,
-    }, ocr);
+    }, ocr, structured);
     return res.status(outcome.duplicate ? 200 : 201).json(outcome);
   });
 
   app.post("/api/documents/:id/reprocess", auth, requireStaff, async (req, res) => {
     const doc = db.prepare("SELECT id FROM documents WHERE id = ?").get(Number(req.params.id));
     if (!doc) return res.status(404).json({ error: "Documento inexistente." });
-    const outcome = await reprocessDocument(db, provider, storageRoot, Number(req.params.id), ocr);
+    const outcome = await reprocessDocument(db, provider, storageRoot, Number(req.params.id), ocr, structured);
     return res.json(outcome);
   });
 
@@ -285,6 +317,9 @@ export function createServer({ db, provider, storageRoot, centralgest = null, ag
     );
     db.prepare("UPDATE documents SET status = 'validado' WHERE id = ?").run(entry.document_id);
     audit(db, req.user!.id, "approve", "entry", entry.id, body.data.lines ? "editado" : "sem alteracoes");
+    // Memoria de fornecedor: aprende a conta usada para este terceiro.
+    const doc = db.prepare("SELECT d.doc_type, d.extracted_json, c.nif FROM documents d JOIN companies c ON c.id = d.company_id WHERE d.id = ?").get(entry.document_id) as any;
+    if (doc?.extracted_json) learnFromApproval(db, entry.company_id, doc.doc_type, JSON.parse(doc.extracted_json), doc.nif, lines);
     return res.json({ status: "aprovado" });
   });
 
@@ -634,6 +669,116 @@ export function createServer({ db, provider, storageRoot, centralgest = null, ag
       vat: { version: vat.version, last_verified: vat.last_verified, sources: vat.sources, territories: vat.territories, categories: vat.categories },
       sectors: { version: sectors.version, source: sectors.source, disclaimer: sectors.disclaimer, sectors: sectors.sectors.map((s) => ({ key: s.key, label: s.label, cae_prefixes: s.cae_prefixes })) },
       agents: { enabled: agents.enabled },
+    });
+  });
+
+  // ---------- Recepção multi-canal ----------
+  const waClient = whatsapp ? new WhatsAppClient(whatsapp, whatsappFetch) : null;
+
+  app.get("/webhooks/whatsapp", (req, res) => {
+    if (!whatsapp) return res.status(404).send("WhatsApp não configurado");
+    if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === whatsapp.verifyToken) {
+      return res.status(200).send(String(req.query["hub.challenge"] ?? ""));
+    }
+    return res.status(403).send("token inválido");
+  });
+
+  app.post("/webhooks/whatsapp", async (req: any, res) => {
+    if (!whatsapp || !waClient) return res.status(404).json({ error: "WhatsApp não configurado." });
+    if (!verifyMetaSignature(req.rawBody ?? Buffer.alloc(0), req.headers["x-hub-signature-256"] as string | undefined, whatsapp.appSecret)) {
+      return res.status(401).json({ error: "Assinatura inválida." });
+    }
+    // Responder já; a Meta reenvia se não receber 200 rapidamente.
+    res.status(200).json({ received: true });
+    const incoming = parseWhatsAppPayload(req.body);
+    for (const m of incoming) {
+      try {
+        const inbound = await toInboundMessage(m, waClient);
+        const result = await processInbound(db, inboundDeps(), inbound);
+        if (whatsapp.reply && result.status !== "duplicado") await waClient.sendText(m.from, confirmationText(result));
+      } catch (e: any) {
+        console.error("[whatsapp] falha a processar", m.messageId, e.message);
+        db.prepare(
+          "INSERT OR IGNORE INTO inbound_messages (channel, external_id, sender, status, attachments, error_detail) VALUES ('whatsapp', ?, ?, 'erro', ?, ?)"
+        ).run(m.messageId, normaliseAddress("whatsapp", m.from), m.media.length, e.message);
+      }
+    }
+  });
+
+  app.post("/api/inbound/email", express.text({ type: ["message/rfc822", "text/plain"], limit: "25mb" }), async (req: any, res) => {
+    if (!inboundEmailSecret) return res.status(404).json({ error: "Recepção por email não configurada (INBOUND_EMAIL_SECRET)." });
+    if (req.headers["x-contai-secret"] !== inboundEmailSecret) return res.status(401).json({ error: "Segredo inválido." });
+    try {
+      const inbound = typeof req.body === "string" ? await parseRawEmail(req.body) : parseInboundEmailJson(req.body);
+      const result = await processInbound(db, inboundDeps(), inbound);
+      return res.status(result.status === "duplicado" ? 200 : 201).json({
+        inboundId: result.inboundId, status: result.status, companyId: result.companyId,
+        documents: result.outcomes.map((o) => ({ id: o.documentId, docType: o.docType, duplicate: o.duplicate, findings: o.findings.length })),
+      });
+    } catch (e: any) {
+      return res.status(400).json({ error: `Email inválido: ${e.message}` });
+    }
+  });
+
+  app.get("/api/inbound", auth, requireStaff, (req, res) => {
+    const status = typeof req.query.status === "string" ? req.query.status : null;
+    let sql = "SELECT m.*, c.name AS company_name FROM inbound_messages m LEFT JOIN companies c ON c.id = m.company_id WHERE 1=1";
+    const params: any[] = [];
+    if (status) { sql += " AND m.status = ?"; params.push(status); }
+    sql += " ORDER BY m.received_at DESC LIMIT 200";
+    return res.json({ messages: db.prepare(sql).all(...params) });
+  });
+
+  /** Associates an unknown sender to a company and reprocesses its pending messages' attachments cannot be recovered; only future ones route. */
+  app.post("/api/inbound/:id/assign", auth, requireStaff, (req, res) => {
+    const body = z.object({ company_id: z.number().int().positive() }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
+    const m = db.prepare("SELECT * FROM inbound_messages WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!m) return res.status(404).json({ error: "Recepção inexistente." });
+    db.prepare("INSERT OR IGNORE INTO company_contacts (company_id, channel, address, label) VALUES (?, ?, ?, 'associado a partir de recepção')")
+      .run(body.data.company_id, m.channel, m.sender);
+    db.prepare("UPDATE inbound_messages SET company_id = ? WHERE id = ? AND status = 'sem_empresa'").run(body.data.company_id, m.id);
+    audit(db, req.user!.id, "assign_contact", "company_contact", body.data.company_id, `${m.channel} ${m.sender}`);
+    return res.json({ ok: true, note: "Contacto associado. As próximas mensagens deste remetente entram automaticamente; reenvie os documentos desta mensagem." });
+  });
+
+  app.get("/api/companies/:id/contacts", auth, requireStaff, (req, res) => {
+    const rows = db.prepare("SELECT id, channel, address, label, created_at FROM company_contacts WHERE company_id = ? ORDER BY channel, address").all(Number(req.params.id));
+    return res.json({ contacts: rows });
+  });
+
+  app.post("/api/companies/:id/contacts", auth, requireStaff, (req, res) => {
+    const body = z.object({ channel: z.enum(["email", "whatsapp"]), address: z.string().min(5), label: z.string().optional() }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
+    const companyId = Number(req.params.id);
+    if (!db.prepare("SELECT id FROM companies WHERE id = ?").get(companyId)) return res.status(404).json({ error: "Empresa inexistente." });
+    const address = normaliseAddress(body.data.channel, body.data.address);
+    if (body.data.channel === "email" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) return res.status(400).json({ error: "Email inválido." });
+    if (body.data.channel === "whatsapp" && !/^\d{9,15}$/.test(address)) return res.status(400).json({ error: "Número inválido (use formato internacional, ex.: 351912345678)." });
+    try {
+      const r = db.prepare("INSERT INTO company_contacts (company_id, channel, address, label) VALUES (?, ?, ?, ?)").run(companyId, body.data.channel, address, body.data.label ?? null);
+      audit(db, req.user!.id, "create", "company_contact", Number(r.lastInsertRowid), `${body.data.channel} ${address}`);
+      return res.status(201).json({ id: Number(r.lastInsertRowid), address });
+    } catch (e: any) {
+      if (String(e.message).includes("UNIQUE")) return res.status(409).json({ error: "Este contacto já está associado a uma empresa." });
+      throw e;
+    }
+  });
+
+  app.delete("/api/contacts/:id", auth, requireStaff, (req, res) => {
+    const r = db.prepare("DELETE FROM company_contacts WHERE id = ?").run(Number(req.params.id));
+    if (r.changes === 0) return res.status(404).json({ error: "Contacto inexistente." });
+    return res.json({ ok: true });
+  });
+
+  app.get("/api/channels/status", auth, requireStaff, (_req, res) => {
+    return res.json({
+      email_webhook: !!inboundEmailSecret,
+      imap: !!process.env.IMAP_HOST,
+      whatsapp: !!whatsapp,
+      whatsapp_reply: !!whatsapp?.reply,
+      ai_extraction: !!structured,
+      ocr: ocr instanceof DocumentOcr ? ocr.engines : ["personalizado"],
     });
   });
 
