@@ -148,6 +148,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .form-col label { display: flex; flex-direction: column; gap: 4px; }
 .form-col.wide { max-width: 640px; }
 .badge.muted { background: var(--border, #ddd); color: inherit; }
+.small.ok { color: var(--ok, #1a7f4b); }
 
 /* ---- botoes ---- */
 .btn {

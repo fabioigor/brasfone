@@ -6,7 +6,9 @@ A CentralGest disponibiliza uma API REST no CentralGest Cloud, mas a documentaç
 
 Enquanto a adesão não estiver concluída, esta integração foi construída contra o contrato assumido abaixo, isolado em `src/integrations/centralgest.ts`. **Quando a documentação oficial for recebida, só esse ficheiro (e o mock) precisa de ser ajustado**; o resto do pipeline (validação, idempotência, MCP) não depende do formato exacto.
 
-## Configuração (variáveis de ambiente)
+## Configuração
+
+Na app: **Configuração > Integrações > CentralGest (API)** (só gabinete): URL base, chave (cifrada na base de dados), simulador local, botão **Testar ligação** (não guarda nada; regista o resultado no audit log sem a chave) e mapa dos códigos de empresa com verificação contra as empresas acessíveis. As mesmas definições podem vir do `.env`:
 
 | Variável | Descrição |
 |---|---|

@@ -76,3 +76,28 @@ describe("API de integracoes", () => {
     expect((await request(app).put("/api/settings").set("Authorization", `Bearer ${staff}`).send({ values: { OUTRA: "x" } })).status).toBe(400);
   });
 });
+
+describe("teste de ligacao CentralGest", () => {
+  it("testa credenciais sem as guardar e reporta erro em URL inacessivel", async () => {
+    const { startCentralGestMock } = await import("../src/integrations/centralgest-mock.js");
+    const mock = await startCentralGestMock("chave-teste");
+    const db = openDb(":memory:"); seedDemo(db);
+    const app = createServer({ db, provider: new HeuristicProvider(), storageRoot: "/tmp", structured: null });
+    const staff = (await request(app).post("/api/auth/login").send({ email: "gabinete@demo.pt", password: "gabinete123" })).body.token;
+    const auth = (r: request.Test) => r.set("Authorization", `Bearer ${staff}`);
+
+    const none = await auth(request(app).post("/api/centralgest/test")).send({});
+    expect(none.body.ok).toBe(false);
+    const ok = await auth(request(app).post("/api/centralgest/test")).send({ baseUrl: mock.baseUrl, apiKey: "chave-teste" });
+    expect(ok.body.ok).toBe(true);
+    expect(ok.body.remoteCompanies.length).toBeGreaterThan(0);
+    const bad = await auth(request(app).post("/api/centralgest/test")).send({ baseUrl: mock.baseUrl, apiKey: "errada" });
+    expect(bad.body.ok).toBe(false);
+    expect(bad.body.detail).toMatch(/Autenticacao/);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM settings").get() as any).n).toBe(0);
+    const audit = db.prepare("SELECT detail FROM audit_log WHERE action = 'centralgest_test'").all() as any[];
+    expect(audit.length).toBe(2); // o caso "nao configurado" nao contacta ninguem
+    expect(audit.map((a) => a.detail).join("")).not.toContain("chave-teste");
+    mock.server.close();
+  });
+});

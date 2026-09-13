@@ -483,6 +483,31 @@ export function createServer({
     }
   });
 
+  /** Tests CentralGest credentials (given in the body, or the active ones) without saving anything. */
+  app.post("/api/centralgest/test", auth, requireStaff, async (req, res) => {
+    const body = z.object({ baseUrl: z.string().url().optional(), apiKey: z.string().min(1).optional() }).safeParse(req.body ?? {});
+    if (!body.success) return res.status(400).json({ error: "URL inválido ou chave em falta." });
+    let client: CentralGestClient | null = centralgest;
+    let where = "definições activas";
+    if (body.data.baseUrl || body.data.apiKey) {
+      const baseUrl = (body.data.baseUrl ?? process.env.CENTRALGEST_BASE_URL ?? "").replace(/\/$/, "");
+      const apiKey = body.data.apiKey ?? process.env.CENTRALGEST_API_KEY ?? "";
+      if (!baseUrl || !apiKey) return res.status(400).json({ error: "Indique o URL base e a chave da API." });
+      client = new CentralGestClient({ baseUrl, apiKey });
+      where = baseUrl;
+    }
+    if (!client) return res.json({ ok: false, detail: "CentralGest não configurado.", where });
+    const started = Date.now();
+    try {
+      const companies = await client.listCompanies();
+      audit(db, req.user!.id, "centralgest_test", "settings", null, JSON.stringify({ ok: true, where, companies: companies.length }));
+      return res.json({ ok: true, where, ms: Date.now() - started, remoteCompanies: companies });
+    } catch (e: any) {
+      audit(db, req.user!.id, "centralgest_test", "settings", null, JSON.stringify({ ok: false, where }));
+      return res.json({ ok: false, where, ms: Date.now() - started, detail: e.message });
+    }
+  });
+
   app.post("/api/centralgest/dispatch/:companyId", auth, requireStaff, async (req, res) => {
     if (!centralgest) {
       return res.status(409).json({

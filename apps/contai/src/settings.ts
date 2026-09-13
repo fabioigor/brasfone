@@ -31,8 +31,9 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: "WHATSAPP_ACCESS_TOKEN", label: "Access token (Cloud API)", group: "whatsapp", secret: true },
   { key: "WHATSAPP_PHONE_NUMBER_ID", label: "Phone number ID", group: "whatsapp", secret: false },
   { key: "WHATSAPP_REPLY", label: "Confirmar recepção ao remetente (1/0)", group: "whatsapp", secret: false, placeholder: "1" },
-  { key: "CENTRALGEST_BASE_URL", label: "URL da API CentralGest", group: "centralgest", secret: false, placeholder: "https://api.centralgest.com/..." },
-  { key: "CENTRALGEST_API_KEY", label: "Chave da API CentralGest", group: "centralgest", secret: true },
+  { key: "CENTRALGEST_BASE_URL", label: "URL base da API CentralGest", group: "centralgest", secret: false, placeholder: "https://api.centralgestcloud.com", hint: "Fornecido pela CentralGest após o Pedido de Adesão à API. Sem barra final." },
+  { key: "CENTRALGEST_API_KEY", label: "Chave da API CentralGest", group: "centralgest", secret: true, hint: "Chave atribuída na adesão. Usada para obter o token Bearer (POST /api/v1/auth/token)." },
+  { key: "CENTRALGEST_MOCK", label: "Simulador local (1/0)", group: "centralgest", secret: false, placeholder: "0", hint: "1 arranca um CentralGest simulado dentro da app para testar o fluxo de lançamento sem credenciais. Ignorado quando URL e chave estão preenchidos." },
 ];
 
 const DEFS_BY_KEY = new Map(SETTING_DEFS.map((d) => [d.key, d]));

@@ -1052,7 +1052,7 @@ const SETTING_GROUPS = {
   ia: { title: "Inteligência artificial (Anthropic)", intro: "A chave fica cifrada na base de dados e nunca volta a ser mostrada. Sem chave, o OCR usa só o Tesseract local e o QR da AT." },
   email: { title: "Recepção por email", intro: "Webhook (o serviço de email envia cada mensagem para a app) ou leitura periódica de uma caixa IMAP. Os remetentes autorizados definem-se em Empresas." },
   whatsapp: { title: "WhatsApp Cloud API (Meta)", intro: "Dados da app Meta e do número. Registe o webhook abaixo na Meta com o token de verificação." },
-  centralgest: { title: "CentralGest (mais tarde)", intro: "Preencher quando a adesão à API do CentralGest estiver concluída. Sem estes dados a entrega faz-se por CSV Primavera." },
+  centralgest: { title: "CentralGest (API)", intro: "Lançamento directo dos lançamentos aprovados no CentralGest Cloud, com idempotência (idExterno contai-entry-<id>). Peça a adesão à API à CentralGest (suporte@centralgest.com); enquanto não houver credenciais pode usar o simulador local para ensaiar o fluxo. Sem API, a entrega faz-se por CSV Primavera." },
 };
 
 async function viewIntegrations(main) {
@@ -1092,6 +1092,7 @@ async function viewIntegrations(main) {
       col.append(row);
     }
     card.append(col);
+    if (g === "centralgest") await centralGestPanel(card, inputs);
     main.append(card);
   }
 
@@ -1128,6 +1129,57 @@ async function viewIntegrations(main) {
   });
   bar.append(btn);
   main.append(bar);
+}
+
+/** Estado da ligacao CentralGest, teste sem guardar e mapa de codigos de empresa. */
+async function centralGestPanel(card, inputs) {
+  const status = await api("/api/centralgest/status");
+  const stateLine = el("p", { class: "small" });
+  const renderState = (s) => {
+    stateLine.innerHTML = "";
+    if (!s.configured) stateLine.append(el("span", { class: "badge muted" }, "não configurado"), " Preencha o URL e a chave, ou active o simulador local, e guarde.");
+    else if (s.connection === "ok") stateLine.append(el("span", { class: "badge ok" }, "ligação OK"), " Empresas acessíveis: " + (s.remoteCompanies.map((c) => c.codigo + " (" + c.nome + ")").join(", ") || "nenhuma"));
+    else stateLine.append(el("span", { class: "badge warn" }, "erro"), " " + s.detail);
+  };
+  renderState(status);
+
+  const testBtn = el("button", { class: "btn", type: "button" }, "Testar ligação");
+  const testOut = el("p", { class: "small muted" });
+  testBtn.addEventListener("click", async () => {
+    testBtn.disabled = true; testOut.textContent = "A testar...";
+    try {
+      const body = {};
+      const url = inputs.CENTRALGEST_BASE_URL.input.value.trim(); const key = inputs.CENTRALGEST_API_KEY.input.value.trim();
+      if (url) body.baseUrl = url; if (key) body.apiKey = key;
+      const r = await api("/api/centralgest/test", { method: "POST", json: body });
+      testOut.textContent = r.ok
+        ? "OK em " + r.ms + " ms (" + r.where + "): " + r.remoteCompanies.length + " empresa(s) acessível(eis). As credenciais ainda não foram guardadas."
+        : "Falhou (" + r.where + "): " + r.detail;
+      testOut.className = "small " + (r.ok ? "ok" : "error");
+    } catch (e) {
+      testOut.textContent = e.message; testOut.className = "small error";
+    } finally { testBtn.disabled = false; }
+  });
+
+  const remoteCodes = new Set(status.configured && status.connection === "ok" ? status.remoteCompanies.map((c) => c.codigo) : []);
+  const tbody = el("tbody");
+  for (const c of companies) {
+    const code = c.centralgest_code || "";
+    const ok = code && remoteCodes.has(code);
+    tbody.append(el("tr", {}, [
+      el("td", {}, c.name), el("td", {}, c.nif),
+      el("td", {}, code ? el("code", {}, code) : el("span", { class: "muted" }, "sem código")),
+      el("td", {}, !code ? el("span", { class: "badge muted" }, "por mapear") : !status.configured || status.connection !== "ok" ? el("span", { class: "badge muted" }, "por verificar") : ok ? el("span", { class: "badge ok" }, "existe no CentralGest") : el("span", { class: "badge warn" }, "não encontrado")),
+    ]));
+  }
+  const map = el("details", {}, [
+    el("summary", {}, "Códigos de empresa no CentralGest (" + companies.filter((c) => c.centralgest_code).length + " de " + companies.length + " mapeadas)"),
+    el("p", { class: "muted small" }, "Cada empresa cliente precisa do código com que existe no CentralGest. Edita-se em Empresas."),
+    el("div", { class: "table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Empresa"), el("th", {}, "NIF"), el("th", {}, "Código"), el("th", {}, "Estado")])), tbody])),
+  ]);
+
+  card.append(el("h3", {}, "Estado da ligação"), stateLine, el("div", { class: "form-row" }, [testBtn]), testOut, map,
+    el("p", { class: "muted small" }, "Contrato da API assumido e documentado em docs/centralgest-api.md até à recepção da documentação oficial; os lançamentos seguem em Entrega > CentralGest."));
 }
 
 /* ---------- conta ---------- */
