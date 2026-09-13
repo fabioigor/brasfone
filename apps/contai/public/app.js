@@ -128,7 +128,8 @@ async function previewPane(docId) {
     if (info.kind === "image") {
       pane.append(el("img", { src: info.url, alt: info.name, class: "preview-img" }));
     } else {
-      pane.append(el("iframe", { src: info.url, title: info.name, class: "preview-frame" }));
+      // Parametros do visualizador de PDF do browser: sem barra nem painel lateral, ajustado a largura.
+      pane.append(el("iframe", { src: info.kind === "pdf" ? info.url + "#toolbar=0&navpanes=0&view=FitH" : info.url, title: info.name, class: "preview-frame" }));
     }
     pane.append(el("div", { class: "preview-bar" }, [
       el("span", { class: "muted small" }, info.name),
