@@ -24,14 +24,14 @@ Conclusão: **não recomendado** para o Cont.ai na sua forma actual. Poderia ser
 
 | Opção | Encaixe | Custo indicativo | Notas |
 |---|---|---|---|
-| **Fly.io** (contentor + volume, região `mad`/`cdg`) | Muito bom | ~5 a 15 €/mês | Docker directo, volumes persistentes, regiões UE, HTTPS automático, escala para vários contentores quando migrarmos para Postgres |
+| **Fly.io** (contentor + volume, regiões `cdg`, `fra`, `ams`, `arn`) | Muito bom | ~5 a 15 €/mês | Docker directo, volumes persistentes, regiões UE, HTTPS automático, escala para vários contentores quando migrarmos para Postgres |
 | **Railway** ou **Render** (contentor + volume) | Bom | ~7 a 20 €/mês | Deploy a partir do GitHub, volume persistente, UE disponível; menos controlo de rede que o Fly |
 | **Hetzner / OVH VPS** (Docker Compose) | Bom, mais operação manual | ~4 a 10 €/mês | Datacenters UE, melhor custo; exige gerir TLS (Caddy/Traefik), backups e actualizações |
 | **AWS/Azure/GCP** (ECS/App Service/Cloud Run + volume/EFS) | Possível | > 30 €/mês | Sobredimensionado para um gabinete; útil só se a Lumarcont já tiver conta e equipa cloud |
 
 ## Recomendação
 
-1. **Agora (piloto com um gabinete):** Fly.io, uma máquina `shared-cpu-2x` com 2 GB e um volume de 10 GB na região de Madrid ou Paris, a partir do `Dockerfile` deste repositório. Backups diários do volume (`fly volumes snapshots` são automáticos) e `JWT_SECRET`, chaves Anthropic/Meta como secrets.
+1. **Agora (piloto com um gabinete):** Fly.io, uma máquina `shared-cpu-2x` com 2 GB e um volume de 10 GB na região de Paris (cdg), Frankfurt (fra), Amesterdão (ams) ou Estocolmo (arn), a partir do `Dockerfile` deste repositório. Backups diários do volume (`fly volumes snapshots` são automáticos) e `JWT_SECRET`, chaves Anthropic/Meta como secrets.
 2. **Quando houver vários gabinetes ou mais de ~50 k documentos:** migrar SQLite para PostgreSQL gerido (Fly Postgres, Neon ou Supabase na UE) e o arquivo para object storage S3-compatível (Tigris no Fly, Backblaze B2 UE ou Scaleway); a camada de dados está isolada em `src/db.ts` e o arquivo em `storageRoot`, por isso a migração é contida.
 3. Se a Lumarcont preferir infra própria: um VPS Hetzner em Nuremberga/Helsínquia com `docker-compose.yml` + Caddy para TLS.
 
@@ -41,7 +41,7 @@ Conclusão: **não recomendado** para o Cont.ai na sua forma actual. Poderia ser
 cp .env.example .env   # preencher segredos
 docker compose up -d --build
 # ou no Fly.io
-fly launch --no-deploy && fly volumes create contai_data --size 10 --region mad && fly secrets set JWT_SECRET=... ANTHROPIC_API_KEY=...
+fly launch --no-deploy && fly volumes create contai_data --size 10 --region cdg && fly secrets set JWT_SECRET=... ANTHROPIC_API_KEY=...
 fly deploy
 ```
 
@@ -55,7 +55,7 @@ Sem estes elementos não é possível fazer o deploy; com eles, o primeiro ambie
 
 | # | Item | Para quê | Quem trata |
 |---|---|---|---|
-| 1 | Conta **Fly.io** (ou Railway/Render/VPS) com cartão associado, e um utilizador com permissões de deploy | Alojar o contentor e o volume de 10 GB na região de Madrid | Lumarcont |
+| 1 | Conta **Fly.io** (ou Railway/Render/VPS) com cartão associado, e um utilizador com permissões de deploy | Alojar o contentor e o volume de 10 GB numa região da UE (Paris) | Lumarcont |
 | 2 | **Domínio** (ex.: `app.contai.pt` ou `contai.lumarcont.pt`) e acesso ao DNS para criar um registo CNAME/A | URL pública com HTTPS para utilizadores e webhooks | Lumarcont |
 | 3 | `JWT_SECRET` gerado (`openssl rand -hex 32`) | Sessões dos utilizadores | gerado no deploy |
 | 4 | Palavras-passe iniciais do gabinete e lista de empresas clientes (nome, NIF, CAE, regime de IVA) | Substituir as contas de demonstração | Lumarcont |
@@ -93,7 +93,7 @@ Sem estes elementos não é possível fazer o deploy; com eles, o primeiro ambie
 cd apps/contai
 fly auth login
 fly launch --copy-config --no-deploy          # usa o fly.toml deste repositorio
-fly volumes create contai_data --region mad --size 10
+fly volumes create contai_data --region cdg --size 10
 fly secrets set JWT_SECRET=... ANTHROPIC_API_KEY=... INBOUND_EMAIL_SECRET=... \
   IMAP_HOST=... IMAP_USER=... IMAP_PASSWORD=... \
   WHATSAPP_VERIFY_TOKEN=... WHATSAPP_APP_SECRET=... WHATSAPP_ACCESS_TOKEN=... WHATSAPP_PHONE_NUMBER_ID=... WHATSAPP_REPLY=1
@@ -107,4 +107,33 @@ Depois do deploy: configurar o webhook do WhatsApp no painel da Meta (`https://a
 
 - Backups: snapshots diários automáticos do volume no Fly (5 dias de retenção por omissão); recomenda-se um `fly volumes snapshots create` semanal guardado fora, ou a migração para Postgres gerido com backups PITR quando o volume de documentos crescer.
 - Monitorização: `/health` já é usado pelo healthcheck; alertas de disco cheio no volume (arquivo cresce ~0,5 MB por documento digitalizado).
-- RGPD: dados na UE (Madrid); a chave Anthropic envia imagens de documentos para a API da Anthropic (retenção de 30 dias); se o gabinete exigir, desligar com `CONTAI_DISABLE_AI_EXTRACTION=1` e usar só OCR local.
+- RGPD: dados na UE (Paris); a chave Anthropic envia imagens de documentos para a API da Anthropic (retenção de 30 dias); se o gabinete exigir, desligar com `CONTAI_DISABLE_AI_EXTRACTION=1` e usar só OCR local.
+
+## Fly.io e a UE: o que fica onde (verificado em 2026-09-13)
+
+- **Regiões europeias do Fly.io:** Paris (`cdg`), Frankfurt (`fra`), Amesterdão (`ams`) e Estocolmo (`arn`); Londres (`lhr`) é Reino Unido, fora da UE. Madrid não existe como região. A máquina e o volume ficam na região escolhida, por isso **os dados em repouso (base de dados, arquivo de documentos) ficam fisicamente na UE**.
+- **A empresa é norte-americana** (Fly.io, Inc.). Consequências: os metadados da conta, faturação e registos da plataforma são processados nos EUA; a empresa está certificada no **EU-US Data Privacy Framework** e disponibiliza um **DPA com Cláusulas Contratuais-Tipo** (pedido em fly.io/documents). Mesmo assim, como entidade americana, pode ser obrigada pelo **CLOUD Act** a entregar dados que controla, mesmo que estejam num servidor na UE. É o problema conhecido como Schrems II: para a maioria das PME é um risco aceite e documentado; para um gabinete de contabilidade que guarda documentos fiscais de dezenas de empresas, é uma decisão a tomar conscientemente.
+- **Nota sobre a IA:** o mesmo raciocínio aplica-se à API da Anthropic (empresa americana, com DPA). As imagens dos documentos são enviadas para OCR e extracção quando `ANTHROPIC_API_KEY` está definida; pode desligar-se com `CONTAI_DISABLE_AI_EXTRACTION=1` e ficar só com OCR local.
+
+### Alternativa 100% europeia (empresa e servidores na UE)
+
+| Fornecedor | Sede | Datacenters UE | Custo indicativo | Como |
+|---|---|---|---|---|
+| **Hetzner Cloud** | Alemanha | Nuremberga, Falkenstein, Helsínquia | CX22 (2 vCPU, 4 GB) ~4 €/mês + volume | `docker-compose.vps.yml` + Caddy (TLS automático) |
+| **Scaleway** | França | Paris, Amesterdão | ~7 €/mês | idem |
+| **OVHcloud** | França | Gravelines, Estrasburgo | ~6 €/mês | idem |
+
+Com um destes, não há transferência internacional de dados a justificar (fora a Anthropic, se activada). O custo é a operação: actualizações do sistema, backups (snapshot do volume + `sqlite3 .backup` diário para um bucket S3 europeu, por exemplo Scaleway ou Hetzner Object Storage) e monitorização, que eu configuro no arranque.
+
+### Recomendação actualizada
+
+- **Se o gabinete aceitar um fornecedor americano com DPA e dados em repouso na UE:** Fly.io em Paris (`cdg`), menos operação, deploy em minutos.
+- **Se quiser eliminar a exposição ao CLOUD Act (e a Lumarcont quiser dizer aos clientes "tudo em servidores europeus de empresas europeias"):** Hetzner Cloud com `docker-compose.vps.yml`. É a opção que eu escolheria para um gabinete de contabilidade.
+
+```bash
+# VPS Hetzner (Ubuntu 24.04) com Docker instalado
+git clone <repo> && cd apps/contai
+cp .env.example .env && nano .env            # segredos
+export CONTAI_DOMAIN=app.contai.pt           # DNS A -> IP do VPS
+docker compose -f docker-compose.vps.yml up -d --build
+```

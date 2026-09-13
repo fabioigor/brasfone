@@ -1,6 +1,6 @@
-# Cont.ai by Lumarcont - Fly.io (piloto). Regiao Madrid; volume persistente em /data.
+# Cont.ai by Lumarcont - Fly.io (piloto). Regiao Paris (cdg); alternativas UE: fra, ams, arn; volume persistente em /data.
 app = "contai-lumarcont"
-primary_region = "mad"
+primary_region = "cdg"
 
 [build]
   dockerfile = "Dockerfile"
