@@ -19,7 +19,7 @@ let clientToken: string;
 let otherClientToken: string;
 
 beforeAll(async () => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contadesk-test-"));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contai-test-"));
   db = openDb(":memory:");
   seedDemo(db);
   app = createServer({ db, provider: new HeuristicProvider(), storageRoot: tmpDir });

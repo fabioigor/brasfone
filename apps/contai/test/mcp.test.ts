@@ -26,7 +26,7 @@ async function callTool(name: string, args: Record<string, unknown> = {}): Promi
 }
 
 beforeAll(async () => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contadesk-mcp-"));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contai-mcp-"));
   db = openDb(":memory:");
   seedDemo(db);
   const mock = await startCentralGestMock("chave-mcp");
@@ -50,50 +50,50 @@ describe("servidor MCP", () => {
     const tools = await client.listTools();
     const names = tools.tools.map((t) => t.name);
     for (const expected of [
-      "contadesk_estado",
-      "contadesk_listar_empresas",
-      "contadesk_definir_codigo_centralgest",
-      "contadesk_listar_documentos",
-      "contadesk_processar_documento",
-      "contadesk_listar_lancamentos",
-      "contadesk_decidir_lancamento",
+      "contai_estado",
+      "contai_listar_empresas",
+      "contai_definir_codigo_centralgest",
+      "contai_listar_documentos",
+      "contai_processar_documento",
+      "contai_listar_lancamentos",
+      "contai_decidir_lancamento",
       "centralgest_lancar",
       "centralgest_listar_despachos",
-      "contadesk_conferir_documentos",
-      "contadesk_listar_alertas",
-      "contadesk_resolver_alerta",
-      "contadesk_segunda_opiniao_iva",
-      "contadesk_importar_balancete",
-      "contadesk_conferir_balancete",
-      "contadesk_listar_padroes",
-      "contadesk_definir_padrao",
-      "contadesk_gerar_relatorio",
-      "contadesk_conhecimento_fiscal",
-      "contadesk_texto_documento",
-      "contadesk_reprocessar_documento",
+      "contai_conferir_documentos",
+      "contai_listar_alertas",
+      "contai_resolver_alerta",
+      "contai_segunda_opiniao_iva",
+      "contai_importar_balancete",
+      "contai_conferir_balancete",
+      "contai_listar_padroes",
+      "contai_definir_padrao",
+      "contai_gerar_relatorio",
+      "contai_conhecimento_fiscal",
+      "contai_texto_documento",
+      "contai_reprocessar_documento",
     ]) {
       expect(names).toContain(expected);
     }
   });
 
   it("estado reporta ligacao CentralGest ok", async () => {
-    const out = await callTool("contadesk_estado");
+    const out = await callTool("contai_estado");
     expect(out.centralgest.configurado).toBe(true);
     expect(out.centralgest.ligacao).toBe("ok");
   });
 
   it("fluxo completo: processar -> aprovar -> lancar no CentralGest", async () => {
-    const empresas = await callTool("contadesk_listar_empresas");
+    const empresas = await callTool("contai_listar_empresas");
     const padaria = empresas.empresas.find((e: any) => e.nif === "506284417");
     expect(padaria).toBeDefined();
 
-    const setCode = await callTool("contadesk_definir_codigo_centralgest", {
+    const setCode = await callTool("contai_definir_codigo_centralgest", {
       company_id: padaria.id,
       centralgest_code: "PADARIA",
     });
     expect(setCode._isError).toBe(false);
 
-    const processed = await callTool("contadesk_processar_documento", {
+    const processed = await callTool("contai_processar_documento", {
       company_id: padaria.id,
       content: fixture("factura-fornecedor.txt"),
       filename: "factura-fornecedor.txt",
@@ -102,14 +102,14 @@ describe("servidor MCP", () => {
     expect(processed.entryId).toBeGreaterThan(0);
 
     // Duplicado nao cria nada de novo.
-    const dup = await callTool("contadesk_processar_documento", {
+    const dup = await callTool("contai_processar_documento", {
       company_id: padaria.id,
       content: fixture("factura-fornecedor.txt"),
       filename: "copia.txt",
     });
     expect(dup.duplicate).toBe(true);
 
-    const approved = await callTool("contadesk_decidir_lancamento", {
+    const approved = await callTool("contai_decidir_lancamento", {
       entry_id: processed.entryId,
       action: "aprovar",
     });
@@ -130,12 +130,12 @@ describe("servidor MCP", () => {
   });
 
   it("aprovar com linhas desbalanceadas devolve erro accionavel", async () => {
-    const processed = await callTool("contadesk_processar_documento", {
+    const processed = await callTool("contai_processar_documento", {
       company_id: 1,
       content: fixture("factura-venda.txt"),
       filename: "factura-venda.txt",
     });
-    const out = await callTool("contadesk_decidir_lancamento", {
+    const out = await callTool("contai_decidir_lancamento", {
       entry_id: processed.entryId,
       action: "aprovar",
       lines: [
@@ -148,58 +148,58 @@ describe("servidor MCP", () => {
   });
 
   it("agentes: conferir documento com IVA errado, balancete e relatorio", async () => {
-    const processed = await callTool("contadesk_processar_documento", {
+    const processed = await callTool("contai_processar_documento", {
       company_id: 1,
       content: fixture("factura-iva-errado.txt"),
       filename: "factura-iva-errado.txt",
     });
     expect(processed.findings.some((f: any) => f.code === "IVA_CALCULO")).toBe(true);
 
-    const alerts = await callTool("contadesk_listar_alertas", { company_id: 1, scope: "documento" });
+    const alerts = await callTool("contai_listar_alertas", { company_id: 1, scope: "documento" });
     expect(alerts.alertas.some((a: any) => a.code === "TAXA_DESADEQUADA")).toBe(true);
 
-    const jun = await callTool("contadesk_importar_balancete", { company_id: 1, period: "2026-06", csv: fixture("balancete-2026-06.csv") });
+    const jun = await callTool("contai_importar_balancete", { company_id: 1, period: "2026-06", csv: fixture("balancete-2026-06.csv") });
     expect(jun._isError).toBe(false);
-    const jul = await callTool("contadesk_importar_balancete", { company_id: 1, period: "2026-07", csv: fixture("balancete-2026-07.csv") });
+    const jul = await callTool("contai_importar_balancete", { company_id: 1, period: "2026-07", csv: fixture("balancete-2026-07.csv") });
     expect(jul.indicadores.vendas).toBe(42040);
 
-    const check = await callTool("contadesk_conferir_balancete", { company_id: 1, period: "2026-07" });
+    const check = await callTool("contai_conferir_balancete", { company_id: 1, period: "2026-07" });
     expect(check.alertas.some((a: any) => a.code === "VARIACAO_ANOMALA")).toBe(true);
 
-    const rule = await callTool("contadesk_definir_padrao", { company_id: 1, name: "Caixa acima de 100", type: "saldo_maximo", account_prefixes: ["11"], threshold: 100, severity: "info" });
+    const rule = await callTool("contai_definir_padrao", { company_id: 1, name: "Caixa acima de 100", type: "saldo_maximo", account_prefixes: ["11"], threshold: 100, severity: "info" });
     expect(rule.rule_id).toBeGreaterThan(0);
-    const check2 = await callTool("contadesk_conferir_balancete", { company_id: 1, period: "2026-07" });
+    const check2 = await callTool("contai_conferir_balancete", { company_id: 1, period: "2026-07" });
     expect(check2.alertas.some((a: any) => a.code === "SALDO_FORA_DO_PADRAO")).toBe(true);
 
-    const report = await callTool("contadesk_gerar_relatorio", { company_id: 1, period: "2026-07" });
+    const report = await callTool("contai_gerar_relatorio", { company_id: 1, period: "2026-07" });
     expect(report.template).toBe("restauracao_alimentar");
     expect(report.memoria_descritiva.length).toBeGreaterThan(2);
 
-    const know = await callTool("contadesk_conhecimento_fiscal");
+    const know = await callTool("contai_conhecimento_fiscal");
     expect(know.taxas.continente.normal).toBe(23);
 
-    const missing = await callTool("contadesk_conferir_balancete", { company_id: 2, period: "2026-07" });
+    const missing = await callTool("contai_conferir_balancete", { company_id: 2, period: "2026-07" });
     expect(missing._isError).toBe(true);
     expect(missing.erro).toMatch(/importar_balancete/);
   });
 
   it("processa um PDF por caminho de ficheiro e devolve o texto extraido", async () => {
     const pdfPath = path.join(__dirname, "..", "fixtures", "factura-texto.pdf");
-    const processed = await callTool("contadesk_processar_documento", { company_id: 2, file_path: pdfPath });
+    const processed = await callTool("contai_processar_documento", { company_id: 2, file_path: pdfPath });
     expect(processed._isError).toBe(false);
     expect(processed.ocr.method).toBe("pdf_texto");
     expect(processed.docType).toBe("factura_compra");
-    const text = await callTool("contadesk_texto_documento", { document_id: processed.documentId });
+    const text = await callTool("contai_texto_documento", { document_id: processed.documentId });
     expect(text.texto).toContain("658,05");
     expect(text.extraido.totalAmount).toBe(658.05);
-    const re = await callTool("contadesk_reprocessar_documento", { document_id: processed.documentId });
+    const re = await callTool("contai_reprocessar_documento", { document_id: processed.documentId });
     expect(re.ocr.method).toBe("pdf_texto");
   });
 
   it("rejeitar sem motivo devolve erro accionavel", async () => {
-    const pend = await callTool("contadesk_listar_lancamentos", { status: "pendente" });
+    const pend = await callTool("contai_listar_lancamentos", { status: "pendente" });
     expect(pend.lancamentos.length).toBeGreaterThan(0);
-    const out = await callTool("contadesk_decidir_lancamento", {
+    const out = await callTool("contai_decidir_lancamento", {
       entry_id: pend.lancamentos[0].id,
       action: "rejeitar",
     });

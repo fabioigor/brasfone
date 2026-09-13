@@ -27,7 +27,7 @@ export function seedDemo(db: Db): void {
 
 // Executable directly: npm run seed
 if (process.argv[1] && process.argv[1].endsWith("seed.ts")) {
-  const db = openDb(process.env.DB_PATH || "data/contadesk.db");
+  const db = openDb(process.env.DB_PATH || "data/contai.db");
   seedDemo(db);
   console.log("Base de dados semeada: gabinete@demo.pt / gabinete123");
 }

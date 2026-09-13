@@ -1,6 +1,6 @@
 {
-  "name": "ContaDesk - Área reservada",
-  "short_name": "ContaDesk",
+  "name": "Cont.ai - Área reservada",
+  "short_name": "Cont.ai",
   "description": "Área reservada do cliente do gabinete de contabilidade: documentos, alertas, relatórios financeiros.",
   "start_url": "/",
   "display": "standalone",

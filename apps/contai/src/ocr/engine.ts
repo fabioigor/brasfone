@@ -148,7 +148,7 @@ export class TesseractEngine {
 /** Claude vision OCR through the official SDK (PDF documents and images natively). */
 export class ClaudeVisionEngine {
   private client: Anthropic;
-  constructor(apiKey: string, private model = process.env.CONTADESK_OCR_MODEL || "claude-opus-5") {
+  constructor(apiKey: string, private model = process.env.CONTAI_OCR_MODEL || "claude-opus-5") {
     this.client = new Anthropic({ apiKey });
   }
 
@@ -192,7 +192,7 @@ export class DocumentOcr implements OcrEngine {
     return new DocumentOcr({
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       tesseractLangPath: process.env.TESSERACT_LANG_PATH,
-      disableTesseract: process.env.CONTADESK_DISABLE_TESSERACT === "1",
+      disableTesseract: process.env.CONTAI_DISABLE_TESSERACT === "1",
     });
   }
 

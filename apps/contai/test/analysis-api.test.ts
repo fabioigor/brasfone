@@ -17,7 +17,7 @@ let staff: string;
 let client: string;
 
 beforeAll(async () => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contadesk-analysis-"));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contai-analysis-"));
   db = openDb(":memory:");
   seedDemo(db);
   app = createServer({ db, provider: new HeuristicProvider(), storageRoot: tmpDir });

@@ -8,7 +8,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 
-const MODEL = process.env.CONTADESK_AGENT_MODEL || "claude-opus-5";
+const MODEL = process.env.CONTAI_AGENT_MODEL || "claude-opus-5";
 
 const SYSTEM_REPORT =
   "És um contabilista certificado português a escrever para o gerente de uma PME. " +

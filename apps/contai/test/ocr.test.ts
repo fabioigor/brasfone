@@ -96,7 +96,7 @@ describe("OCR via API", () => {
   let staff: string;
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contadesk-ocr-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contai-ocr-"));
     db = openDb(":memory:");
     seedDemo(db);
     app = createServer({ db, provider: new HeuristicProvider(), storageRoot: tmpDir, ocr: new DocumentOcr({}) });

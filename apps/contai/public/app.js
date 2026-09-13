@@ -1,4 +1,4 @@
-/* ContaDesk - portal do gabinete de contabilidade (frontend) */
+/* Cont.ai - portal do gabinete de contabilidade (frontend) */
 "use strict";
 
 let token = localStorage.getItem("cd_token") || null;

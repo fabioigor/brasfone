@@ -130,7 +130,7 @@ export interface DispatchOutcome {
   error?: string;
 }
 
-export const externalIdFor = (entryId: number) => `contadesk-entry-${entryId}`;
+export const externalIdFor = (entryId: number) => `contai-entry-${entryId}`;
 
 /**
  * Dispatches approved entries of a company to CentralGest. Skips entries

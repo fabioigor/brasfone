@@ -8,7 +8,7 @@ import { startCentralGestMock } from "./integrations/centralgest-mock.js";
 import { DocumentOcr } from "./ocr/engine.js";
 
 const PORT = Number(process.env.PORT || 3000);
-const DB_PATH = process.env.DB_PATH || path.join("data", "contadesk.db");
+const DB_PATH = process.env.DB_PATH || path.join("data", "contai.db");
 const STORAGE_ROOT = process.env.STORAGE_ROOT || path.join("data", "arquivo");
 
 async function main(): Promise<void> {
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   const app = createServer({ db, provider: buildProvider(), storageRoot: STORAGE_ROOT, centralgest, ocr });
 
   app.listen(PORT, () => {
-    console.log(`ContaDesk a escutar em http://localhost:${PORT}`);
+    console.log(`Cont.ai a escutar em http://localhost:${PORT}`);
     console.log(`Fornecedor de IA: ${process.env.ANTHROPIC_API_KEY ? "Anthropic (claude-haiku-4-5)" : "heurístico local"}`);
     console.log(`CentralGest: ${centralgestLabel}`);
     console.log(`OCR: ${ocr.engines.join(" > ")}`);

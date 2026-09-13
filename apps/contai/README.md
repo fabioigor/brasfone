@@ -1,11 +1,11 @@
-# ContaDesk
+# Cont.ai
 
 Portal digital para gabinetes de contabilidade, inspirado no Kangaroo Files: recepção de documentos dos clientes, classificação automática, arquivo digital organizado (Decreto-Lei 28/2019), geração de lançamentos contabilísticos com validação humana obrigatória, lançamento directo no CentralGest por API (com servidor MCP para agentes de IA) e exportação para Cegid Primavera.
 
 ## Funcionalidades
 
 - **Portal do cliente:** cada empresa cliente tem acesso próprio para carregar documentos, ver o estado do processamento e responder a pedidos do gabinete.
-- **OCR de PDFs e imagens:** PDFs com camada de texto são lidos directamente (pdfjs, layout preservado); digitalizações e fotografias (PNG, JPG, WebP, TIFF, PDF sem texto) passam por OCR: Claude visão (SDK oficial, modelo `claude-opus-5` por omissão, configurável com `CONTADESK_OCR_MODEL`) quando há `ANTHROPIC_API_KEY`, senão Tesseract local em WASM (português + inglês, dados de língua em cache em `data/tesseract`). PDFs digitalizados são rasterizados com `@napi-rs/canvas`. Confiança baixa gera o alerta `OCR_CONFIANCA_BAIXA`; ficheiros sem texto extraível geram `TEXTO_NAO_EXTRAIDO`. O texto e o método ficam guardados e visíveis (botão "Texto"), e qualquer documento pode ser reprocessado com os motores actuais.
+- **OCR de PDFs e imagens:** PDFs com camada de texto são lidos directamente (pdfjs, layout preservado); digitalizações e fotografias (PNG, JPG, WebP, TIFF, PDF sem texto) passam por OCR: Claude visão (SDK oficial, modelo `claude-opus-5` por omissão, configurável com `CONTAI_OCR_MODEL`) quando há `ANTHROPIC_API_KEY`, senão Tesseract local em WASM (português + inglês, dados de língua em cache em `data/tesseract`). PDFs digitalizados são rasterizados com `@napi-rs/canvas`. Confiança baixa gera o alerta `OCR_CONFIANCA_BAIXA`; ficheiros sem texto extraível geram `TEXTO_NAO_EXTRAIDO`. O texto e o método ficam guardados e visíveis (botão "Texto"), e qualquer documento pode ser reprocessado com os motores actuais.
 - **Classificação automática:** cada documento é classificado (factura de compra/venda, recibo, nota de crédito, extracto bancário, despesa) com extracção de NIF, data, número de documento, base tributável, IVA e total. A direcção compra/venda decide-se comparando o NIF emissor com o NIF da empresa.
 - **Arquivo digital:** os ficheiros são arquivados por empresa/ano/mês/tipo, com deduplicação por hash SHA-256 (o mesmo ficheiro nunca entra duas vezes).
 - **Lançamentos propostos:** o motor gera lançamentos SNC balanceados (clientes 211, fornecedores 221, IVA dedutível 2432, IVA liquidado 2433, FSE 62, prestações de serviços 721) com grau de confiança. Nada é exportado sem aprovação humana.
@@ -31,27 +31,27 @@ Toda a inteligência passa pelo módulo `src/ai/provider.ts`. Por omissão usa o
 
 ## Servidor MCP (lançar documentação no CentralGest via agentes de IA)
 
-O ContaDesk inclui um servidor MCP (Model Context Protocol) em `src/mcp/server.ts` que expõe o pipeline completo a agentes como o Claude:
+O Cont.ai inclui um servidor MCP (Model Context Protocol) em `src/mcp/server.ts` que expõe o pipeline completo a agentes como o Claude:
 
 | Ferramenta | Função |
 |---|---|
-| `contadesk_estado` | Contagens por estado + teste de ligação ao CentralGest |
-| `contadesk_listar_empresas` | Empresas clientes com NIF e código CentralGest |
-| `contadesk_definir_codigo_centralgest` | Mapear empresa → código CentralGest |
-| `contadesk_listar_documentos` | Documentos com tipo, estado e dados extraídos |
-| `contadesk_processar_documento` | Ler (OCR se necessário), classificar e conferir um ficheiro PDF/imagem/texto e propor o lançamento SNC |
-| `contadesk_texto_documento` / `contadesk_reprocessar_documento` | Ver o texto extraído e reprocessar com os motores actuais |
-| `contadesk_listar_lancamentos` | Lançamentos com linhas, por estado |
-| `contadesk_decidir_lancamento` | Aprovar (com edição de linhas) ou rejeitar com motivo |
+| `contai_estado` | Contagens por estado + teste de ligação ao CentralGest |
+| `contai_listar_empresas` | Empresas clientes com NIF e código CentralGest |
+| `contai_definir_codigo_centralgest` | Mapear empresa → código CentralGest |
+| `contai_listar_documentos` | Documentos com tipo, estado e dados extraídos |
+| `contai_processar_documento` | Ler (OCR se necessário), classificar e conferir um ficheiro PDF/imagem/texto e propor o lançamento SNC |
+| `contai_texto_documento` / `contai_reprocessar_documento` | Ver o texto extraído e reprocessar com os motores actuais |
+| `contai_listar_lancamentos` | Lançamentos com linhas, por estado |
+| `contai_decidir_lancamento` | Aprovar (com edição de linhas) ou rejeitar com motivo |
 | `centralgest_lancar` | Enviar os aprovados para o CentralGest (idempotente) |
 | `centralgest_listar_despachos` | Historial de despachos com números remotos e erros |
-| `contadesk_conferir_documentos` | Reexecutar a conferência de IVA/coerência/duplicados |
-| `contadesk_listar_alertas` / `contadesk_resolver_alerta` | Gerir alertas de documentos e balancetes |
-| `contadesk_segunda_opiniao_iva` | Segunda opinião do agente fiscal sobre um alerta |
-| `contadesk_importar_balancete` / `contadesk_conferir_balancete` | Balancetes e padrões |
-| `contadesk_listar_padroes` / `contadesk_definir_padrao` | Configurar padrões de conferência |
-| `contadesk_gerar_relatorio` | Relatório financeiro com comparação sectorial |
-| `contadesk_conhecimento_fiscal` | Versão e estado das regras de IVA e benchmarks |
+| `contai_conferir_documentos` | Reexecutar a conferência de IVA/coerência/duplicados |
+| `contai_listar_alertas` / `contai_resolver_alerta` | Gerir alertas de documentos e balancetes |
+| `contai_segunda_opiniao_iva` | Segunda opinião do agente fiscal sobre um alerta |
+| `contai_importar_balancete` / `contai_conferir_balancete` | Balancetes e padrões |
+| `contai_listar_padroes` / `contai_definir_padrao` | Configurar padrões de conferência |
+| `contai_gerar_relatorio` | Relatório financeiro com comparação sectorial |
+| `contai_conhecimento_fiscal` | Versão e estado das regras de IVA e benchmarks |
 
 Toda a escrita no CentralGest passa pelo despachante determinístico e idempotente; o mesmo lançamento nunca é enviado duas vezes, mesmo que o agente repita a ferramenta.
 
@@ -60,10 +60,10 @@ Configuração no Claude Code / Claude Desktop:
 ```json
 {
   "mcpServers": {
-    "contadesk": {
+    "contai": {
       "command": "npx",
       "args": ["tsx", "src/mcp/server.ts"],
-      "cwd": "<repo>/apps/contadesk",
+      "cwd": "<repo>/apps/contai",
       "env": {
         "CENTRALGEST_BASE_URL": "https://<url-da-api>",
         "CENTRALGEST_API_KEY": "<chave>"
@@ -78,7 +78,7 @@ Para experimentar sem credenciais reais: `CENTRALGEST_MOCK=1` arranca um Central
 ## Como correr
 
 ```bash
-cd apps/contadesk
+cd apps/contai
 npm install
 npm start          # http://localhost:3000
 ```
@@ -91,7 +91,7 @@ Contas de demonstração (criadas no primeiro arranque):
 | João Padeiro | padaria@demo.pt | cliente123 | Cliente (Padaria Central Lda) |
 | Ana Silva | tecnonorte@demo.pt | cliente123 | Cliente (TecnoNorte Unipessoal Lda) |
 
-Variáveis de ambiente: `PORT` (3000), `DB_PATH` (`data/contadesk.db`), `STORAGE_ROOT` (`data/arquivo`), `JWT_SECRET` (obrigatória em produção), `ANTHROPIC_API_KEY` (opcional), `CENTRALGEST_BASE_URL` + `CENTRALGEST_API_KEY` (API CentralGest) ou `CENTRALGEST_MOCK=1` (simulador local), `CONTADESK_OCR_MODEL` (modelo de visão), `TESSERACT_CACHE_PATH` / `TESSERACT_LANG_PATH` (dados de língua; por omissão descarregados uma vez para `data/tesseract`), `CONTADESK_DISABLE_TESSERACT=1` (desligar OCR local).
+Variáveis de ambiente: `PORT` (3000), `DB_PATH` (`data/contai.db`), `STORAGE_ROOT` (`data/arquivo`), `JWT_SECRET` (obrigatória em produção), `ANTHROPIC_API_KEY` (opcional), `CENTRALGEST_BASE_URL` + `CENTRALGEST_API_KEY` (API CentralGest) ou `CENTRALGEST_MOCK=1` (simulador local), `CONTAI_OCR_MODEL` (modelo de visão), `TESSERACT_CACHE_PATH` / `TESSERACT_LANG_PATH` (dados de língua; por omissão descarregados uma vez para `data/tesseract`), `CONTAI_DISABLE_TESSERACT=1` (desligar OCR local).
 
 ## Testes
 

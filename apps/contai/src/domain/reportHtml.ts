@@ -125,6 +125,6 @@ ${costChart(d.costStructure, totalCosts)}
 ${d.narrative.map((par) => `<p>${esc(par)}</p>`).join("\n")}
 <h2>Tabela de rácios</h2>
 <div class="tblwrap"><table><thead><tr><th>Rácio</th><th class="num">Empresa</th><th class="num">Sector</th><th>Leitura</th></tr></thead><tbody>${table}</tbody></table></div>
-<div class="foot">${d.sector ? `Referências sectoriais: ${esc(d.sector.source)}. ${esc(d.sector.disclaimer)}<br>` : ""}Gerado por ContaDesk em ${esc(d.generatedAt.slice(0, 16).replace("T", " "))}. Documento informativo; não substitui as demonstrações financeiras oficiais.</div>
+<div class="foot">${d.sector ? `Referências sectoriais: ${esc(d.sector.source)}. ${esc(d.sector.disclaimer)}<br>` : ""}Gerado por Cont.ai em ${esc(d.generatedAt.slice(0, 16).replace("T", " "))}. Documento informativo; não substitui as demonstrações financeiras oficiais.</div>
 </div></body></html>`;
 }

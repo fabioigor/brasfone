@@ -1,13 +1,13 @@
 /**
- * ContaDesk MCP server (stdio).
+ * Cont.ai MCP server (stdio).
  *
- * Exposes the ContaDesk pipeline and the CentralGest integration as MCP
+ * Exposes the Cont.ai pipeline and the CentralGest integration as MCP
  * tools, so an AI agent can receive documents, review the proposed entries
  * and post them into CentralGest automatically. Writing to CentralGest goes
  * exclusively through the deterministic, idempotent dispatcher: the same
  * entry can never be posted twice.
  *
- * Run: npm run mcp   (from apps/contadesk)
+ * Run: npm run mcp   (from apps/contai)
  * Env: DB_PATH, STORAGE_ROOT, CENTRALGEST_BASE_URL + CENTRALGEST_API_KEY,
  *      or CENTRALGEST_MOCK=1 for the local simulator.
  */
@@ -58,7 +58,7 @@ const fail = (message: string) => ({
 });
 
 export function buildMcpServer(ctx: McpContext): McpServer {
-  const server = new McpServer({ name: "contadesk", version: "0.3.0" });
+  const server = new McpServer({ name: "contai", version: "0.3.0" });
   const { db, storageRoot } = ctx;
   const provider = buildProvider();
   const agents = new AgentGateway();
@@ -74,9 +74,9 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   };
 
   server.registerTool(
-    "contadesk_estado",
+    "contai_estado",
     {
-      title: "Estado do ContaDesk e da ligacao CentralGest",
+      title: "Estado do Cont.ai e da ligacao CentralGest",
       description:
         "Devolve contagens de documentos e lancamentos por estado e testa a ligacao ao CentralGest (lista de empresas remotas). Use primeiro para perceber o que ha por fazer.",
       inputSchema: {},
@@ -103,7 +103,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_listar_empresas",
+    "contai_listar_empresas",
     {
       title: "Listar empresas clientes",
       description:
@@ -120,13 +120,13 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_definir_codigo_centralgest",
+    "contai_definir_codigo_centralgest",
     {
       title: "Definir codigo CentralGest de uma empresa",
       description:
         "Associa uma empresa cliente ao seu codigo de empresa no CentralGest. Sem este mapeamento nao e possivel lancar documentos dessa empresa.",
       inputSchema: {
-        company_id: z.number().int().positive().describe("Id da empresa no ContaDesk"),
+        company_id: z.number().int().positive().describe("Id da empresa no Cont.ai"),
         centralgest_code: z.string().min(1).describe("Codigo da empresa no CentralGest, ex.: PADARIA"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -135,13 +135,13 @@ export function buildMcpServer(ctx: McpContext): McpServer {
       const r = db
         .prepare("UPDATE companies SET centralgest_code = ? WHERE id = ?")
         .run(centralgest_code.trim(), company_id);
-      if (r.changes === 0) return fail(`Empresa ${company_id} inexistente. Use contadesk_listar_empresas.`);
+      if (r.changes === 0) return fail(`Empresa ${company_id} inexistente. Use contai_listar_empresas.`);
       return ok({ company_id, centralgest_code: centralgest_code.trim() });
     }
   );
 
   server.registerTool(
-    "contadesk_listar_documentos",
+    "contai_listar_documentos",
     {
       title: "Listar documentos",
       description:
@@ -180,7 +180,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_processar_documento",
+    "contai_processar_documento",
     {
       title: "Processar um documento (classificar e propor lancamento)",
       description:
@@ -223,7 +223,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_listar_lancamentos",
+    "contai_listar_lancamentos",
     {
       title: "Listar lancamentos",
       description:
@@ -257,7 +257,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_decidir_lancamento",
+    "contai_decidir_lancamento",
     {
       title: "Aprovar ou rejeitar um lancamento pendente",
       description:
@@ -282,7 +282,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     },
     async ({ entry_id, action, reason, lines }) => {
       const entry = db.prepare("SELECT * FROM entries WHERE id = ?").get(entry_id) as any;
-      if (!entry) return fail(`Lancamento ${entry_id} inexistente. Use contadesk_listar_lancamentos.`);
+      if (!entry) return fail(`Lancamento ${entry_id} inexistente. Use contai_listar_lancamentos.`);
       if (entry.status !== "pendente") {
         return fail(`Lancamento ${entry_id} ja esta '${entry.status}'; so pendentes podem ser decididos.`);
       }
@@ -330,7 +330,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
         if (outcomes.length === 0) {
           return ok({
             resultado: [],
-            nota: "Nada por lancar: nao ha lancamentos aprovados pendentes de despacho para esta empresa. Use contadesk_listar_lancamentos com status 'pendente' para ver o que aguarda aprovacao.",
+            nota: "Nada por lancar: nao ha lancamentos aprovados pendentes de despacho para esta empresa. Use contai_listar_lancamentos com status 'pendente' para ver o que aguarda aprovacao.",
           });
         }
         return ok({ resultado: outcomes });
@@ -369,7 +369,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
 
 
   server.registerTool(
-    "contadesk_texto_documento",
+    "contai_texto_documento",
     {
       title: "Texto extraido de um documento (OCR)",
       description:
@@ -385,7 +385,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_reprocessar_documento",
+    "contai_reprocessar_documento",
     {
       title: "Reprocessar um documento (OCR + classificacao + conferencia)",
       description:
@@ -404,7 +404,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
 
   // ---------- Agentes: conferência, balancetes, relatórios ----------
   server.registerTool(
-    "contadesk_conferir_documentos",
+    "contai_conferir_documentos",
     {
       title: "Conferir lancamentos (IVA, coerencia, duplicados)",
       description:
@@ -429,7 +429,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_listar_alertas",
+    "contai_listar_alertas",
     {
       title: "Listar alertas de conferencia",
       description:
@@ -456,7 +456,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_resolver_alerta",
+    "contai_resolver_alerta",
     {
       title: "Resolver ou ignorar um alerta",
       description: "Fecha um alerta aberto como 'resolvido' (corrigido) ou 'ignorado' (falso positivo), com nota opcional.",
@@ -477,7 +477,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_segunda_opiniao_iva",
+    "contai_segunda_opiniao_iva",
     {
       title: "Segunda opiniao de IA sobre um alerta de IVA",
       description:
@@ -500,11 +500,11 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_importar_balancete",
+    "contai_importar_balancete",
     {
       title: "Importar ou derivar um balancete",
       description:
-        "Guarda o balancete de um periodo (AAAA ou AAAA-MM) a partir de CSV (conta;descricao;debito;credito[;saldo]) exportado do software de contabilidade, ou deriva-o dos lancamentos aprovados no ContaDesk quando csv nao e fornecido.",
+        "Guarda o balancete de um periodo (AAAA ou AAAA-MM) a partir de CSV (conta;descricao;debito;credito[;saldo]) exportado do software de contabilidade, ou deriva-o dos lancamentos aprovados no Cont.ai quando csv nao e fornecido.",
       inputSchema: {
         company_id: z.number().int().positive(),
         period: z.string().regex(/^\d{4}(-\d{2})?$/),
@@ -535,7 +535,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_conferir_balancete",
+    "contai_conferir_balancete",
     {
       title: "Conferir balancete contra os padroes",
       description:
@@ -545,7 +545,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     },
     async ({ company_id, period }) => {
       const tb = loadTrialBalance(db, company_id, period);
-      if (!tb) return fail(`Nao existe balancete ${period} para a empresa ${company_id}. Use contadesk_importar_balancete primeiro.`);
+      if (!tb) return fail(`Nao existe balancete ${period} para a empresa ${company_id}. Use contai_importar_balancete primeiro.`);
       const prev = loadTrialBalance(db, company_id, previousPeriod(period));
       const findings = evaluateRules(listRules(db, company_id), tb.lines, prev?.lines ?? null);
       persistBalanceFindings(db, company_id, period, findings);
@@ -554,7 +554,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_listar_padroes",
+    "contai_listar_padroes",
     {
       title: "Listar padroes de conferencia de balancetes",
       description: "Lista os padroes (globais e da empresa) usados na conferencia de balancetes, com tipo, contas, limiar e gravidade.",
@@ -565,7 +565,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_definir_padrao",
+    "contai_definir_padrao",
     {
       title: "Criar um padrao de conferencia",
       description:
@@ -590,7 +590,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_gerar_relatorio",
+    "contai_gerar_relatorio",
     {
       title: "Gerar relatorio financeiro para o cliente",
       description:
@@ -622,7 +622,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
-    "contadesk_conhecimento_fiscal",
+    "contai_conhecimento_fiscal",
     {
       title: "Estado do conhecimento fiscal (taxas de IVA, listas, benchmarks)",
       description:
@@ -640,7 +640,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
 }
 
 async function main(): Promise<void> {
-  const dbPath = process.env.DB_PATH || path.join("data", "contadesk.db");
+  const dbPath = process.env.DB_PATH || path.join("data", "contai.db");
   const storageRoot = process.env.STORAGE_ROOT || path.join("data", "arquivo");
   const db = openDb(dbPath);
   seedDemo(db);
@@ -649,7 +649,7 @@ async function main(): Promise<void> {
   if (!centralgest && process.env.CENTRALGEST_MOCK === "1") {
     const mock = await startCentralGestMock("chave-demo");
     centralgest = new CentralGestClient({ baseUrl: mock.baseUrl, apiKey: "chave-demo" });
-    console.error(`[contadesk-mcp] CentralGest simulado em ${mock.baseUrl}`);
+    console.error(`[contai-mcp] CentralGest simulado em ${mock.baseUrl}`);
   }
 
   const server = buildMcpServer({ db, storageRoot, centralgest });
@@ -659,7 +659,7 @@ async function main(): Promise<void> {
   transport.onclose = () => process.exit(0);
   process.stdin.on("end", () => process.exit(0));
   await server.connect(transport);
-  console.error("[contadesk-mcp] servidor MCP activo (stdio)");
+  console.error("[contai-mcp] servidor MCP activo (stdio)");
 }
 
 const isDirectRun = process.argv[1] && /mcp[\/\\]server\.ts$/.test(process.argv[1]);

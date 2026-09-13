@@ -24,7 +24,7 @@ Cada empresa cliente tem um `centralgest_code` (código da empresa no CentralGes
 
 ```json
 {
-  "idExterno": "contadesk-entry-42",
+  "idExterno": "contai-entry-42",
   "diario": "Compras",
   "dataDocumento": "2026-07-15",
   "descricao": "Factura de compra FT A/2026-0147",
@@ -41,7 +41,7 @@ Cada empresa cliente tem um `centralgest_code` (código da empresa no CentralGes
 ## Idempotência (duas camadas)
 
 1. **Local:** a tabela `dispatches` guarda `entry_id` único por canal; um lançamento despachado nunca volta a ser enviado, e lançamentos exportados por CSV também não vão para o CentralGest (uma única via de entrega por lançamento).
-2. **Remota:** o `idExterno` (`contadesk-entry-<id>`) permite ao CentralGest rejeitar duplicados se alguma vez houver reenvio; a resposta 409 é registada como já lançado.
+2. **Remota:** o `idExterno` (`contai-entry-<id>`) permite ao CentralGest rejeitar duplicados se alguma vez houver reenvio; a resposta 409 é registada como já lançado.
 
 ## Pontos a confirmar com a documentação oficial
 
