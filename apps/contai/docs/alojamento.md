@@ -62,6 +62,7 @@ Sem estes elementos não é possível fazer o deploy; com eles, o primeiro ambie
 | 1 | Conta **Fly.io** (ou Railway/Render/VPS) com cartão associado, e um utilizador com permissões de deploy | Alojar o contentor e o volume de 10 GB numa região da UE (Paris) | Lumarcont |
 | 2 | **Domínio** (ex.: `app.contai.pt` ou `contai.lumarcont.pt`) e acesso ao DNS para criar um registo CNAME/A | URL pública com HTTPS para utilizadores e webhooks | Lumarcont |
 | 3 | `JWT_SECRET` gerado (`openssl rand -hex 32`) | Sessões dos utilizadores | gerado no deploy |
+| 3b | `CONTAI_ADMIN_EMAIL` + `CONTAI_ADMIN_PASSWORD` | Primeira conta do gabinete (em produção não há contas de demonstração); alterar a palavra-passe em "A minha conta" após o primeiro login | definido no deploy |
 | 4 | Palavras-passe iniciais do gabinete e lista de empresas clientes (nome, NIF, CAE, regime de IVA) | Substituir as contas de demonstração | Lumarcont |
 
 ### Para o OCR e os agentes com IA
@@ -150,7 +151,7 @@ docker compose -f docker-compose.vps.yml up -d --build
 # 1. Token: Hetzner Console -> projecto -> Security -> API tokens -> Generate (Read & Write)
 export HCLOUD_TOKEN=...
 # 2. Segredos da app
-cp .env.example /tmp/contai.env && nano /tmp/contai.env     # pelo menos JWT_SECRET
+cp .env.example /tmp/contai.env && nano /tmp/contai.env     # pelo menos JWT_SECRET, CONTAI_ADMIN_EMAIL e CONTAI_ADMIN_PASSWORD
 # 3. Criar (por omissao: cx33 em Nuremberga; se nao houver capacidade, SERVER_TYPE=cx23 LOCATION=hel1; DOMAIN vazio = HTTP por IP para testar)
 ENV_FILE=/tmp/contai.env DOMAIN=app.contai.pt ADMIN_PUBKEY_FILE=~/.ssh/id_ed25519.pub ./deploy/hetzner-create.sh
 ```

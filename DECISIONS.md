@@ -2,6 +2,12 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-13 — Sem contas de demonstração em produção; administração por variáveis de ambiente
+
+- **Decisão:** com `NODE_ENV=production` a app não semeia as contas de demonstração (`gabinete@demo.pt`, etc., com palavras-passe públicas no README); a primeira conta do gabinete é criada uma só vez a partir de `CONTAI_ADMIN_EMAIL` + `CONTAI_ADMIN_PASSWORD`, e cada utilizador pode alterar a sua palavra-passe em "A minha conta" (`POST /api/auth/password`, registado no audit log). `CONTAI_SEED_DEMO=1` força a demonstração (formação, ambientes de teste). A página de login só mostra as credenciais de demonstração quando o servidor as tem (`GET /api/public-config`).
+- **Contexto:** o primeiro arranque em produção no Hetzner ficou acessível na Internet com as contas de demonstração; o servidor foi recriado de raiz com esta alteração. Regras de conferência de balancetes continuam a ser semeadas em qualquer ambiente.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-13 — Alojamento: Hetzner (infra-estrutura existente da Lumarcont)
 
 - **Facto a reter:** a Lumarcont **já tem servidores no Hetzner**. Qualquer recomendação futura de alojamento, backups, base de dados ou object storage deve partir desta infra-estrutura (Hetzner Cloud/Dedicated, Hetzner Object Storage, snapshots Hetzner) antes de considerar outros fornecedores.

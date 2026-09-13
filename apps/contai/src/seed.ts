@@ -25,6 +25,27 @@ export function seedDemo(db: Db): void {
   insertUser.run("tecnonorte@demo.pt", "Ana Silva", hashPassword("cliente123"), "client", c2);
 }
 
+/**
+ * Creates (once) the first staff account of a real deployment from the environment.
+ * Idempotent: an existing account with the same email is never touched, so the
+ * variables can stay in .env without resetting the password on every restart.
+ */
+export function bootstrapAdmin(db: Db, email: string, password: string): "created" | "exists" {
+  const normalised = email.trim().toLowerCase();
+  const exists = db.prepare("SELECT id FROM users WHERE email = ?").get(normalised);
+  if (exists) return "exists";
+  db.prepare("INSERT INTO users (email, name, password_hash, role, company_id) VALUES (?, ?, ?, 'staff', NULL)")
+    .run(normalised, "Administração", hashPassword(password));
+  return "created";
+}
+
+/** Demo data is seeded outside production, or when explicitly requested (CONTAI_SEED_DEMO=1). */
+export function demoModeFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.CONTAI_SEED_DEMO === "1") return true;
+  if (env.CONTAI_SEED_DEMO === "0") return false;
+  return env.NODE_ENV !== "production";
+}
+
 // Executable directly: npm run seed
 if (process.argv[1] && process.argv[1].endsWith("seed.ts")) {
   const db = openDb(process.env.DB_PATH || "data/contai.db");

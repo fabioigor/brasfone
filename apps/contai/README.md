@@ -89,7 +89,7 @@ npm install
 npm start          # http://localhost:3000
 ```
 
-Contas de demonstração (criadas no primeiro arranque):
+Contas de demonstração (criadas no primeiro arranque **fora de produção**; em produção, `NODE_ENV=production`, não são criadas e a primeira conta do gabinete vem de `CONTAI_ADMIN_EMAIL` + `CONTAI_ADMIN_PASSWORD`; `CONTAI_SEED_DEMO=1` força a demonstração):
 
 | Utilizador | Email | Palavra-passe | Papel |
 |---|---|---|---|
@@ -97,7 +97,7 @@ Contas de demonstração (criadas no primeiro arranque):
 | João Padeiro | padaria@demo.pt | cliente123 | Cliente (Padaria Central Lda) |
 | Ana Silva | tecnonorte@demo.pt | cliente123 | Cliente (TecnoNorte Unipessoal Lda) |
 
-Variáveis de ambiente: `PORT` (3000), `DB_PATH` (`data/contai.db`), `STORAGE_ROOT` (`data/arquivo`), `JWT_SECRET` (obrigatória em produção), `ANTHROPIC_API_KEY` (opcional), `CENTRALGEST_BASE_URL` + `CENTRALGEST_API_KEY` (API CentralGest) ou `CENTRALGEST_MOCK=1` (simulador local), `CONTAI_OCR_MODEL` (modelo de visão), `TESSERACT_CACHE_PATH` / `TESSERACT_LANG_PATH` (dados de língua; por omissão descarregados uma vez para `data/tesseract`), `CONTAI_DISABLE_TESSERACT=1` (desligar OCR local), `CONTAI_DISABLE_AI_EXTRACTION=1` (desligar extracção estruturada), `INBOUND_EMAIL_SECRET`, `IMAP_*`, `WHATSAPP_*` (canais; ver `docs/canais.md`).
+Variáveis de ambiente: `PORT` (3000), `DB_PATH` (`data/contai.db`), `STORAGE_ROOT` (`data/arquivo`), `JWT_SECRET` (obrigatória em produção), `CONTAI_ADMIN_EMAIL` + `CONTAI_ADMIN_PASSWORD` (conta de administração criada uma só vez no arranque; a palavra-passe muda-se depois em "A minha conta"), `CONTAI_SEED_DEMO` (dados de demonstração: por omissão só fora de produção), `ANTHROPIC_API_KEY` (opcional), `CENTRALGEST_BASE_URL` + `CENTRALGEST_API_KEY` (API CentralGest) ou `CENTRALGEST_MOCK=1` (simulador local), `CONTAI_OCR_MODEL` (modelo de visão), `TESSERACT_CACHE_PATH` / `TESSERACT_LANG_PATH` (dados de língua; por omissão descarregados uma vez para `data/tesseract`), `CONTAI_DISABLE_TESSERACT=1` (desligar OCR local), `CONTAI_DISABLE_AI_EXTRACTION=1` (desligar extracção estruturada), `INBOUND_EMAIL_SECRET`, `IMAP_*`, `WHATSAPP_*` (canais; ver `docs/canais.md`).
 
 ## Testes
 

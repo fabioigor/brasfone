@@ -60,6 +60,8 @@ export interface ServerOptions {
   whatsapp?: WhatsAppConfig | null;
   /** Injected for tests (media download / replies). */
   whatsappFetch?: typeof fetch;
+  /** Demo accounts are seeded: the login page may show their credentials. */
+  demo?: boolean;
 }
 
 const upload = multer({
@@ -73,6 +75,7 @@ export function createServer({
   inboundEmailSecret = process.env.INBOUND_EMAIL_SECRET ?? null,
   whatsapp = whatsappConfigFromEnv(),
   whatsappFetch = fetch,
+  demo = false,
 }: ServerOptions): express.Express {
   const app = express();
   // Raw body is needed to validate the Meta signature; keep it for webhooks only.
@@ -92,6 +95,8 @@ export function createServer({
   const auth = authenticate(db);
 
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
+  // Public, non-sensitive settings needed before login.
+  app.get("/api/public-config", (_req, res) => res.json({ demo, brand: "Cont.ai by Lumarcont" }));
 
   // ---------- Autenticacao ----------
   app.post("/api/auth/login", (req: Request, res: Response) => {
@@ -115,6 +120,18 @@ export function createServer({
   });
 
   app.get("/api/me", auth, (req, res) => res.json({ user: req.user }));
+
+  app.post("/api/auth/password", auth, (req, res) => {
+    const body = z.object({ current: z.string().min(1), next: z.string().min(10).max(200) }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "A nova palavra-passe tem de ter pelo menos 10 caracteres." });
+    const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(req.user!.id) as any;
+    if (!row || !verifyPassword(body.data.current, row.password_hash)) {
+      return res.status(401).json({ error: "A palavra-passe actual não está correcta." });
+    }
+    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(body.data.next), req.user!.id);
+    audit(db, req.user!.id, "password_change", "user", req.user!.id);
+    return res.json({ ok: true });
+  });
 
   // ---------- Empresas (clientes do gabinete) ----------
   app.get("/api/companies", auth, (req, res) => {

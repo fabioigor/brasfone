@@ -1,6 +1,7 @@
 import path from "node:path";
 import { openDb } from "./db.js";
-import { seedDemo } from "./seed.js";
+import { seedDemo, bootstrapAdmin, demoModeFromEnv } from "./seed.js";
+import { seedDefaultRules } from "./domain/balanceRules.js";
 import { buildProvider } from "./ai/provider.js";
 import { createServer } from "./server.js";
 import { CentralGestClient } from "./integrations/centralgest.js";
@@ -16,7 +17,14 @@ const STORAGE_ROOT = process.env.STORAGE_ROOT || path.join("data", "arquivo");
 
 async function main(): Promise<void> {
   const db = openDb(DB_PATH);
-  seedDemo(db);
+  seedDefaultRules(db);
+  const demo = demoModeFromEnv();
+  if (demo) seedDemo(db);
+  let adminLabel = "sem conta de administração definida (CONTAI_ADMIN_EMAIL / CONTAI_ADMIN_PASSWORD)";
+  if (process.env.CONTAI_ADMIN_EMAIL && process.env.CONTAI_ADMIN_PASSWORD) {
+    const r = bootstrapAdmin(db, process.env.CONTAI_ADMIN_EMAIL, process.env.CONTAI_ADMIN_PASSWORD);
+    adminLabel = `${process.env.CONTAI_ADMIN_EMAIL} (${r === "created" ? "criada agora" : "já existia"})`;
+  }
 
   let centralgest = CentralGestClient.fromEnv();
   let centralgestLabel = "não configurado";
@@ -31,7 +39,7 @@ async function main(): Promise<void> {
   const ocr = DocumentOcr.fromEnv();
   const provider = buildProvider();
   const structured = buildStructuredExtractor();
-  const app = createServer({ db, provider, storageRoot: STORAGE_ROOT, centralgest, ocr, structured });
+  const app = createServer({ db, provider, storageRoot: STORAGE_ROOT, centralgest, ocr, structured, demo });
 
   const imap = imapConfigFromEnv();
   if (imap) {
@@ -44,6 +52,7 @@ async function main(): Promise<void> {
   }
 
   app.listen(PORT, () => {
+    console.log(`Contas: ${demo ? "dados de demonstração activos" : "sem dados de demonstração"}; administração: ${adminLabel}`);
     console.log(`Cont.ai a escutar em http://localhost:${PORT}`);
     console.log(`Fornecedor de IA: ${process.env.ANTHROPIC_API_KEY ? "Anthropic (claude-haiku-4-5)" : "heurístico local"}`);
     console.log(`CentralGest: ${centralgestLabel}`);

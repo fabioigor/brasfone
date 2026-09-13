@@ -1046,6 +1046,45 @@ function triageEntry(e) {
   ]);
 }
 
+/* ---------- conta ---------- */
+
+async function viewAccount(main) {
+  main.append(el("h2", {}, "A minha conta"));
+  const info = el("div", { class: "card" });
+  info.append(el("p", {}, [el("strong", {}, user.name), " · " + user.email + " · " + (user.role === "staff" ? "gabinete" : "cliente")]));
+  main.append(info);
+
+  const card = el("div", { class: "card" });
+  card.append(el("h2", {}, "Alterar palavra-passe"));
+  card.append(el("p", { class: "muted small" }, "Mínimo de 10 caracteres. Depois de alterar, volte a entrar nos outros dispositivos."));
+  const cur = el("input", { type: "password", autocomplete: "current-password", required: "" });
+  const nxt = el("input", { type: "password", autocomplete: "new-password", required: "", minlength: "10" });
+  const rep = el("input", { type: "password", autocomplete: "new-password", required: "", minlength: "10" });
+  const btn = el("button", { class: "btn primary", type: "submit" }, "Guardar");
+  const form = el("form", { class: "form-col" }, [
+    el("label", {}, ["Palavra-passe actual", cur]),
+    el("label", {}, ["Nova palavra-passe", nxt]),
+    el("label", {}, ["Repetir a nova palavra-passe", rep]),
+    btn,
+  ]);
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (nxt.value !== rep.value) { toast("As duas palavras-passe não coincidem.", true); return; }
+    btn.disabled = true;
+    try {
+      await api("/api/auth/password", { method: "POST", json: { current: cur.value, next: nxt.value } });
+      toast("Palavra-passe alterada.");
+      cur.value = nxt.value = rep.value = "";
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  card.append(form);
+  main.append(card);
+}
+
 /* ---------- navegacao ---------- */
 
 const ROUTES = {
@@ -1060,6 +1099,7 @@ const ROUTES = {
   painel: { label: "Indicadores e prazos", ico: "◷", group: "Análise", view: viewDashboard, roles: ["staff", "client"] },
   empresas: { label: "Empresas", ico: "⌂", group: "Configuração", view: viewCompanies, roles: ["staff"] },
   exportacao: { label: "Entrega", ico: "⇪", group: "Configuração", view: viewExport, roles: ["staff"] },
+  conta: { label: "A minha conta", ico: "☺", group: "Configuração", view: viewAccount, roles: ["staff", "client"] },
 };
 
 function currentRoute() {
@@ -1134,6 +1174,8 @@ $("#login-form").addEventListener("submit", async (ev) => {
 });
 
 $("#logout-btn").addEventListener("click", logout);
+// A dica de credenciais de demonstração só aparece quando o servidor tem os dados de demonstração.
+fetch("/api/public-config").then((r) => r.json()).then((c) => { if (c.demo) $("#demo-hint").hidden = false; }).catch(() => {});
 (function initTheme() {
   let saved = null;
   try { saved = localStorage.getItem("cd_theme"); } catch (e) { /* ignore */ }
