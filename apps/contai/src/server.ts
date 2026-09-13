@@ -110,6 +110,17 @@ export function createServer({
   const auth = authenticate(db);
 
   app.get("/health", (_req, res) => res.json({ status: "ok", version: APP_VERSION }));
+
+  // Digital Asset Links: liga a app Android (Trusted Web Activity) a este dominio.
+  app.get("/.well-known/assetlinks.json", (_req, res) => {
+    const pkg = (process.env.ANDROID_PACKAGE || "pt.lumarcont.contai").trim();
+    const fps = (process.env.ANDROID_SHA256_FINGERPRINTS || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    if (!fps.length) return res.status(404).json({ error: "Sem impressões SHA-256 configuradas (Configuração > Integrações > Aplicação Android)." });
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    return res.json([{ relation: ["delegate_permission/common.handle_all_urls"], target: { namespace: "android_app", package_name: pkg, sha256_cert_fingerprints: fps } }]);
+  });
+  // Sem service worker activo, a partilha do Android cai aqui: abre a digitalizacao.
+  app.all("/share-target", (_req, res) => res.redirect(303, "/#digitalizar"));
   // Public, non-sensitive settings needed before login.
   app.get("/api/public-config", (_req, res) => res.json({ demo, brand: "Cont.ai by Lumarcont" }));
 

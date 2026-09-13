@@ -7,20 +7,23 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-  <meta name="theme-color" content="#0e7a5f" />
+  <meta name="theme-color" content="#8f6d47" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Cont.ai" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
 </head>
 <body>
   <div id="login-view" class="login-wrap" hidden>
     <form id="login-form" class="login-card">
       <div class="brand-lockup">
-        <span class="brand-mark">C.ai</span>
+        <span class="brand-mark">C</span>
         <div>
           <div class="brand-name">Cont.ai</div>
           <div class="brand-by">by Lumarcont</div>
         </div>
       </div>
-      <p class="muted">A contabilidade do seu gabinete, com documentos lidos, conferidos e lançados por IA. Você aprova.</p>
+      <p class="tagline">Bem-vindo à nova era da contabilidade digital.</p>
+      <p class="muted small">Envie os seus documentos pelo telemóvel, acompanhe a contabilidade e fale connosco. A leitura e a conferência são feitas por IA; a decisão é sempre humana.</p>
       <label>Email
         <input type="email" id="login-email" required autocomplete="username" />
       </label>
@@ -30,13 +33,14 @@
       <button type="submit" class="btn primary wide">Entrar</button>
       <p id="login-error" class="error" hidden></p>
       <p id="demo-hint" class="muted small" hidden>Demonstração: gabinete@demo.pt / gabinete123 · padaria@demo.pt / cliente123</p>
+      <div class="login-foot"><span>Lumarcont · Contabilidade, Gestão e Consultoria · Faro</span><button type="button" id="install-btn-login" class="btn ghost small" hidden>Instalar no telemóvel</button></div>
     </form>
   </div>
 
   <div id="app-view" class="shell" hidden>
     <aside class="sidebar">
       <div class="brand-lockup compact">
-        <span class="brand-mark">C.ai</span>
+        <span class="brand-mark">C</span>
         <div>
           <div class="brand-name">Cont.ai</div>
           <div class="brand-by">by Lumarcont</div>
@@ -54,6 +58,7 @@
     <main id="main" class="content"></main>
   </div>
 
+  <script src="/scan.js"></script>
   <script src="/app.js"></script>
   <script>
     if ("serviceWorker" in navigator) {

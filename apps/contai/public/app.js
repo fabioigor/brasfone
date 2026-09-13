@@ -965,6 +965,13 @@ async function viewToday(main) {
       el("div", { class: "card stat" }, [el("div", { class: "n" }, String(dash.pendingRequests)), el("div", { class: "l" }, "Pedidos pendentes")]),
     ]),
   ]));
+  if (!isStaff) {
+    main.append(el("div", { class: "card", style: "display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap" }, [
+      el("div", {}, [el("strong", {}, "Tem documentos para enviar?"), el("div", { class: "muted small" }, "Fotografe com o telemóvel; a app trata da imagem, junta as páginas e entrega ao gabinete.")]),
+      el("a", { class: "btn gold", href: "#digitalizar" }, "Digitalizar agora"),
+    ]));
+    const inst = installCard(); if (inst) main.append(inst);
+  }
 
   const left = el("div", { class: "stack" });
   const right = el("div", { class: "stack" });
@@ -1046,12 +1053,141 @@ function triageEntry(e) {
   ]);
 }
 
+/* ---------- digitalizar (telemovel) ---------- */
+
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; document.querySelectorAll(".install-btn").forEach((b) => { b.hidden = false; }); });
+window.addEventListener("appinstalled", () => { installPrompt = null; document.querySelectorAll(".install-btn").forEach((b) => { b.hidden = true; }); });
+async function promptInstall() {
+  if (!installPrompt) { toast("No Android: menu do Chrome > Adicionar ao ecrã principal. No iPhone: Partilhar > Adicionar ao ecrã principal."); return; }
+  installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null;
+}
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+function installCard() {
+  if (isStandalone()) return null;
+  const btn = el("button", { class: "btn gold install-btn", type: "button", onclick: promptInstall }, "Instalar no telemóvel");
+  if (!installPrompt) btn.hidden = false; // sem evento (iOS/desktop) mostra instrucoes ao clicar
+  return el("div", { class: "card install-card" }, [
+    el("div", {}, [el("strong", {}, "Cont.ai no seu telemóvel"), el("div", { class: "muted small" }, "Instale a app para fotografar facturas e recibos e enviá-los ao gabinete em segundos, mesmo a partir do menu Partilhar do Android.")]),
+    btn,
+  ]);
+}
+
+async function viewScan(main) {
+  const isStaff = user.role === "staff";
+  const pages = []; // { file, blob, rotation, mode, isPdf, name, thumb }
+  main.append(el("div", { class: "hero" }, [el("div", {}, [el("h1", {}, "Digitalizar documentos"), el("div", { class: "sub" }, "Fotografe facturas, recibos e extractos. A app endireita o contraste, junta as páginas num PDF e envia para o gabinete; a leitura é feita por IA e conferida por uma pessoa.")])]));
+  const camera = el("input", { type: "file", accept: "image/*", capture: "environment", multiple: "", hidden: "" });
+  const gallery = el("input", { type: "file", accept: "image/*,application/pdf", multiple: "", hidden: "" });
+  const cta = el("div", { class: "scan-cta" }, [
+    el("button", { class: "btn gold", type: "button", onclick: () => camera.click() }, [el("span", { class: "ico" }, "📷"), "Fotografar"]),
+    el("button", { class: "btn", type: "button", onclick: () => gallery.click() }, [el("span", { class: "ico" }, "🖼"), "Escolher da galeria ou PDF"]),
+  ]);
+  main.append(el("div", { class: "card" }, [cta, camera, gallery]));
+
+  const list = el("div", { class: "pages" });
+  const empty = el("div", { class: "empty" }, [el("div", { class: "big" }, "▣"), el("div", {}, "Ainda sem páginas. Fotografe o documento ou escolha imagens da galeria.")]);
+  const pagesCard = el("div", { class: "card" }, [el("h2", {}, "Páginas"), empty, list]);
+  main.append(pagesCard);
+
+  const modeSel = el("select", {}, [el("option", { value: "cinza" }, "Melhorar (cinzentos)"), el("option", { value: "cor" }, "Cor com contraste"), el("option", { value: "pb" }, "Preto e branco"), el("option", { value: "original" }, "Original")]);
+  const groupSel = el("select", {}, [el("option", { value: "um" }, "Um documento (todas as páginas num PDF)"), el("option", { value: "varios" }, "Cada página é um documento diferente")]);
+  const companySelect = el("select"); if (isStaff) companyOptions(companySelect, false);
+  const sendBtn = el("button", { class: "btn primary", type: "button" }, "Enviar para o gabinete");
+  const actions = el("div", { class: "scan-actions sticky" }, [
+    el("label", {}, [el("span", { class: "lbl" }, "Tratamento"), modeSel]), el("label", {}, [el("span", { class: "lbl" }, "Agrupar"), groupSel]),
+    isStaff ? el("label", {}, [el("span", { class: "lbl" }, "Empresa"), companySelect]) : null, el("span", { class: "spacer" }), sendBtn,
+  ]);
+  main.append(actions);
+  const inst = installCard(); if (inst) main.append(inst);
+  const results = el("div", { class: "stack" }); main.append(results);
+
+  const refresh = () => {
+    list.innerHTML = ""; empty.hidden = pages.length > 0; sendBtn.disabled = pages.length === 0;
+    sendBtn.textContent = pages.length ? "Enviar " + pages.length + " página(s)" : "Enviar para o gabinete";
+    pages.forEach((p, i) => {
+      const img = el("img", { src: p.thumb, alt: p.name, style: p.isPdf ? "object-fit:contain;padding:20px" : p.rotation ? "transform:rotate(" + p.rotation + "deg) scale(0.75);object-fit:contain;background:var(--surface)" : "" });
+      const tools = el("div", { class: "tools" }, [
+        el("button", { class: "btn small", type: "button", title: "Rodar", onclick: () => { p.rotation = (p.rotation + 90) % 360; refresh(); }, ...(p.isPdf ? { disabled: "" } : {}) }, "↻"),
+        el("button", { class: "btn small", type: "button", title: "Mover para trás", onclick: () => { if (i > 0) { pages.splice(i - 1, 0, pages.splice(i, 1)[0]); refresh(); } } }, "←"),
+        el("button", { class: "btn small", type: "button", title: "Mover para a frente", onclick: () => { if (i < pages.length - 1) { pages.splice(i + 1, 0, pages.splice(i, 1)[0]); refresh(); } } }, "→"),
+        el("button", { class: "btn small danger", type: "button", title: "Remover", onclick: () => { pages.splice(i, 1); refresh(); } }, "✕"),
+      ]);
+      list.append(el("div", { class: "page" }, [img, tools, el("div", { class: "name" }, (i + 1) + ". " + p.name)]));
+    });
+  };
+  const addFiles = async (files) => {
+    for (const f of files) {
+      const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+      pages.push({ file: f, rotation: 0, isPdf, name: f.name || "fotografia", thumb: isPdf ? "/icon.svg" : URL.createObjectURL(f) });
+    }
+    refresh();
+  };
+  camera.addEventListener("change", () => { addFiles(Array.from(camera.files)); camera.value = ""; });
+  gallery.addEventListener("change", () => { addFiles(Array.from(gallery.files)); gallery.value = ""; });
+
+  // Ficheiros recebidos pelo menu Partilhar do Android (guardados pelo service worker).
+  const shared = Number((location.hash.split("?")[1] || "").replace(/^.*shared=(\d+).*$/, "$1")) || 0;
+  if (shared && "caches" in window) {
+    try {
+      const cache = await caches.open("contai-share");
+      for (let i = 0; i < shared; i++) {
+        const r = await cache.match("/shared/" + i); if (!r) continue;
+        const blob = await r.blob(); const name = decodeURIComponent(r.headers.get("x-filename") || "partilha-" + i);
+        await addFiles([new File([blob], name, { type: blob.type })]);
+      }
+      await Promise.all((await cache.keys()).map((k) => cache.delete(k)));
+      history.replaceState(null, "", "#digitalizar");
+      if (pages.length) toast(pages.length + " ficheiro(s) recebido(s) da partilha.");
+    } catch (e) { /* sem partilha */ }
+  }
+
+  const upload = async (blob, filename) => {
+    const fd = new FormData(); fd.append("file", blob, filename);
+    if (isStaff) fd.append("company_id", companySelect.value);
+    return api("/api/documents", { method: "POST", body: fd });
+  };
+  const stamp = () => { const d = new Date(); const z = (n) => String(n).padStart(2, "0"); return d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + "-" + z(d.getHours()) + z(d.getMinutes()); };
+  sendBtn.addEventListener("click", async () => {
+    if (!pages.length) return;
+    sendBtn.disabled = true; const label = sendBtn.textContent; sendBtn.textContent = "A preparar...";
+    try {
+      const outcomes = [];
+      const photos = pages.filter((p) => !p.isPdf), pdfs = pages.filter((p) => p.isPdf);
+      for (const p of pdfs) outcomes.push(await upload(p.file, p.name));
+      if (photos.length) {
+        const prepared = [];
+        for (let i = 0; i < photos.length; i++) { sendBtn.textContent = "A tratar página " + (i + 1) + " de " + photos.length; prepared.push(await ContaiScan.preparePage(photos[i].file, { mode: modeSel.value, rotation: photos[i].rotation })); }
+        sendBtn.textContent = "A enviar...";
+        if (groupSel.value === "um") {
+          const pdf = ContaiScan.jpegsToPdf(prepared, { title: "Digitalizacao " + stamp() });
+          outcomes.push(await upload(new Blob([pdf], { type: "application/pdf" }), "digitalizacao-" + stamp() + ".pdf"));
+        } else {
+          for (let i = 0; i < prepared.length; i++) {
+            const pdf = ContaiScan.jpegsToPdf([prepared[i]], { title: "Digitalizacao " + stamp() + " " + (i + 1) });
+            outcomes.push(await upload(new Blob([pdf], { type: "application/pdf" }), "digitalizacao-" + stamp() + "-" + (i + 1) + ".pdf"));
+          }
+        }
+      }
+      results.innerHTML = "";
+      results.append(el("div", { class: "card" }, [el("h2", {}, "Enviado"), el("ul", { class: "small" }, outcomes.map((o) => el("li", {}, o.duplicate ? "Já existia (não duplicado)." : "Recebido e classificado como " + (DOC_TYPE_LABEL[o.docType] || o.docType) + (o.ocr && o.ocr.method ? " · " + (OCR_LABEL[o.ocr.method] || o.ocr.method) : "") + ".")))]));
+      toast(outcomes.length + " documento(s) enviado(s) ao gabinete.");
+      pages.splice(0, pages.length); refresh();
+    } catch (e) {
+      toast(e.message, true);
+    } finally { sendBtn.disabled = pages.length === 0; sendBtn.textContent = label; }
+  });
+  refresh();
+}
+
 /* ---------- integracoes ---------- */
 
 const SETTING_GROUPS = {
   ia: { title: "Inteligência artificial (Anthropic)", intro: "A chave fica cifrada na base de dados e nunca volta a ser mostrada. Sem chave, o OCR usa só o Tesseract local e o QR da AT." },
   email: { title: "Recepção por email", intro: "Webhook (o serviço de email envia cada mensagem para a app) ou leitura periódica de uma caixa IMAP. Os remetentes autorizados definem-se em Empresas." },
   whatsapp: { title: "WhatsApp Cloud API (Meta)", intro: "Dados da app Meta e do número. Registe o webhook abaixo na Meta com o token de verificação." },
+  android: { title: "Aplicação Android (Play Store)", intro: "A app Android é uma Trusted Web Activity desta web app (projecto em apps/contai-android). Depois de publicada, indique aqui o identificador e as impressões SHA-256 da chave de assinatura para a app abrir em ecrã inteiro. Sem Play Store, os clientes instalam directamente pelo Chrome (Adicionar ao ecrã principal)." },
   centralgest: { title: "CentralGest (API)", intro: "Lançamento directo dos lançamentos aprovados no CentralGest Cloud, com idempotência (idExterno contai-entry-<id>). Peça a adesão à API à CentralGest (suporte@centralgest.com); enquanto não houver credenciais pode usar o simulador local para ensaiar o fluxo. Sem API, a entrega faz-se por CSV Primavera." },
 };
 
@@ -1225,6 +1361,7 @@ async function viewAccount(main) {
 
 const ROUTES = {
   hoje: { label: "Hoje", ico: "☀", group: "Trabalho", view: viewToday, roles: ["staff", "client"] },
+  digitalizar: { label: "Digitalizar", ico: "▣", group: "Trabalho", view: viewScan, roles: ["staff", "client"] },
   documentos: { label: "Documentos", ico: "▤", group: "Trabalho", view: viewDocuments, roles: ["staff", "client"] },
   validacao: { label: "Validação", ico: "✓", group: "Trabalho", view: viewValidation, roles: ["staff"] },
   conferencia: { label: "Conferência", ico: "⚑", group: "Trabalho", view: viewAudit, roles: ["staff", "client"] },
@@ -1311,6 +1448,9 @@ $("#login-form").addEventListener("submit", async (ev) => {
 });
 
 $("#logout-btn").addEventListener("click", logout);
+$("#install-btn-login").addEventListener("click", promptInstall);
+$("#install-btn-login").classList.add("install-btn");
+if (/Android|iPhone|iPad/i.test(navigator.userAgent) && !isStandalone()) $("#install-btn-login").hidden = false;
 // A dica de credenciais de demonstração só aparece quando o servidor tem os dados de demonstração.
 fetch("/api/public-config").then((r) => r.json()).then((c) => { if (c.demo) $("#demo-hint").hidden = false; }).catch(() => {});
 (function initTheme() {

@@ -1,0 +1,43 @@
+{
+  "packageId": "pt.lumarcont.contai",
+  "host": "app.lumarcont.pt",
+  "name": "Cont.ai by Lumarcont",
+  "launcherName": "Cont.ai",
+  "display": "standalone",
+  "orientation": "portrait",
+  "themeColor": "#8f6d47",
+  "themeColorDark": "#1e1a17",
+  "navigationColor": "#f7f4ef",
+  "navigationColorDark": "#161311",
+  "navigationDividerColor": "#e6dccf",
+  "navigationDividerColorDark": "#332c26",
+  "backgroundColor": "#f7f4ef",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://app.lumarcont.pt/icon-512.png",
+  "maskableIconUrl": "https://app.lumarcont.pt/icon-maskable-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": { "path": "./android.keystore", "alias": "contai" },
+  "appVersionName": "0.3.0",
+  "appVersionCode": 1,
+  "shortcuts": [
+    { "name": "Digitalizar documento", "shortName": "Digitalizar", "url": "/#digitalizar", "chosenIconUrl": "https://app.lumarcont.pt/icon-192.png" }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://app.lumarcont.pt/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": { "enabled": false },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://app.lumarcont.pt/",
+  "minSdkVersion": 21,
+  "orientationLock": "portrait",
+  "shareTarget": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": { "title": "title", "text": "text", "files": [{ "name": "files", "accept": ["image/*", "application/pdf"] }] }
+  }
+}

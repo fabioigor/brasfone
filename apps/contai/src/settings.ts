@@ -9,7 +9,7 @@ import { Db, audit } from "./db.js";
 export interface SettingDef {
   key: string;
   label: string;
-  group: "ia" | "email" | "whatsapp" | "centralgest";
+  group: "ia" | "email" | "whatsapp" | "centralgest" | "android";
   secret: boolean;
   hint?: string;
   placeholder?: string;
@@ -33,6 +33,8 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: "WHATSAPP_REPLY", label: "Confirmar recepção ao remetente (1/0)", group: "whatsapp", secret: false, placeholder: "1" },
   { key: "CENTRALGEST_BASE_URL", label: "URL base da API CentralGest", group: "centralgest", secret: false, placeholder: "https://api.centralgestcloud.com", hint: "Fornecido pela CentralGest após o Pedido de Adesão à API. Sem barra final." },
   { key: "CENTRALGEST_API_KEY", label: "Chave da API CentralGest", group: "centralgest", secret: true, hint: "Chave atribuída na adesão. Usada para obter o token Bearer (POST /api/v1/auth/token)." },
+  { key: "ANDROID_PACKAGE", label: "Identificador da app Android", group: "android", secret: false, placeholder: "pt.lumarcont.contai", hint: "Package name da Trusted Web Activity publicada na Play Store." },
+  { key: "ANDROID_SHA256_FINGERPRINTS", label: "Impressões SHA-256 da chave de assinatura", group: "android", secret: false, hint: "Uma ou várias, separadas por vírgula (Play Console > Integridade da app > Assinatura). Publicadas em /.well-known/assetlinks.json para a app abrir sem barra de endereço." },
   { key: "CENTRALGEST_MOCK", label: "Simulador local (1/0)", group: "centralgest", secret: false, placeholder: "0", hint: "1 arranca um CentralGest simulado dentro da app para testar o fluxo de lançamento sem credenciais. Ignorado quando URL e chave estão preenchidos." },
 ];
 

@@ -6,7 +6,7 @@
 #   ENV_FILE           ficheiro .env com os segredos da app (ver .env.example)
 # Opcional:
 #   ADMIN_PUBKEY_FILE  chave publica SSH para o utilizador 'contai' (sem ela: consola web do Hetzner)
-#   SERVER_NAME=contai SERVER_TYPE=cx33 LOCATION=nbg1 (nbg1 Nuremberga, fsn1 Falkenstein, hel1 Helsinquia)
+#   SERVER_NAME=contai SERVER_TYPE=cpx32 LOCATION=fsn1 (fsn1 Falkenstein e nbg1 Nuremberga sao os mais proximos de Portugal; hel1 Helsinquia)
 #   DOMAIN             ex.: app.contai.pt (DNS A -> IP do servidor); vazio = HTTP por IP na fase de testes
 #   REPO=fabioigor/brasfone BRANCH=claude/accounting-app-kangaroo-ymg5d7
 #   DRY_RUN=1          so imprime o cloud-init renderizado, nao chama a API
@@ -14,7 +14,7 @@
 set -euo pipefail
 : "${HCLOUD_TOKEN:?defina HCLOUD_TOKEN}" "${ENV_FILE:?defina ENV_FILE}"
 ADMIN_PUBKEY_FILE="${ADMIN_PUBKEY_FILE:-}"
-SERVER_NAME="${SERVER_NAME:-contai}"; SERVER_TYPE="${SERVER_TYPE:-cx33}"; LOCATION="${LOCATION:-nbg1}"
+SERVER_NAME="${SERVER_NAME:-contai}"; SERVER_TYPE="${SERVER_TYPE:-cpx32}"; LOCATION="${LOCATION:-fsn1}"
 DOMAIN="${DOMAIN:-}"; REPO="${REPO:-fabioigor/brasfone}"; BRANCH="${BRANCH:-claude/accounting-app-kangaroo-ymg5d7}"
 API="https://api.hetzner.cloud/v1"
 HERE="$(cd "$(dirname "$0")" && pwd)"
