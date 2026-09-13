@@ -4,8 +4,8 @@
 # clona o repositorio, escreve o .env com os segredos e arranca a app com Caddy.
 # Os marcadores __X__ sao substituidos por deploy/hetzner-create.sh.
 package_update: true
-package_upgrade: true
-packages: [ca-certificates, curl, git, ufw, fail2ban, unattended-upgrades]
+package_upgrade: false
+packages: [ca-certificates, curl, git, ufw, fail2ban, unattended-upgrades, docker.io, docker-compose-v2]
 users:
   - name: contai
     groups: [sudo]
@@ -41,7 +41,7 @@ __ENV_INDENTED__
     content: |
       __DOMAIN__
 runcmd:
-  - curl -fsSL https://get.docker.com | sh
+  - systemctl enable --now docker
   - usermod -aG docker contai
   - ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
   - systemctl enable --now fail2ban

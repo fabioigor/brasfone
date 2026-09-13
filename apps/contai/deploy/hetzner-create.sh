@@ -10,6 +10,7 @@
 #   DOMAIN             ex.: app.contai.pt (DNS A -> IP do servidor); vazio = HTTP por IP na fase de testes
 #   REPO=fabioigor/brasfone BRANCH=claude/accounting-app-kangaroo-ymg5d7
 #   DRY_RUN=1          so imprime o cloud-init renderizado, nao chama a API
+#   DIAG_PORT=8081     expoe /var/log/cloud-init-output.log em http://IP:PORT/ durante a instalacao (diagnostico sem SSH)
 set -euo pipefail
 : "${HCLOUD_TOKEN:?defina HCLOUD_TOKEN}" "${ENV_FILE:?defina ENV_FILE}"
 ADMIN_PUBKEY_FILE="${ADMIN_PUBKEY_FILE:-}"
@@ -30,6 +31,13 @@ if pub:
 t = t.replace("__ADMIN_KEYS__\n", keys + "\n" if keys else "")
 t = t.replace("__ENV_INDENTED__", ind(open(env).read()))
 t = t.replace("__DOMAIN__", domain).replace("__REPO__", repo).replace("__BRANCH__", branch)
+import os
+diag = os.environ.get("DIAG_PORT", "")
+if diag:
+    # Servidor HTTP simples com os logs, so durante a instalacao; termina no fim do runcmd.
+    # bootcmd corre antes da fase de pacotes: os logs ficam visiveis mesmo que o apt bloqueie.
+    t = t.replace("runcmd:\n", "bootcmd:\n  - nohup python3 -m http.server " + diag + " --directory /var/log >/dev/null 2>&1 &\nruncmd:\n", 1)
+    t = t.replace("  - cd /home/contai/brasfone/apps/contai && CONTAI_DOMAIN", '  - pkill -f "http.server ' + diag + '" || true\n  - cd /home/contai/brasfone/apps/contai && CONTAI_DOMAIN', 1)
 sys.stdout.write(t)
 EOF_PY
 }
@@ -50,27 +58,42 @@ if [ -n "$ADMIN_PUBKEY_FILE" ]; then
 fi
 
 # 2. Firewall do projecto (SSH, HTTP, HTTPS) - idempotente
+FW_RULES="$(DIAG_PORT="${DIAG_PORT:-}" python3 -c '
+import json, os
+ports=["22","80","443"]+([os.environ["DIAG_PORT"]] if os.environ.get("DIAG_PORT") else [])
+rules=[{"direction":"in","protocol":"tcp","port":p,"source_ips":["0.0.0.0/0","::/0"]} for p in ports]
+rules.append({"direction":"in","protocol":"icmp","source_ips":["0.0.0.0/0","::/0"]})
+print(json.dumps({"rules":rules}))')"
 FW_ID="$(hc "$API/firewalls?name=contai-web" | python3 -c 'import sys,json; f=json.load(sys.stdin)["firewalls"]; print(f[0]["id"] if f else "")')"
+if [ -n "$FW_ID" ]; then
+  printf '%s' "$FW_RULES" | hc -X POST "$API/firewalls/$FW_ID/actions/set_rules" -d @- >/dev/null
+fi
 if [ -z "$FW_ID" ]; then
   FW_ID="$(python3 -c '
 import json
-rules=[{"direction":"in","protocol":"tcp","port":p,"source_ips":["0.0.0.0/0","::/0"]} for p in ("22","80","443")]
+import os
+ports=["22","80","443"]+([os.environ["DIAG_PORT"]] if os.environ.get("DIAG_PORT") else [])
+rules=[{"direction":"in","protocol":"tcp","port":p,"source_ips":["0.0.0.0/0","::/0"]} for p in ports]
 rules.append({"direction":"in","protocol":"icmp","source_ips":["0.0.0.0/0","::/0"]})
+# Saida: permitida por omissao no Hetzner quando nao ha regras de saida.
 print(json.dumps({"name":"contai-web","rules":rules}))' | hc -X POST "$API/firewalls" -d @- | python3 -c 'import sys,json; print(json.load(sys.stdin)["firewall"]["id"])')"
 fi
 
-# 3. Servidor
-BODY="$(python3 - "$SERVER_NAME" "$SERVER_TYPE" "$LOCATION" "$KEY_ID" "$FW_ID" <<'EOF_PY'
+# 3. Servidor (o cloud-init vai por ficheiro: nunca partilhar o stdin com o programa Python)
+UD_FILE="$(mktemp)"; printf '%s\n' "$USERDATA" > "$UD_FILE"; trap 'rm -f "$UD_FILE"' EXIT
+BODY="$(python3 - "$SERVER_NAME" "$SERVER_TYPE" "$LOCATION" "$KEY_ID" "$FW_ID" "$UD_FILE" <<'EOF_PY'
 import json, sys
-name, stype, loc, key, fw = sys.argv[1:]
+name, stype, loc, key, fw, udfile = sys.argv[1:]
+user_data = open(udfile).read()
+assert user_data.startswith("#cloud-config"), "cloud-init vazio ou invalido"
 body = {"name": name, "server_type": stype, "location": loc, "image": "ubuntu-24.04",
-        "user_data": sys.stdin.read(), "labels": {"app": "contai", "owner": "lumarcont"},
+        "user_data": user_data, "labels": {"app": "contai", "owner": "lumarcont"},
         "public_net": {"enable_ipv4": True, "enable_ipv6": True},
         "firewalls": [{"firewall": int(fw)}]}
 if key: body["ssh_keys"] = [int(key)]
 print(json.dumps(body))
 EOF_PY
-<<< "$USERDATA")"
+)"
 
 RESP="$(printf '%s' "$BODY" | hc -X POST "$API/servers" -d @-)"
 printf '%s' "$RESP" | python3 -c '
