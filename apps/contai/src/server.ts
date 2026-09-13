@@ -118,7 +118,8 @@ export function createServer({
     const read = (name: string): string | null => { try { return dir ? fs.readFileSync(path.join(dir, name), "utf8") : null; } catch { return null; } };
     let deploy: any = null; try { deploy = JSON.parse(read("deploy.json") || "null"); } catch { deploy = null; }
     const log = (read("autoupdate.log") || "").trim().split("\n").filter(Boolean).slice(-40);
-    return res.json({ version: APP_VERSION, startedAt, node: process.version, deploy, autoupdateLog: log, autoupdate: !!dir });
+    const lastCheck = (read("last-check") || "").trim() || null;
+    return res.json({ version: APP_VERSION, startedAt, node: process.version, deploy, lastCheck, autoupdateLog: log, autoupdate: !!dir });
   });
 
   // Digital Asset Links: liga a app Android (Trusted Web Activity) a este dominio.

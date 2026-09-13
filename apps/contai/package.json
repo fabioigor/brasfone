@@ -1,6 +1,6 @@
 {
   "name": "contai",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "type": "module",
   "description": "Portal digital para gabinetes de contabilidade: recepcao de documentos, classificacao automatica, lancamentos propostos por IA com validacao humana e exportacao para Cegid Primavera.",

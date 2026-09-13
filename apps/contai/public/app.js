@@ -1206,6 +1206,7 @@ async function viewIntegrations(main) {
       el("h2", {}, "Sistema"),
       el("p", { class: "small" }, ["Versão ", el("strong", {}, sys.version), " · a correr desde " + since + " · " + dep]),
     ]);
+    if (sys.autoupdate) sysCard.append(el("p", { class: "muted small" }, sys.lastCheck ? "Última verificação do ramo: " + new Date(sys.lastCheck).toLocaleString("pt-PT") : "O servidor ainda não verificou o ramo (o temporizador arranca 3 minutos após o boot)."));
     if (sys.autoupdate) sysCard.append(el("details", {}, [el("summary", { class: "small" }, "Registo da actualização automática (" + sys.autoupdateLog.length + " linhas)"), el("pre", { class: "small", style: "white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0 0" }, sys.autoupdateLog.join("\n") || "Ainda sem actualizações. O servidor verifica o ramo de 5 em 5 minutos.")]));
     main.append(sysCard);
   }

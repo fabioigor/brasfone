@@ -5,7 +5,7 @@
 # Os marcadores __X__ sao substituidos por deploy/hetzner-create.sh.
 package_update: true
 package_upgrade: false
-packages: [ca-certificates, curl, git, ufw, fail2ban, unattended-upgrades, docker.io, docker-compose-v2]
+packages: [ca-certificates, curl, git, cron, ufw, fail2ban, unattended-upgrades, docker.io, docker-compose-v2]
 users:
   - name: contai
     groups: [sudo]
@@ -30,10 +30,27 @@ __ENV_INDENTED__
       #!/usr/bin/env bash
       # Wrapper fino: a logica vive no repositorio (apps/contai/deploy/autoupdate.sh), actualizavel por git.
       exec bash /home/contai/brasfone/apps/contai/deploy/autoupdate.sh "$@"
-  - path: /etc/cron.d/contai-autoupdate
+  - path: /etc/systemd/system/contai-autoupdate.service
     content: |
-      PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      */5 * * * * root /usr/local/bin/contai-autoupdate >/dev/null 2>&1
+      [Unit]
+      Description=Cont.ai: aplicar commits novos do ramo (git pull + rebuild)
+      After=network-online.target docker.service
+      Wants=network-online.target
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/contai-autoupdate
+      TimeoutStartSec=30min
+  - path: /etc/systemd/system/contai-autoupdate.timer
+    content: |
+      [Unit]
+      Description=Cont.ai: verificar o ramo de 5 em 5 minutos
+      [Timer]
+      OnBootSec=3min
+      OnUnitActiveSec=5min
+      RandomizedDelaySec=30s
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
   - path: /usr/local/bin/contai-backup
     permissions: "0755"
     content: |
@@ -61,3 +78,4 @@ runcmd:
   - docker --version >> /var/log/contai-compose.log; docker compose version >> /var/log/contai-compose.log
   - cd /home/contai/brasfone/apps/contai && (CONTAI_DOMAIN="__DOMAIN__" docker compose -f docker-compose.vps.yml up -d --build >> /var/log/contai-compose.log 2>&1 || echo "COMPOSE FALHOU $(date -Is)" >> /var/log/contai-compose.log)
   - for i in $(seq 1 36); do curl -sf -o /dev/null http://127.0.0.1/health && break; sleep 5; done; if curl -sf -o /dev/null http://127.0.0.1/health; then echo "contai pronto $(date -Is)" > /var/log/contai-ready; else cd /home/contai/brasfone/apps/contai && docker compose -f docker-compose.vps.yml ps -a > /var/log/contai-docker.log 2>&1; docker compose -f docker-compose.vps.yml logs --no-color --tail 200 >> /var/log/contai-docker.log 2>&1; docker compose -f docker-compose.vps.yml down >> /var/log/contai-docker.log 2>&1; echo "APP NAO SAUDAVEL $(date -Is), contentores desligados para diagnostico" > /var/log/contai-ready; fi
+  - systemctl daemon-reload && systemctl enable --now contai-autoupdate.timer
