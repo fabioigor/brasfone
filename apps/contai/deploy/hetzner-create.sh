@@ -37,7 +37,9 @@ if diag:
     # Servidor HTTP simples com os logs, so durante a instalacao; termina no fim do runcmd.
     # bootcmd corre antes da fase de pacotes: os logs ficam visiveis mesmo que o apt bloqueie.
     t = t.replace("runcmd:\n", "bootcmd:\n  - nohup python3 -m http.server " + diag + " --directory /var/log >/dev/null 2>&1 &\nruncmd:\n", 1)
-    t = t.replace("  - cd /home/contai/brasfone/apps/contai && CONTAI_DOMAIN", '  - pkill -f "http.server ' + diag + '" || true\n  - cd /home/contai/brasfone/apps/contai && CONTAI_DOMAIN', 1)
+    # Desliga o servidor de logs antes do Caddy ocupar a porta; se a app nao ficar saudavel, volta a liga-lo.
+    t = t.replace("  - cd /home/contai/brasfone/apps/contai && (CONTAI_DOMAIN", '  - pkill -f "http.server ' + diag + '" || true\n  - cd /home/contai/brasfone/apps/contai && (CONTAI_DOMAIN', 1)
+    t = t.replace('contentores desligados para diagnostico" > /var/log/contai-ready; fi', 'contentores desligados para diagnostico" > /var/log/contai-ready; nohup python3 -m http.server ' + diag + ' --directory /var/log >/dev/null 2>&1 & fi', 1)
 sys.stdout.write(t)
 EOF_PY
 }

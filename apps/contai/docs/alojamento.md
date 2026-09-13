@@ -2,7 +2,7 @@
 
 > **Decisão (2026-09-13):** a Lumarcont já tem servidores no **Hetzner**. O Cont.ai é alojado aí com `docker-compose.vps.yml` + Caddy. O resto deste documento mantém a análise que levou a esta decisão e o plano alternativo (Fly.io).
 >
-> **Servidor de produção (criado em 2026-09-13 pela API):** `contai`, id 165707255, tipo cx23 (2 vCPU, 4 GB, 40 GB; o cx33 não tinha capacidade em nenhum datacenter nesse dia, e o tipo pode ser aumentado depois sem reinstalar), Helsínquia (hel1, Finlândia, UE), IPv4 `65.21.157.86`, firewall `contai-web` (22/80/443). Provisionado com `deploy/hetzner-create.sh`; utilizador `contai` (sudo), Docker + Caddy, backups diários em `/var/backups/contai`. Domínio ainda por definir (acesso HTTP por IP); ao definir o DNS, correr `echo app.contai.pt > /etc/contai-domain && contai-update` no servidor para activar o TLS.
+> **Servidor de produção (criado em 2026-09-13 pela API):** `contai`, id 165710251, tipo cx23 (2 vCPU, 4 GB, 40 GB; o cx33 não tinha capacidade em nenhum datacenter nesse dia, e o tipo pode ser aumentado depois sem reinstalar), Helsínquia (hel1, Finlândia, UE), IPv4 `89.167.73.120`, firewall `contai-web` (22/80/443). Provisionado com `deploy/hetzner-create.sh`; utilizador `contai` (sudo), Docker + Caddy, backups diários em `/var/backups/contai`. Domínio ainda por definir (acesso HTTP por IP); ao definir o DNS, correr `echo app.contai.pt > /etc/contai-domain && contai-update` no servidor para activar o TLS.
 
 ## O que a aplicação precisa
 
