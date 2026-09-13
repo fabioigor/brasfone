@@ -6,14 +6,14 @@
 #   ENV_FILE           ficheiro .env com os segredos da app (ver .env.example)
 # Opcional:
 #   ADMIN_PUBKEY_FILE  chave publica SSH para o utilizador 'contai' (sem ela: consola web do Hetzner)
-#   SERVER_NAME=contai SERVER_TYPE=cx22 LOCATION=nbg1 (nbg1 Nuremberga, fsn1 Falkenstein, hel1 Helsinquia)
+#   SERVER_NAME=contai SERVER_TYPE=cx33 LOCATION=nbg1 (nbg1 Nuremberga, fsn1 Falkenstein, hel1 Helsinquia)
 #   DOMAIN             ex.: app.contai.pt (DNS A -> IP do servidor); vazio = HTTP por IP na fase de testes
 #   REPO=fabioigor/brasfone BRANCH=claude/accounting-app-kangaroo-ymg5d7
 #   DRY_RUN=1          so imprime o cloud-init renderizado, nao chama a API
 set -euo pipefail
 : "${HCLOUD_TOKEN:?defina HCLOUD_TOKEN}" "${ENV_FILE:?defina ENV_FILE}"
 ADMIN_PUBKEY_FILE="${ADMIN_PUBKEY_FILE:-}"
-SERVER_NAME="${SERVER_NAME:-contai}"; SERVER_TYPE="${SERVER_TYPE:-cx22}"; LOCATION="${LOCATION:-nbg1}"
+SERVER_NAME="${SERVER_NAME:-contai}"; SERVER_TYPE="${SERVER_TYPE:-cx33}"; LOCATION="${LOCATION:-nbg1}"
 DOMAIN="${DOMAIN:-}"; REPO="${REPO:-fabioigor/brasfone}"; BRANCH="${BRANCH:-claude/accounting-app-kangaroo-ymg5d7}"
 API="https://api.hetzner.cloud/v1"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -79,7 +79,8 @@ r = json.load(sys.stdin)
 if r.get("error"):
     print("ERRO:", json.dumps(r["error"], ensure_ascii=False)); sys.exit(1)
 s = r["server"]
-print("servidor:", s["name"], "id", s["id"], "tipo", s["server_type"]["name"], "local", s["datacenter"]["location"]["name"])
+loc = ((s.get("datacenter") or {}).get("location") or s.get("location") or {}).get("name", "?")
+print("servidor:", s["name"], "id", s["id"], "tipo", s["server_type"]["name"], "local", loc, "estado", s.get("status"))
 print("ipv4:", s["public_net"]["ipv4"]["ip"])
 print("ipv6:", s["public_net"]["ipv6"]["ip"])
 if r.get("root_password"): print("palavra-passe root (apenas se nao houver chave SSH):", r["root_password"])
