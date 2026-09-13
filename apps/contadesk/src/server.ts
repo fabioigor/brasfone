@@ -14,7 +14,8 @@ import {
   scopedCompanyId,
 } from "./auth.js";
 import { AiProvider } from "./ai/provider.js";
-import { ingestDocument } from "./pipeline.js";
+import { ingestDocument, reprocessDocument } from "./pipeline.js";
+import { OcrEngine, DocumentOcr } from "./ocr/engine.js";
 import { exportApprovedEntries } from "./domain/exportPrimavera.js";
 import { upcomingObligations } from "./domain/obligations.js";
 import { EntryLine, isBalanced } from "./domain/entries.js";
@@ -42,6 +43,7 @@ export interface ServerOptions {
   storageRoot: string;
   centralgest?: CentralGestClient | null;
   agents?: AgentGateway;
+  ocr?: OcrEngine;
 }
 
 const upload = multer({
@@ -49,7 +51,7 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-export function createServer({ db, provider, storageRoot, centralgest = null, agents = new AgentGateway() }: ServerOptions): express.Express {
+export function createServer({ db, provider, storageRoot, centralgest = null, agents = new AgentGateway(), ocr = DocumentOcr.fromEnv() }: ServerOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
@@ -156,8 +158,22 @@ export function createServer({ db, provider, storageRoot, centralgest = null, ag
       buffer: req.file.buffer,
       channel: "portal",
       requestId,
-    });
+    }, ocr);
     return res.status(outcome.duplicate ? 200 : 201).json(outcome);
+  });
+
+  app.post("/api/documents/:id/reprocess", auth, requireStaff, async (req, res) => {
+    const doc = db.prepare("SELECT id FROM documents WHERE id = ?").get(Number(req.params.id));
+    if (!doc) return res.status(404).json({ error: "Documento inexistente." });
+    const outcome = await reprocessDocument(db, provider, storageRoot, Number(req.params.id), ocr);
+    return res.json(outcome);
+  });
+
+  app.get("/api/documents/:id/text", auth, (req, res) => {
+    const doc = db.prepare("SELECT company_id, ocr_text, ocr_method, ocr_confidence, extracted_json FROM documents WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!doc) return res.status(404).json({ error: "Documento inexistente." });
+    if (req.user!.role === "client" && doc.company_id !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
+    return res.json({ text: doc.ocr_text, method: doc.ocr_method, confidence: doc.ocr_confidence, extracted: doc.extracted_json ? JSON.parse(doc.extracted_json) : null });
   });
 
   app.get("/api/documents", auth, (req, res) => {

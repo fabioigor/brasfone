@@ -210,6 +210,12 @@ function migrate(db: Db): void {
   if (!companyCols.some((c) => c.name === "territory")) {
     db.exec("ALTER TABLE companies ADD COLUMN territory TEXT NOT NULL DEFAULT 'continente'");
   }
+  const docCols = db.prepare("PRAGMA table_info(documents)").all() as any[];
+  if (!docCols.some((c) => c.name === "ocr_text")) {
+    db.exec("ALTER TABLE documents ADD COLUMN ocr_text TEXT");
+    db.exec("ALTER TABLE documents ADD COLUMN ocr_method TEXT");
+    db.exec("ALTER TABLE documents ADD COLUMN ocr_confidence REAL");
+  }
 }
 
 export function audit(

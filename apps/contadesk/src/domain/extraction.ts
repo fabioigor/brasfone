@@ -74,7 +74,11 @@ export function extractLineItems(text: string): LineItem[] {
   const skip = /^(descri|total|iva|incid|base|subtotal|qtd|quant|data|nif|factura|fatura|recibo|cliente)/i;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trimEnd();
-    const m = line.match(/^(.+?\S)\s{2,}(\d+(?:[.,]\d+)?)\s+(\d{1,3}(?:[\s.]\d{3})*(?:,\d{1,2})|\d+(?:[.,]\d{1,2})?)\s*$/);
+    // Two or more spaces separate columns in text exports; OCR output often
+    // collapses them to one, so the tail "qty price" anchors the match.
+    const m =
+      line.match(/^(.+?\S)\s{2,}(\d+(?:[.,]\d+)?)\s+(\d{1,3}(?:[\s.]\d{3})*(?:,\d{1,2})|\d+(?:[.,]\d{1,2})?)\s*$/) ??
+      line.match(/^([A-Za-zÀ-ÿ].+?\S)\s+(\d+(?:[.,]\d+)?)\s+(\d{1,3}(?:\.\d{3})*,\d{2}|\d+\.\d{2})\s*$/);
     if (!m) continue;
     const description = m[1]!.trim();
     if (skip.test(description) || description.length < 3) continue;

@@ -2,6 +2,13 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-13 — OCR de PDFs e imagens
+
+- **Decisão:** extracção de texto em cascata: camada de texto do PDF (pdfjs) → Claude visão (SDK oficial, `claude-opus-5` por omissão) quando há chave → Tesseract local em WASM (por+eng) como fallback offline; PDFs digitalizados rasterizados com `@napi-rs/canvas` (binários pré-compilados, sem dependências de sistema). O resultado é texto linha a linha, para que a extracção, classificação e conferência existentes funcionem sem alterações.
+- **Contexto:** o ambiente de execução não tem poppler nem tesseract instalados; a solução tem de ser toda em Node para ser portátil. O parser de linhas de artigos passou a tolerar colunas separadas por um só espaço (saída típica do OCR).
+- **Princípios mantidos:** o OCR nunca decide; confiança abaixo de 85% gera alerta para o revisor, e o texto extraído fica guardado e consultável para verificação contra o original. Modelo de visão configurável (`CONTADESK_OCR_MODEL`) para quem preferir um modelo mais barato em volume.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-12 — Agentes de análise: conferência de IVA, balancetes, relatórios sectoriais, web app do cliente
 
 - **Decisão:** implementar as quatro dores prioritárias como motores determinísticos com conhecimento versionado em JSON (taxas/listas do CIVA, benchmarks sectoriais) e agentes de IA apenas para explicar e dar segunda opinião, nunca para decidir. Os alertas de taxa de IVA vs produto são sempre "aviso" (a lei tem excepções que o texto do documento não revela); erros aritméticos e taxas inexistentes são "erro".

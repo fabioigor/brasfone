@@ -69,6 +69,8 @@ describe("servidor MCP", () => {
       "contadesk_definir_padrao",
       "contadesk_gerar_relatorio",
       "contadesk_conhecimento_fiscal",
+      "contadesk_texto_documento",
+      "contadesk_reprocessar_documento",
     ]) {
       expect(names).toContain(expected);
     }
@@ -179,6 +181,19 @@ describe("servidor MCP", () => {
     const missing = await callTool("contadesk_conferir_balancete", { company_id: 2, period: "2026-07" });
     expect(missing._isError).toBe(true);
     expect(missing.erro).toMatch(/importar_balancete/);
+  });
+
+  it("processa um PDF por caminho de ficheiro e devolve o texto extraido", async () => {
+    const pdfPath = path.join(__dirname, "..", "fixtures", "factura-texto.pdf");
+    const processed = await callTool("contadesk_processar_documento", { company_id: 2, file_path: pdfPath });
+    expect(processed._isError).toBe(false);
+    expect(processed.ocr.method).toBe("pdf_texto");
+    expect(processed.docType).toBe("factura_compra");
+    const text = await callTool("contadesk_texto_documento", { document_id: processed.documentId });
+    expect(text.texto).toContain("658,05");
+    expect(text.extraido.totalAmount).toBe(658.05);
+    const re = await callTool("contadesk_reprocessar_documento", { document_id: processed.documentId });
+    expect(re.ocr.method).toBe("pdf_texto");
   });
 
   it("rejeitar sem motivo devolve erro accionavel", async () => {

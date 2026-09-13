@@ -90,6 +90,27 @@ const DOC_TYPE_LABEL = {
 };
 
 const badge = (s) => el("span", { class: "badge " + (STATUS_BADGE[s] || "") }, s);
+
+const OCR_LABEL = { texto: "texto", pdf_texto: "PDF com texto", tesseract: "OCR local", claude_visao: "OCR Claude", indisponivel: "sem texto" };
+const ocrBadge = (d) => {
+  if (!d.ocr_method || d.ocr_method === "texto") return el("span", { class: "muted small" }, "texto");
+  const cls = d.ocr_method === "indisponivel" ? "bad" : d.ocr_confidence !== null && d.ocr_confidence < 0.85 ? "warn" : "info";
+  const conf = d.ocr_confidence !== null && d.ocr_confidence < 1 ? " " + Math.round(d.ocr_confidence * 100) + "%" : "";
+  return el("span", { class: "badge " + cls, title: "Método de extracção de texto" }, (OCR_LABEL[d.ocr_method] || d.ocr_method) + conf);
+};
+
+async function showDocumentText(docId, name) {
+  try {
+    const out = await api("/api/documents/" + docId + "/text");
+    const w = window.open("", "_blank");
+    if (!w) return toast("Permita janelas pop-up para ver o texto.", true);
+    const esc = (t) => String(t == null ? "" : t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    w.document.write("<title>" + esc(name) + "</title><body style='font:14px/1.4 monospace;padding:20px;white-space:pre-wrap'>" +
+      "<b>Método:</b> " + esc(out.method) + (out.confidence != null ? " · confiança " + Math.round(out.confidence * 100) + "%" : "") +
+      "\n\n<b>Dados extraídos:</b>\n" + esc(JSON.stringify(out.extracted, null, 2)) + "\n\n<b>Texto:</b>\n" + esc(out.text || "(documento de texto: ver ficheiro original)") + "</body>");
+    w.document.close();
+  } catch (e) { toast(e.message, true); }
+}
 const money = (n) => Number(n).toFixed(2).replace(".", ",") + " €";
 const fmtConf = (c) => (c == null ? "" : Math.round(c * 100) + "%");
 
@@ -162,7 +183,7 @@ async function viewDocuments(main) {
   main.append(el("h2", {}, "Documentos"));
 
   // Formulario de upload
-  const fileInput = el("input", { type: "file", required: "true" });
+  const fileInput = el("input", { type: "file", required: "true", accept: ".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.txt,.csv,.xml,application/pdf,image/*,text/*" });
   const companySelect = el("select");
   const uploadBtn = el("button", { class: "btn primary", type: "submit" }, "Carregar documento");
   const form = el("form", { class: "form-row" }, [
@@ -180,7 +201,8 @@ async function viewDocuments(main) {
       fd.append("file", fileInput.files[0]);
       if (isStaff) fd.append("company_id", companySelect.value);
       const out = await api("/api/documents", { method: "POST", body: fd });
-      toast(out.duplicate ? "Documento já existia (não duplicado)." : "Documento carregado e classificado: " + (DOC_TYPE_LABEL[out.docType] || out.docType));
+      const ocrNote = out.ocr && out.ocr.method && !["texto", "duplicado"].includes(out.ocr.method) ? " · " + OCR_LABEL[out.ocr.method] + (out.ocr.confidence < 1 ? " (" + Math.round(out.ocr.confidence * 100) + "%)" : "") : "";
+      toast(out.duplicate ? "Documento já existia (não duplicado)." : "Documento carregado e classificado: " + (DOC_TYPE_LABEL[out.docType] || out.docType) + ocrNote);
       render();
     } catch (e) {
       toast(e.message, true);
@@ -202,15 +224,21 @@ async function viewDocuments(main) {
         el("td", {}, DOC_TYPE_LABEL[d.doc_type] || d.doc_type),
         el("td", {}, d.doc_date || ""),
         el("td", {}, fmtConf(d.classification_confidence)),
+        el("td", {}, ocrBadge(d)),
         el("td", {}, badge(d.status)),
+        el("td", {}, [
+          el("button", { class: "btn small", onclick: () => showDocumentText(d.id, d.original_name) }, "Texto"),
+          isStaff ? " " : null,
+          isStaff ? el("button", { class: "btn small", onclick: async () => { try { const o = await api("/api/documents/" + d.id + "/reprocess", { method: "POST" }); toast("Reprocessado: " + (OCR_LABEL[o.ocr.method] || o.ocr.method) + ", " + o.findings.length + " alerta(s)."); render(); } catch (e) { toast(e.message, true); } } }, "Reprocessar") : null,
+        ]),
       ])
     );
   }
   main.append(
     el("div", { class: "card table-wrap" },
       el("table", {}, [
-        el("thead", {}, el("tr", {}, [el("th", {}, "Documento"), el("th", {}, "Tipo"), el("th", {}, "Data"), el("th", {}, "Confiança"), el("th", {}, "Estado")])),
-        docs.length ? tbody : el("tbody", {}, el("tr", {}, el("td", { colspan: "5", class: "muted" }, "Sem documentos."))),
+        el("thead", {}, el("tr", {}, [el("th", {}, "Documento"), el("th", {}, "Tipo"), el("th", {}, "Data"), el("th", {}, "Confiança"), el("th", {}, "Extracção"), el("th", {}, "Estado"), el("th", {}, "")])),
+        docs.length ? tbody : el("tbody", {}, el("tr", {}, el("td", { colspan: "7", class: "muted" }, "Sem documentos."))),
       ])
     )
   );

@@ -19,7 +19,8 @@ import path from "node:path";
 import { openDb, Db } from "../db.js";
 import { seedDemo } from "../seed.js";
 import { buildProvider } from "../ai/provider.js";
-import { ingestDocument } from "../pipeline.js";
+import { ingestDocument, reprocessDocument } from "../pipeline.js";
+import { OcrEngine, DocumentOcr } from "../ocr/engine.js";
 import { isBalanced, EntryLine } from "../domain/entries.js";
 import {
   CentralGestClient,
@@ -39,7 +40,14 @@ interface McpContext {
   db: Db;
   storageRoot: string;
   centralgest: CentralGestClient | null;
+  ocr?: OcrEngine;
 }
+
+const MIME_BY_EXT: Record<string, string> = {
+  pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp",
+  gif: "image/gif", tif: "image/tiff", tiff: "image/tiff", txt: "text/plain", csv: "text/csv", xml: "application/xml", json: "application/json",
+};
+const mimeFor = (name: string) => MIME_BY_EXT[(name.split(".").pop() || "").toLowerCase()] || "application/octet-stream";
 
 const ok = (data: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
@@ -54,6 +62,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   const { db, storageRoot } = ctx;
   const provider = buildProvider();
   const agents = new AgentGateway();
+  const ocr = ctx.ocr ?? DocumentOcr.fromEnv();
 
   const requireCentralGest = (): CentralGestClient => {
     if (!ctx.centralgest) {
@@ -88,7 +97,8 @@ export function buildMcpServer(ctx: McpContext): McpServer {
           centralgest = { configurado: true, ligacao: "erro", detalhe: e.message };
         }
       }
-      return ok({ documentos: documents, lancamentos: entries, despachos: dispatches, centralgest });
+      const ocrEngines = ocr instanceof DocumentOcr ? ocr.engines : ["personalizado"];
+      return ok({ documentos: documents, lancamentos: entries, despachos: dispatches, centralgest, ocr: { motores: ocrEngines } });
     }
   );
 
@@ -174,10 +184,10 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     {
       title: "Processar um documento (classificar e propor lancamento)",
       description:
-        "Recebe um documento (caminho de ficheiro local OU conteudo em texto), arquiva-o, classifica-o e, se aplicavel, gera a proposta de lancamento SNC. Devolve o tipo detectado e o id do lancamento proposto. Duplicados (mesmo conteudo) sao detectados e nao criam nada.",
+        "Recebe um documento (caminho de ficheiro local PDF/imagem/texto, OU conteudo em texto), extrai o texto (camada de texto do PDF, ou OCR para digitalizacoes e imagens), arquiva-o, classifica-o, confere-o e, se aplicavel, gera a proposta de lancamento SNC. Devolve tipo, id do lancamento, alertas e metodo/confianca do OCR. Duplicados (mesmo conteudo) sao detectados e nao criam nada.",
       inputSchema: {
         company_id: z.number().int().positive().describe("Empresa a que o documento pertence"),
-        file_path: z.string().optional().describe("Caminho absoluto de um ficheiro local a processar"),
+        file_path: z.string().optional().describe("Caminho absoluto de um ficheiro local a processar (PDF, PNG, JPG, TXT, CSV, XML)"),
         content: z.string().optional().describe("Alternativa: conteudo textual do documento"),
         filename: z.string().optional().describe("Nome do ficheiro quando se usa 'content', ex.: factura.txt"),
       },
@@ -201,10 +211,10 @@ export function buildMcpServer(ctx: McpContext): McpServer {
           companyId: company_id,
           uploaderId: 1,
           originalName: name,
-          mimeType: "text/plain",
+          mimeType: file_path ? mimeFor(name) : "text/plain",
           buffer,
           channel: "portal",
-        });
+        }, ocr);
         return ok(outcome);
       } catch (e: any) {
         return fail(e.message);
@@ -357,6 +367,40 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     }
   );
 
+
+  server.registerTool(
+    "contadesk_texto_documento",
+    {
+      title: "Texto extraido de um documento (OCR)",
+      description:
+        "Devolve o texto extraido de um documento arquivado (camada de texto do PDF ou OCR), o metodo usado, a confianca e os dados estruturados extraidos (NIFs, datas, totais, IVA, linhas). Util para verificar um alerta contra o conteudo real.",
+      inputSchema: { document_id: z.number().int().positive() },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ document_id }) => {
+      const doc = db.prepare("SELECT id, original_name, mime_type, ocr_text, ocr_method, ocr_confidence, extracted_json FROM documents WHERE id = ?").get(document_id) as any;
+      if (!doc) return fail(`Documento ${document_id} inexistente.`);
+      return ok({ document_id, ficheiro: doc.original_name, mime: doc.mime_type, metodo: doc.ocr_method, confianca: doc.ocr_confidence, texto: doc.ocr_text, extraido: doc.extracted_json ? JSON.parse(doc.extracted_json) : null });
+    }
+  );
+
+  server.registerTool(
+    "contadesk_reprocessar_documento",
+    {
+      title: "Reprocessar um documento (OCR + classificacao + conferencia)",
+      description:
+        "Volta a extrair o texto do ficheiro arquivado com os motores actuais (ex.: apos activar Claude visao), reclassifica, refaz a proposta de lancamento se ainda nao foi decidida e reexecuta a conferencia. Lancamentos ja aprovados/rejeitados nao sao alterados.",
+      inputSchema: { document_id: z.number().int().positive() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ document_id }) => {
+      try {
+        return ok(await reprocessDocument(db, provider, storageRoot, document_id, ocr));
+      } catch (e: any) {
+        return fail(e.message);
+      }
+    }
+  );
 
   // ---------- Agentes: conferência, balancetes, relatórios ----------
   server.registerTool(

@@ -5,6 +5,7 @@ Portal digital para gabinetes de contabilidade, inspirado no Kangaroo Files: rec
 ## Funcionalidades
 
 - **Portal do cliente:** cada empresa cliente tem acesso próprio para carregar documentos, ver o estado do processamento e responder a pedidos do gabinete.
+- **OCR de PDFs e imagens:** PDFs com camada de texto são lidos directamente (pdfjs, layout preservado); digitalizações e fotografias (PNG, JPG, WebP, TIFF, PDF sem texto) passam por OCR: Claude visão (SDK oficial, modelo `claude-opus-5` por omissão, configurável com `CONTADESK_OCR_MODEL`) quando há `ANTHROPIC_API_KEY`, senão Tesseract local em WASM (português + inglês, dados de língua em cache em `data/tesseract`). PDFs digitalizados são rasterizados com `@napi-rs/canvas`. Confiança baixa gera o alerta `OCR_CONFIANCA_BAIXA`; ficheiros sem texto extraível geram `TEXTO_NAO_EXTRAIDO`. O texto e o método ficam guardados e visíveis (botão "Texto"), e qualquer documento pode ser reprocessado com os motores actuais.
 - **Classificação automática:** cada documento é classificado (factura de compra/venda, recibo, nota de crédito, extracto bancário, despesa) com extracção de NIF, data, número de documento, base tributável, IVA e total. A direcção compra/venda decide-se comparando o NIF emissor com o NIF da empresa.
 - **Arquivo digital:** os ficheiros são arquivados por empresa/ano/mês/tipo, com deduplicação por hash SHA-256 (o mesmo ficheiro nunca entra duas vezes).
 - **Lançamentos propostos:** o motor gera lançamentos SNC balanceados (clientes 211, fornecedores 221, IVA dedutível 2432, IVA liquidado 2433, FSE 62, prestações de serviços 721) com grau de confiança. Nada é exportado sem aprovação humana.
@@ -38,7 +39,8 @@ O ContaDesk inclui um servidor MCP (Model Context Protocol) em `src/mcp/server.t
 | `contadesk_listar_empresas` | Empresas clientes com NIF e código CentralGest |
 | `contadesk_definir_codigo_centralgest` | Mapear empresa → código CentralGest |
 | `contadesk_listar_documentos` | Documentos com tipo, estado e dados extraídos |
-| `contadesk_processar_documento` | Classificar um ficheiro/texto e propor o lançamento SNC |
+| `contadesk_processar_documento` | Ler (OCR se necessário), classificar e conferir um ficheiro PDF/imagem/texto e propor o lançamento SNC |
+| `contadesk_texto_documento` / `contadesk_reprocessar_documento` | Ver o texto extraído e reprocessar com os motores actuais |
 | `contadesk_listar_lancamentos` | Lançamentos com linhas, por estado |
 | `contadesk_decidir_lancamento` | Aprovar (com edição de linhas) ou rejeitar com motivo |
 | `centralgest_lancar` | Enviar os aprovados para o CentralGest (idempotente) |
@@ -89,13 +91,13 @@ Contas de demonstração (criadas no primeiro arranque):
 | João Padeiro | padaria@demo.pt | cliente123 | Cliente (Padaria Central Lda) |
 | Ana Silva | tecnonorte@demo.pt | cliente123 | Cliente (TecnoNorte Unipessoal Lda) |
 
-Variáveis de ambiente: `PORT` (3000), `DB_PATH` (`data/contadesk.db`), `STORAGE_ROOT` (`data/arquivo`), `JWT_SECRET` (obrigatória em produção), `ANTHROPIC_API_KEY` (opcional), `CENTRALGEST_BASE_URL` + `CENTRALGEST_API_KEY` (API CentralGest) ou `CENTRALGEST_MOCK=1` (simulador local).
+Variáveis de ambiente: `PORT` (3000), `DB_PATH` (`data/contadesk.db`), `STORAGE_ROOT` (`data/arquivo`), `JWT_SECRET` (obrigatória em produção), `ANTHROPIC_API_KEY` (opcional), `CENTRALGEST_BASE_URL` + `CENTRALGEST_API_KEY` (API CentralGest) ou `CENTRALGEST_MOCK=1` (simulador local), `CONTADESK_OCR_MODEL` (modelo de visão), `TESSERACT_CACHE_PATH` / `TESSERACT_LANG_PATH` (dados de língua; por omissão descarregados uma vez para `data/tesseract`), `CONTADESK_DISABLE_TESSERACT=1` (desligar OCR local).
 
 ## Testes
 
 ```bash
 npm run typecheck
-npm test   # 82 testes: dominio, conferencia IVA, balancetes, relatorios, API end-to-end, CentralGest e MCP
+npm test   # 94 testes: dominio, OCR (PDF, imagem, PDF digitalizado), conferencia IVA, balancetes, relatorios, API, CentralGest e MCP
 ```
 
 Os testes cobrem o fluxo completo (upload → proposta → validação → exportação), a idempotência da exportação, a deduplicação por hash e o isolamento entre empresas (um cliente nunca vê nem carrega documentos de outra).
@@ -105,7 +107,7 @@ Os testes cobrem o fluxo completo (upload → proposta → validação → expor
 - Os benchmarks sectoriais são valores indicativos; devem ser actualizados com os Quadros do Setor via BPstat antes de entregar relatórios a clientes (fluxo em `docs/fontes-externas.md`).
 - A categorização produto → taxa de IVA é por palavras-chave e emite avisos (nunca erros): a decisão final sobre a taxa legal é do contabilista.
 
-- Só extrai texto de ficheiros de texto (TXT/CSV/XML/JSON); PDFs e imagens são arquivados e classificados pelo nome do ficheiro, ficando os detalhes para o revisor (OCR fica para a v2).
+- O OCR local (Tesseract) precisa de descarregar os dados de língua na primeira utilização (ou de os ter em `TESSERACT_LANG_PATH`); em servidores sem rede, use Claude visão ou pré-carregue a cache.
 - Recepção por email/WhatsApp: o esquema já tem o campo `channel`, mas só o canal portal está implementado.
 - Exportação Primavera em CSV genérico de movimentos; o mapeamento exacto para o importador do Cegid Primavera deve ser confirmado com a documentação oficial.
 - A API do CentralGest não tem documentação pública (o acesso obtém-se via "Pedido de Adesão à API" junto da CentralGest); o cliente implementa o contrato assumido em `docs/centralgest-api.md` e está isolado em `src/integrations/centralgest.ts` para ser ajustado quando a documentação oficial chegar.
