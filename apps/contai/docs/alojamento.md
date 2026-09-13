@@ -139,3 +139,18 @@ cp .env.example .env && nano .env            # segredos
 export CONTAI_DOMAIN=app.contai.pt           # DNS A -> IP do VPS
 docker compose -f docker-compose.vps.yml up -d --build
 ```
+
+## Provisionamento automático no Hetzner (pela API, sem browser)
+
+`deploy/hetzner-create.sh` cria o servidor completo a partir desta máquina: firewall (22/80/443), chave SSH opcional, servidor Ubuntu 24.04 com cloud-init que instala Docker, endurece o acesso (ufw, fail2ban, actualizações automáticas), clona o repositório, escreve o `.env` e arranca a app com Caddy. Inclui `contai-update` (actualizar para a última versão) e `contai-backup` (cópia diária consistente da base de dados e do arquivo para `/var/backups/contai`, 7 dias).
+
+```bash
+# 1. Token: Hetzner Console -> projecto -> Security -> API tokens -> Generate (Read & Write)
+export HCLOUD_TOKEN=...
+# 2. Segredos da app
+cp .env.example /tmp/contai.env && nano /tmp/contai.env     # pelo menos JWT_SECRET
+# 3. Criar (por omissao: cx22 em Nuremberga; DOMAIN vazio = HTTP por IP para testar)
+ENV_FILE=/tmp/contai.env DOMAIN=app.contai.pt ADMIN_PUBKEY_FILE=~/.ssh/id_ed25519.pub ./deploy/hetzner-create.sh
+```
+
+Quando o DNS do domínio apontar para o IP, o Caddy obtém o certificado automaticamente. Para pré-visualizar o cloud-init sem criar nada: `DRY_RUN=1`.

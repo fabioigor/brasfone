@@ -1,4 +1,6 @@
-{$CONTAI_DOMAIN} {
+# Sem CONTAI_DOMAIN definido, serve em HTTP na porta 80 (fase de testes por IP).
+# Com CONTAI_DOMAIN (ex.: app.contai.pt) obtem certificado TLS automaticamente.
+{$CONTAI_DOMAIN::80} {
 	encode zstd gzip
 	request_body {
 		max_size 30MB

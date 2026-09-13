@@ -1,0 +1,51 @@
+#cloud-config
+# Cont.ai by Lumarcont - provisionamento de um servidor Hetzner Cloud (Ubuntu 24.04).
+# Instala Docker, endurece o acesso (ufw, fail2ban, actualizacoes automaticas),
+# clona o repositorio, escreve o .env com os segredos e arranca a app com Caddy.
+# Os marcadores __X__ sao substituidos por deploy/hetzner-create.sh.
+package_update: true
+package_upgrade: true
+packages: [ca-certificates, curl, git, ufw, fail2ban, unattended-upgrades]
+users:
+  - name: contai
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+__ADMIN_KEYS__
+write_files:
+  - path: /opt/contai.env
+    permissions: "0600"
+    content: |
+__ENV_INDENTED__
+  - path: /usr/local/bin/contai-update
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Actualiza o Cont.ai para a ultima versao do ramo e reinicia sem perder dados (volume /data).
+      set -euo pipefail
+      cd /home/contai/brasfone && sudo -u contai git pull --ff-only
+      cd apps/contai && CONTAI_DOMAIN="$(cat /etc/contai-domain 2>/dev/null || true)" docker compose -f docker-compose.vps.yml up -d --build
+  - path: /usr/local/bin/contai-backup
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Copia consistente da base de dados SQLite e do arquivo para /var/backups/contai (7 dias).
+      set -euo pipefail
+      D=/var/backups/contai/$(date +%F); mkdir -p "$D"
+      docker run --rm -v contai_contai-data:/data -v "$D":/out alpine sh -c "apk add -q sqlite && sqlite3 /data/contai.db \".backup /out/contai.db\" && tar czf /out/arquivo.tgz -C /data arquivo"
+      find /var/backups/contai -maxdepth 1 -mtime +7 -type d -exec rm -rf {} +
+  - path: /etc/cron.d/contai-backup
+    content: |
+      30 2 * * * root /usr/local/bin/contai-backup >> /var/log/contai-backup.log 2>&1
+  - path: /etc/contai-domain
+    content: |
+      __DOMAIN__
+runcmd:
+  - curl -fsSL https://get.docker.com | sh
+  - usermod -aG docker contai
+  - ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
+  - systemctl enable --now fail2ban
+  - sudo -u contai git clone --branch __BRANCH__ --depth 1 https://github.com/__REPO__.git /home/contai/brasfone
+  - install -o contai -g contai -m 0600 /opt/contai.env /home/contai/brasfone/apps/contai/.env
+  - cd /home/contai/brasfone/apps/contai && CONTAI_DOMAIN="__DOMAIN__" docker compose -f docker-compose.vps.yml up -d --build
+  - echo "contai pronto $(date -Is)" > /var/log/contai-ready
