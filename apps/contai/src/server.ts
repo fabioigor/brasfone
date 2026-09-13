@@ -12,6 +12,8 @@ import {
   verifyPassword,
   hashPassword,
   scopedCompanyId,
+  issuePreviewToken,
+  verifyPreviewToken,
 } from "./auth.js";
 import { AiProvider } from "./ai/provider.js";
 import { ingestDocument, reprocessDocument } from "./pipeline.js";
@@ -194,6 +196,32 @@ export function createServer({
     return res.status(outcome.duplicate ? 200 : 201).json(outcome);
   });
 
+  /** Returns an inline preview URL valid for 20 minutes (for iframe/img). */
+  app.get("/api/documents/:id/preview-url", auth, (req, res) => {
+    const doc = db.prepare("SELECT id, company_id, mime_type, original_name FROM documents WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!doc) return res.status(404).json({ error: "Documento inexistente." });
+    if (req.user!.role === "client" && doc.company_id !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
+    const token = issuePreviewToken(doc.id, req.user!.id);
+    const kind = /pdf/i.test(doc.mime_type) || /\.pdf$/i.test(doc.original_name) ? "pdf" : /^image\//i.test(doc.mime_type) || /\.(png|jpe?g|webp|gif)$/i.test(doc.original_name) ? "image" : "text";
+    return res.json({ url: `/api/documents/${doc.id}/preview?t=${encodeURIComponent(token)}`, kind, name: doc.original_name });
+  });
+
+  app.get("/api/documents/:id/preview", (req, res) => {
+    const id = Number(req.params.id);
+    const token = typeof req.query.t === "string" ? req.query.t : "";
+    if (!verifyPreviewToken(token, id)) return res.status(401).json({ error: "Pré-visualização expirada. Recarregue a página." });
+    const doc = db.prepare("SELECT * FROM documents WHERE id = ?").get(id) as any;
+    if (!doc) return res.status(404).json({ error: "Documento inexistente." });
+    const abs = path.join(storageRoot, doc.stored_path);
+    if (!fs.existsSync(abs)) return res.status(410).json({ error: "Ficheiro já não existe." });
+    const isText = /^text\//i.test(doc.mime_type) || /\.(txt|csv|xml|json)$/i.test(doc.original_name);
+    res.setHeader("Content-Type", isText ? "text/plain; charset=utf-8" : doc.mime_type);
+    res.setHeader("Content-Disposition", `inline; filename="${doc.original_name.replace(/"/g, "")}"`);
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Cache-Control", "private, max-age=300");
+    return res.send(fs.readFileSync(abs));
+  });
+
   app.post("/api/documents/:id/reprocess", auth, requireStaff, async (req, res) => {
     const doc = db.prepare("SELECT id FROM documents WHERE id = ?").get(Number(req.params.id));
     if (!doc) return res.status(404).json({ error: "Documento inexistente." });
@@ -256,8 +284,9 @@ export function createServer({
     return res.json({
       entries: rows.map((r) => {
         let sources: string[] = [];
-        try { sources = JSON.parse(r.extracted_json || "{}").sources || []; } catch { /* ignore */ }
-        return { ...r, lines: JSON.parse(r.lines_json), lines_json: undefined, extracted_json: undefined, sources };
+        let extracted: any = null;
+        try { extracted = JSON.parse(r.extracted_json || "null"); sources = extracted?.sources || []; } catch { /* ignore */ }
+        return { ...r, lines: JSON.parse(r.lines_json), lines_json: undefined, extracted_json: undefined, sources, extracted };
       }),
     });
   });

@@ -106,7 +106,7 @@ a { color: var(--accent); }
 
 .content { padding: 28px 32px 48px; max-width: 1180px; width: 100%; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .hero > * { min-width: 0; }
-.hero .grid.cols-4 { flex: 1 1 520px; }
+.hero .grid.cols-4 { flex: 1 1 560px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 /* ---- tipografia ---- */
 h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: -0.01em; }
@@ -231,3 +231,22 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 60%, transpa
   .item .lines .num { text-align: left; }
   .item .lines .num:empty { display: none; }
 }
+
+/* ---- validacao: mestre / detalhe com pre-visualizacao ---- */
+.vlayout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
+.vlist { display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 180px); overflow: auto; padding-right: 2px; }
+.vitem { display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-decoration: none; color: var(--ink); }
+.vitem .title { font-weight: 700; font-size: 13.5px; }
+.vitem .meta { color: var(--ink-2); font-size: 12px; margin-top: 2px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.vitem:hover { background: var(--surface-2); }
+.vitem.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.vsplit { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.preview { position: sticky; top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+.preview-frame { width: 100%; height: min(78vh, 900px); border: 0; background: #fff; }
+.preview-img { width: 100%; max-height: 78vh; object-fit: contain; background: var(--surface-2); }
+.preview-bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
+.spacer { flex: 1; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; }
+.fact-v { font-weight: 600; font-variant-numeric: tabular-nums; display: flex; align-items: center; flex-wrap: wrap; }
+@media (max-width: 1100px) { .vsplit { grid-template-columns: 1fr; } .preview { position: static; } .preview-frame { height: 60vh; } }
+@media (max-width: 900px) { .vlayout { grid-template-columns: 1fr; } .vlist { max-height: none; flex-direction: row; overflow-x: auto; } .vitem { min-width: 220px; } }

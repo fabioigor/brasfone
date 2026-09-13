@@ -45,6 +45,23 @@ export function issueToken(user: AuthUser): string {
   );
 }
 
+/**
+ * Short-lived token that lets the browser load a document inline (iframe /
+ * img cannot send the Authorization header). Scoped to one document.
+ */
+export function issuePreviewToken(documentId: number, userId: number): string {
+  return jwt.sign({ kind: "preview", doc: documentId, sub: userId }, JWT_SECRET, { expiresIn: "20m" });
+}
+
+export function verifyPreviewToken(token: string, documentId: number): boolean {
+  try {
+    const p = jwt.verify(token, JWT_SECRET) as any;
+    return p.kind === "preview" && Number(p.doc) === documentId;
+  } catch {
+    return false;
+  }
+}
+
 export function authenticate(db: Db) {
   return (req: Request, res: Response, next: NextFunction) => {
     const header = req.headers.authorization;

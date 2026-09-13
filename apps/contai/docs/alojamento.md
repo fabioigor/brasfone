@@ -46,3 +46,65 @@ fly deploy
 ```
 
 O `Dockerfile` corre o typecheck no build, expõe `/health` como healthcheck e monta `/data` para base de dados, arquivo e cache do Tesseract.
+
+## Lista para pôr a app no ar (o que a Lumarcont tem de fornecer)
+
+Sem estes elementos não é possível fazer o deploy; com eles, o primeiro ambiente fica de pé em menos de uma hora.
+
+### Obrigatório
+
+| # | Item | Para quê | Quem trata |
+|---|---|---|---|
+| 1 | Conta **Fly.io** (ou Railway/Render/VPS) com cartão associado, e um utilizador com permissões de deploy | Alojar o contentor e o volume de 10 GB na região de Madrid | Lumarcont |
+| 2 | **Domínio** (ex.: `app.contai.pt` ou `contai.lumarcont.pt`) e acesso ao DNS para criar um registo CNAME/A | URL pública com HTTPS para utilizadores e webhooks | Lumarcont |
+| 3 | `JWT_SECRET` gerado (`openssl rand -hex 32`) | Sessões dos utilizadores | gerado no deploy |
+| 4 | Palavras-passe iniciais do gabinete e lista de empresas clientes (nome, NIF, CAE, regime de IVA) | Substituir as contas de demonstração | Lumarcont |
+
+### Para o OCR e os agentes com IA
+
+| # | Item | Para quê |
+|---|---|---|
+| 5 | **Chave da API Anthropic** (`ANTHROPIC_API_KEY`) com faturação activa | Claude visão (OCR de qualidade), extracção estruturada, memória descritiva dos relatórios, segunda opinião de IVA. Sem chave a app funciona só com Tesseract e regras |
+
+### Para a recepção por email
+
+| # | Item | Para quê |
+|---|---|---|
+| 6 | Uma caixa de correio dedicada (ex.: `docs@lumarcont.pt`) com **IMAP** activo e credenciais (ou uma app password), ou em alternativa uma conta SendGrid/Mailgun/Postmark com Inbound Parse apontado para `https://<domínio>/api/inbound/email` | Receber documentos por email; o alias `docs+<id>@` exige que o servidor de correio aceite endereços com `+` (Google Workspace e Microsoft 365 aceitam) |
+
+### Para a recepção por WhatsApp
+
+| # | Item | Para quê |
+|---|---|---|
+| 7 | Conta **Meta for Developers** com uma app do tipo Business e o produto WhatsApp adicionado; **Business verification** da Lumarcont concluída na Meta | Sem verificação o número fica limitado a contactos de teste |
+| 8 | Um **número de telefone** dedicado ao WhatsApp Business (não pode estar em uso na app WhatsApp normal) | Número de recepção |
+| 9 | Do painel da Meta: `WHATSAPP_ACCESS_TOKEN` (token de sistema permanente), `WHATSAPP_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, e um `WHATSAPP_VERIFY_TOKEN` à escolha | Validar webhooks, descarregar media e responder |
+
+### Para lançar no CentralGest
+
+| # | Item | Para quê |
+|---|---|---|
+| 10 | **Adesão à API do CentralGest Cloud** (formulário em centralgestcloud.com) e a documentação técnica que a CentralGest enviar, mais `CENTRALGEST_BASE_URL` e `CENTRALGEST_API_KEY` | Ajustar o cliente ao contrato real e activar o lançamento directo. Até lá: CSV Primavera ou simulador |
+| 11 | Código de cada empresa no CentralGest | Mapear empresa Cont.ai → empresa CentralGest |
+
+### Passos do deploy (feitos por mim assim que tiver os acessos)
+
+```bash
+cd apps/contai
+fly auth login
+fly launch --copy-config --no-deploy          # usa o fly.toml deste repositorio
+fly volumes create contai_data --region mad --size 10
+fly secrets set JWT_SECRET=... ANTHROPIC_API_KEY=... INBOUND_EMAIL_SECRET=... \
+  IMAP_HOST=... IMAP_USER=... IMAP_PASSWORD=... \
+  WHATSAPP_VERIFY_TOKEN=... WHATSAPP_APP_SECRET=... WHATSAPP_ACCESS_TOKEN=... WHATSAPP_PHONE_NUMBER_ID=... WHATSAPP_REPLY=1
+fly deploy
+fly certs add app.contai.pt                   # depois de criar o CNAME no DNS
+```
+
+Depois do deploy: configurar o webhook do WhatsApp no painel da Meta (`https://app.contai.pt/webhooks/whatsapp`, campo `messages`), apontar o Inbound Parse do email (se usado) para `/api/inbound/email` com o segredo, criar as empresas e os remetentes autorizados, e substituir as contas de demonstração.
+
+### Operação
+
+- Backups: snapshots diários automáticos do volume no Fly (5 dias de retenção por omissão); recomenda-se um `fly volumes snapshots create` semanal guardado fora, ou a migração para Postgres gerido com backups PITR quando o volume de documentos crescer.
+- Monitorização: `/health` já é usado pelo healthcheck; alertas de disco cheio no volume (arquivo cresce ~0,5 MB por documento digitalizado).
+- RGPD: dados na UE (Madrid); a chave Anthropic envia imagens de documentos para a API da Anthropic (retenção de 30 dias); se o gabinete exigir, desligar com `CONTAI_DISABLE_AI_EXTRACTION=1` e usar só OCR local.

@@ -137,6 +137,25 @@ describe("OCR via API", () => {
     expect(text.body.text).toContain("658,05");
   }, 120_000);
 
+  it("pre-visualizacao inline com token curto e controlo de acesso", async () => {
+    const doc = db.prepare("SELECT id FROM documents WHERE ocr_method = 'pdf_texto' LIMIT 1").get() as any;
+    const info = await S(request(app).get(`/api/documents/${doc.id}/preview-url`));
+    expect(info.status).toBe(200);
+    expect(info.body.kind).toBe("pdf");
+    const inline = await request(app).get(info.body.url);
+    expect(inline.status).toBe(200);
+    expect(inline.headers["content-type"]).toContain("application/pdf");
+    expect(inline.headers["content-disposition"]).toContain("inline");
+    // token de outro documento nao serve
+    const other = db.prepare("SELECT id FROM documents WHERE id != ? LIMIT 1").get(doc.id) as any;
+    const wrong = await request(app).get(`/api/documents/${other.id}/preview?t=${encodeURIComponent(new URL("http://x" + info.body.url).searchParams.get("t")!)}`);
+    expect(wrong.status).toBe(401);
+    // cliente de outra empresa nao obtem URL
+    const otherClient = (await request(app).post("/api/auth/login").send({ email: "tecnonorte@demo.pt", password: "cliente123" })).body.token;
+    const denied = await request(app).get(`/api/documents/${doc.id}/preview-url`).set("Authorization", `Bearer ${otherClient}`);
+    expect(denied.status).toBe(403);
+  });
+
   it("reprocessar documento volta a extrair e mantem o estado coerente", async () => {
     const doc = db.prepare("SELECT id FROM documents WHERE ocr_method = 'pdf_texto' LIMIT 1").get() as any;
     const res = await S(request(app).post(`/api/documents/${doc.id}/reprocess`));

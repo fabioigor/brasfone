@@ -120,6 +120,28 @@ const ocrBadge = (d) => {
   return el("span", { class: "badge " + cls, title: "Método de extracção de texto" }, (OCR_LABEL[d.ocr_method] || d.ocr_method) + conf);
 };
 
+/** Inline document preview (PDF via visualizador do browser, imagem, ou texto). */
+async function previewPane(docId) {
+  const pane = el("div", { class: "preview" });
+  try {
+    const info = await api("/api/documents/" + docId + "/preview-url");
+    if (info.kind === "image") {
+      pane.append(el("img", { src: info.url, alt: info.name, class: "preview-img" }));
+    } else {
+      pane.append(el("iframe", { src: info.url, title: info.name, class: "preview-frame" }));
+    }
+    pane.append(el("div", { class: "preview-bar" }, [
+      el("span", { class: "muted small" }, info.name),
+      el("span", { class: "spacer" }),
+      el("a", { class: "btn small", href: info.url, target: "_blank", rel: "noopener" }, "Abrir"),
+      el("button", { class: "btn small", onclick: () => showDocumentText(docId, info.name) }, "Texto extraído"),
+    ]));
+  } catch (e) {
+    pane.append(el("div", { class: "empty" }, "Sem pré-visualização: " + e.message));
+  }
+  return pane;
+}
+
 async function showDocumentText(docId, name) {
   try {
     const out = await api("/api/documents/" + docId + "/text");
@@ -248,6 +270,7 @@ async function viewDocuments(main) {
         el("td", {}, [ocrBadge(d), " ", sourcesBadges(d)]),
         el("td", {}, badge(d.status)),
         el("td", {}, [
+          el("button", { class: "btn small", onclick: async () => { const info = await api("/api/documents/" + d.id + "/preview-url"); window.open(info.url, "_blank", "noopener"); } }, "Ver"),
           el("button", { class: "btn small", onclick: () => showDocumentText(d.id, d.original_name) }, "Texto"),
           isStaff ? " " : null,
           isStaff ? el("button", { class: "btn small", onclick: async () => { try { const o = await api("/api/documents/" + d.id + "/reprocess", { method: "POST" }); toast("Reprocessado: " + (OCR_LABEL[o.ocr.method] || o.ocr.method) + ", " + o.findings.length + " alerta(s)."); render(); } catch (e) { toast(e.message, true); } } }, "Reprocessar") : null,
@@ -282,14 +305,67 @@ async function downloadDoc(ev, id, name) {
 }
 
 async function viewValidation(main) {
-  main.append(el("h2", {}, "Fila de validação"));
-  main.append(el("p", { class: "muted" }, "Nenhum lançamento é exportado sem aprovação humana. Pode editar as linhas antes de aprovar."));
   const entries = (await api("/api/entries?status=pendente")).entries;
-  if (!entries.length) {
-    main.append(el("div", { class: "card muted" }, "Sem lançamentos pendentes."));
-    return;
+  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const wantedId = Number(params.get("id"));
+  const selected = entries.find((e) => e.id === wantedId) || entries[0] || null;
+
+  main.append(el("div", { class: "hero" }, [
+    el("div", {}, [
+      el("h2", {}, "Validação de lançamentos"),
+      el("div", { class: "sub" }, entries.length ? entries.length + " por decidir. Teclas: A aprovar · R rejeitar · J/K seguinte/anterior." : "Nenhum lançamento por decidir."),
+    ]),
+  ]));
+  if (!entries.length) { main.append(el("div", { class: "empty" }, [el("div", { class: "big" }, "✓"), "Fila vazia. Nada é exportado sem aprovação humana."])); return; }
+
+  // Lista (mestre)
+  const list = el("div", { class: "vlist" });
+  for (const e of entries) {
+    list.append(el("a", { href: "#validacao?id=" + e.id, class: "vitem" + (selected && e.id === selected.id ? " active" : "") }, [
+      el("div", { class: "title" }, e.description.replace(/ - NIF \d{9}$/, "")),
+      el("div", { class: "meta" }, [e.company_name, " · ", e.entry_date, " · ", fmtEur(e.lines.reduce((a, l) => a + l.debit, 0))]),
+      el("div", { class: "meta" }, [el("span", { class: "badge " + (e.confidence < 0.8 ? "warn" : "ok") }, fmtConf(e.confidence)), (e.sources || []).includes("qr") ? el("span", { class: "badge ok" }, "QR AT") : null, (e.sources || []).includes("ia") ? el("span", { class: "badge info" }, "IA") : null]),
+    ]));
   }
-  for (const e of entries) main.append(entryCard(e));
+
+  // Detalhe: pré-visualização + informação lado a lado
+  const detail = el("div", { class: "vdetail" });
+  if (selected) {
+    const [pane, findingsRes] = await Promise.all([previewPane(selected.document_id), api("/api/findings?status=aberto&company_id=" + selected.company_id)]);
+    const docFindings = (findingsRes.findings || []).filter((f) => f.document_id === selected.document_id);
+    const x = selected.extracted || {};
+    const src = (k) => (x.fieldSources && x.fieldSources[k]) ? el("span", { class: "badge " + (x.fieldSources[k] === "qr" ? "ok" : "info"), style: "margin-left:6px" }, SOURCE_LABEL[x.fieldSources[k]] || x.fieldSources[k]) : null;
+    const fact = (label, value, key) => el("div", { class: "fact" }, [el("div", { class: "eyebrow" }, label), el("div", { class: "fact-v" }, [value == null || value === "" ? "—" : String(value), key ? src(key) : null])]);
+    const facts = el("div", { class: "facts" }, [
+      fact("Emitente", (x.issuerName ? x.issuerName + " · " : "") + (x.issuerNif || ""), "issuerNif"),
+      fact("Documento", x.docNumber, "docNumber"),
+      fact("Data", x.docDate, "docDate"),
+      fact("Base", x.netAmount != null ? fmtEur(x.netAmount) : null, "netAmount"),
+      fact("IVA", x.vatAmount != null ? fmtEur(x.vatAmount) + ((x.vatBreakdown || []).length > 1 ? " (" + x.vatBreakdown.map((b) => b.rate + "%").join(" + ") + ")" : x.vatRate != null ? " (" + x.vatRate + "%)" : "") : null, "vatAmount"),
+      fact("Total", x.totalAmount != null ? fmtEur(x.totalAmount) : null, "totalAmount"),
+      x.atcud ? fact("ATCUD", x.atcud, "atcud") : null,
+    ]);
+    const alerts = el("div", { class: "stack" });
+    for (const f of docFindings) alerts.append(el("div", { class: "item alert " + f.severity, style: "padding:10px 12px" }, [el("div", {}, [el("div", { class: "title small" }, findingLabel(f.code)), el("div", { class: "small muted" }, f.message)])]));
+    const info = el("div", { class: "vinfo stack" }, [
+      el("div", { class: "card flat" }, [el("h2", {}, "Dados extraídos"), facts]),
+      docFindings.length ? el("div", {}, [el("div", { class: "eyebrow", style: "margin-bottom:6px" }, "Alertas deste documento"), alerts]) : null,
+      entryCard(selected),
+    ]);
+    detail.append(el("div", { class: "vsplit" }, [pane, info]));
+  }
+  main.append(el("div", { class: "vlayout" }, [list, detail]));
+
+  // Atalhos de teclado
+  const idx = entries.findIndex((e) => selected && e.id === selected.id);
+  const go = (i) => { const t = entries[i]; if (t) location.hash = "#validacao?id=" + t.id; };
+  window.onkeydown = (ev) => {
+    if (currentRoute() !== "validacao" || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
+    if (ev.key === "j" || ev.key === "J") go(idx + 1);
+    else if (ev.key === "k" || ev.key === "K") go(idx - 1);
+    else if ((ev.key === "a" || ev.key === "A") && selected) document.querySelector(".vinfo .approve-btn")?.click();
+    else if ((ev.key === "r" || ev.key === "R") && selected) document.querySelector(".vinfo .reject-btn")?.click();
+  };
 }
 
 function entryCard(e) {
@@ -343,9 +419,9 @@ function entryCard(e) {
       ])
     ),
     el("div", { class: "form-row", style: "margin-top:10px" }, [
-      el("button", { class: "btn primary", onclick: () => decide("aprovar") }, "Aprovar"),
+      el("button", { class: "btn primary approve-btn", onclick: () => decide("aprovar") }, "Aprovar"),
       el("label", { style: "flex:2" }, ["", reason]),
-      el("button", { class: "btn danger", onclick: () => decide("rejeitar") }, "Rejeitar"),
+      el("button", { class: "btn danger reject-btn", onclick: () => decide("rejeitar") }, "Rejeitar"),
     ]),
   ]);
 }
@@ -962,7 +1038,7 @@ function triageEntry(e) {
     ]),
     el("div", { class: "actions" }, [
       el("button", { class: "btn small primary", onclick: () => decide("aprovar") }, "Aprovar"),
-      el("a", { class: "btn small", href: "#validacao" }, "Editar"),
+      el("a", { class: "btn small", href: "#validacao?id=" + e.id }, "Rever"),
       el("button", { class: "btn small danger", onclick: () => decide("rejeitar") }, "Rejeitar"),
     ]),
     lines,
@@ -1018,15 +1094,22 @@ async function render() {
     nav.append(el("a", { href: "#" + key, class: key === active ? "active" : "" }, [el("span", { class: "ico" }, r.ico), r.label]));
   }
 
+  // Renderiza fora do DOM e só troca se esta ainda for a navegação mais recente
+  // (evita misturar duas vistas quando o utilizador muda de página a meio do carregamento).
+  const seq = ++renderSeq;
   const main = $("#main");
-  main.innerHTML = "";
+  const staging = el("div", { class: "content-inner" });
   try {
     if (!companies.length) await loadCompanies();
-    await ROUTES[active].view(main);
+    await ROUTES[active].view(staging);
   } catch (e) {
-    main.append(el("div", { class: "card error" }, e.message));
+    staging.append(el("div", { class: "card error" }, e.message));
   }
+  if (seq !== renderSeq) return;
+  main.innerHTML = "";
+  main.append(...Array.from(staging.childNodes));
 }
+let renderSeq = 0;
 
 $("#login-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
@@ -1061,5 +1144,5 @@ $("#logout-btn").addEventListener("click", logout);
     try { localStorage.setItem("cd_theme", next); } catch (e) { /* ignore */ }
   });
 })();
-window.addEventListener("hashchange", render);
+window.addEventListener("hashchange", () => { window.onkeydown = null; render(); });
 render();
