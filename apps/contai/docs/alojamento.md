@@ -145,6 +145,14 @@ docker compose -f docker-compose.vps.yml up -d --build
 
 ## Provisionamento automático no Hetzner (pela API, sem browser)
 
+### Actualizações sem SSH nem token: o servidor segue o ramo
+
+O servidor corre `contai-autoupdate` de 5 em 5 minutos (cron): faz `git fetch` e, se o ramo remoto tiver commits novos, corre `contai-update` (pull + rebuild da imagem + reinício sem perder o volume `/data`). Assim, **um push para o ramo chega a produção em menos de 10 minutos**, sem chave SSH e sem token da API do Hetzner. Registo em `/var/log/contai-autoupdate.log`. Servidores criados antes desta versão activam-no uma vez, como root (consola web do Hetzner): `contai-update && bash /home/contai/brasfone/apps/contai/deploy/enable-autoupdate.sh`. Quando a PR for integrada em `main`, mudar o ramo seguido com `cd /home/contai/brasfone && runuser -u contai -- git checkout main`.
+
+### Segredos das integrações: página "Integrações" na app
+
+As chaves da Anthropic, do email (webhook e IMAP), do WhatsApp e do CentralGest configuram-se em **Configuração > Integrações** (só gabinete). Ficam cifradas na base de dados (AES-256-GCM, chave derivada de `CONTAI_SECRET_KEY` ou, na sua ausência, de `JWT_SECRET`), sobrepõem-se ao `.env` e nunca voltam ao browser em claro (só os últimos 4 caracteres). Guardar reinicia a app em produção (poucos segundos) para todos os componentes recarregarem. O `.env` do servidor só precisa, por isso, de `JWT_SECRET`, `CONTAI_ADMIN_*` e, opcionalmente, `CONTAI_SECRET_KEY`.
+
 `deploy/hetzner-create.sh` cria o servidor completo a partir desta máquina: firewall (22/80/443), chave SSH opcional, servidor Ubuntu 24.04 com cloud-init que instala Docker, endurece o acesso (ufw, fail2ban, actualizações automáticas), clona o repositório, escreve o `.env` e arranca a app com Caddy. Inclui `contai-update` (actualizar para a última versão) e `contai-backup` (cópia diária consistente da base de dados e do arquivo para `/var/backups/contai`, 7 dias).
 
 ```bash

@@ -10,6 +10,7 @@ import { DocumentOcr } from "./ocr/engine.js";
 import { buildStructuredExtractor } from "./extraction/analyse.js";
 import { imapConfigFromEnv, EmailPoller } from "./channels/email.js";
 import { whatsappConfigFromEnv } from "./channels/whatsapp.js";
+import { applyStoredSettings } from "./settings.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const DB_PATH = process.env.DB_PATH || path.join("data", "contai.db");
@@ -18,6 +19,8 @@ const STORAGE_ROOT = process.env.STORAGE_ROOT || path.join("data", "arquivo");
 async function main(): Promise<void> {
   const db = openDb(DB_PATH);
   seedDefaultRules(db);
+  // Definicoes guardadas na UI (cifradas) sobrepoem-se ao .env.
+  const applied = applyStoredSettings(db);
   const demo = demoModeFromEnv();
   if (demo) seedDemo(db);
   let adminLabel = "sem conta de administração definida (CONTAI_ADMIN_EMAIL / CONTAI_ADMIN_PASSWORD)";
@@ -39,7 +42,11 @@ async function main(): Promise<void> {
   const ocr = DocumentOcr.fromEnv();
   const provider = buildProvider();
   const structured = buildStructuredExtractor();
-  const app = createServer({ db, provider, storageRoot: STORAGE_ROOT, centralgest, ocr, structured, demo });
+  const app = createServer({
+    db, provider, storageRoot: STORAGE_ROOT, centralgest, ocr, structured, demo,
+    // Em producao o contentor reinicia (restart: unless-stopped) e recarrega tudo com as novas definicoes.
+    onSettingsSaved: process.env.NODE_ENV === "production" ? () => { console.log("Definições alteradas: a reiniciar."); process.exit(0); } : null,
+  });
 
   const imap = imapConfigFromEnv();
   if (imap) {
@@ -54,6 +61,7 @@ async function main(): Promise<void> {
   app.listen(PORT, () => {
     console.log(`Contas: ${demo ? "dados de demonstração activos" : "sem dados de demonstração"}; administração: ${adminLabel}`);
     console.log(`Cont.ai a escutar em http://localhost:${PORT}`);
+    if (applied.length) console.log(`Definições da UI aplicadas: ${applied.join(", ")}`);
     console.log(`Fornecedor de IA: ${process.env.ANTHROPIC_API_KEY ? "Anthropic (claude-haiku-4-5)" : "heurístico local"}`);
     console.log(`CentralGest: ${centralgestLabel}`);
     console.log(`OCR: ${ocr.engines.join(" > ")}${structured ? " + extracção estruturada IA" : ""} + QR AT`);

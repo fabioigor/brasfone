@@ -26,6 +26,23 @@ __ENV_INDENTED__
       set -euo pipefail
       cd /home/contai/brasfone && runuser -u contai -- git pull --ff-only
       cd apps/contai && CONTAI_DOMAIN="$(cat /etc/contai-domain 2>/dev/null || true)" docker compose -f docker-compose.vps.yml up -d --build
+  - path: /usr/local/bin/contai-autoupdate
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Actualizacao automatica: se o ramo remoto tiver commits novos, corre contai-update (sem SSH nem token).
+      set -euo pipefail
+      exec 9>/run/contai-autoupdate.lock; flock -n 9 || exit 0
+      cd /home/contai/brasfone
+      G="runuser -u contai -- git"
+      $G fetch -q origin
+      B=$($G rev-parse --abbrev-ref HEAD); L=$($G rev-parse HEAD); R=$($G rev-parse "origin/$B")
+      [ "$L" = "$R" ] && exit 0
+      echo "$(date -Is) actualizar $B ${L:0:7} -> ${R:0:7}" >> /var/log/contai-autoupdate.log
+      /usr/local/bin/contai-update >> /var/log/contai-autoupdate.log 2>&1 && echo "$(date -Is) ok" >> /var/log/contai-autoupdate.log
+  - path: /etc/cron.d/contai-autoupdate
+    content: |
+      */5 * * * * root /usr/local/bin/contai-autoupdate >/dev/null 2>&1
   - path: /usr/local/bin/contai-backup
     permissions: "0755"
     content: |

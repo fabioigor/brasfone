@@ -1046,6 +1046,90 @@ function triageEntry(e) {
   ]);
 }
 
+/* ---------- integracoes ---------- */
+
+const SETTING_GROUPS = {
+  ia: { title: "Inteligência artificial (Anthropic)", intro: "A chave fica cifrada na base de dados e nunca volta a ser mostrada. Sem chave, o OCR usa só o Tesseract local e o QR da AT." },
+  email: { title: "Recepção por email", intro: "Webhook (o serviço de email envia cada mensagem para a app) ou leitura periódica de uma caixa IMAP. Os remetentes autorizados definem-se em Empresas." },
+  whatsapp: { title: "WhatsApp Cloud API (Meta)", intro: "Dados da app Meta e do número. Registe o webhook abaixo na Meta com o token de verificação." },
+  centralgest: { title: "CentralGest (mais tarde)", intro: "Preencher quando a adesão à API do CentralGest estiver concluída. Sem estes dados a entrega faz-se por CSV Primavera." },
+};
+
+async function viewIntegrations(main) {
+  main.append(el("h2", {}, "Integrações"));
+  main.append(el("p", { class: "muted" }, "Chaves e credenciais dos serviços ligados ao Cont.ai. Só o gabinete vê esta página; os valores secretos guardam-se cifrados e mostram-se apenas os últimos 4 caracteres."));
+  const data = await api("/api/settings");
+  const status = await api("/api/channels/status");
+  const origin = location.origin;
+
+  const st = el("div", { class: "card" });
+  st.append(el("h2", {}, "Estado actual"));
+  st.append(el("ul", { class: "small" }, [
+    el("li", {}, "OCR: " + status.ocr.join(" > ") + (status.ai_extraction ? " + extracção estruturada por IA" : "")),
+    el("li", {}, "Webhook de email: " + (status.email_webhook ? "activo" : "inactivo") + " · URL " + origin + "/api/inbound/email"),
+    el("li", {}, "IMAP: " + (status.imap ? "activo" : "inactivo")),
+    el("li", {}, "WhatsApp: " + (status.whatsapp ? "activo" : "inactivo") + " · URL do webhook " + origin + "/webhooks/whatsapp"),
+  ]));
+  main.append(st);
+
+  const inputs = {};
+  for (const [g, meta] of Object.entries(SETTING_GROUPS)) {
+    const card = el("div", { class: "card" });
+    card.append(el("h2", {}, meta.title));
+    card.append(el("p", { class: "muted small" }, meta.intro));
+    const col = el("div", { class: "form-col wide" });
+    for (const s of data.settings.filter((x) => x.group === g)) {
+      const input = el("input", { type: s.secret ? "password" : "text", autocomplete: "off", placeholder: s.placeholder || "" });
+      if (!s.secret && s.value) input.value = s.value;
+      if (s.secret && s.masked) input.placeholder = "definido " + s.masked + " (escreva para substituir)";
+      inputs[s.key] = { input, def: s };
+      const state = s.source === "definicoes" ? "guardado na app" : s.source === "ambiente" ? "vem do .env do servidor" : "por definir";
+      const row = el("label", {}, [
+        el("span", {}, [s.label, " ", el("span", { class: "badge " + (s.source === "nenhum" ? "muted" : "ok") }, state)]),
+        input,
+      ]);
+      if (s.hint) row.append(el("span", { class: "muted small" }, s.hint));
+      col.append(row);
+    }
+    card.append(col);
+    main.append(card);
+  }
+
+  const bar = el("div", { class: "card" });
+  const btn = el("button", { class: "btn primary" }, data.restart ? "Guardar e reiniciar a app" : "Guardar");
+  bar.append(el("p", { class: "muted small" }, data.restart
+    ? "Só os campos preenchidos são alterados. A app reinicia em poucos segundos para aplicar as novas definições; para remover um valor guardado, escreva um só espaço."
+    : "Só os campos preenchidos são alterados. Em desenvolvimento, reinicie o servidor para aplicar."));
+  btn.addEventListener("click", async () => {
+    const values = {};
+    for (const [k, { input, def }] of Object.entries(inputs)) {
+      const v = input.value;
+      if (v === "") continue;                       // não mexer
+      if (v.trim() === "") { values[k] = null; continue; } // um espaço limpa
+      if (!def.secret && v === def.value) continue;   // sem alteração
+      values[k] = v;
+    }
+    if (!Object.keys(values).length) { toast("Nada para guardar."); return; }
+    btn.disabled = true;
+    try {
+      const out = await api("/api/settings", { method: "PUT", json: { values } });
+      toast(out.saved.length + " definição(ões) guardada(s)" + (out.cleared.length ? ", " + out.cleared.length + " removida(s)" : "") + (out.restart ? ". A reiniciar..." : "."));
+      if (out.restart) {
+        for (let i = 0; i < 30; i++) {
+          await new Promise((r) => setTimeout(r, 1500));
+          try { const h = await fetch("/health"); if (h.ok) break; } catch (e) { /* a reiniciar */ }
+        }
+      }
+      render();
+    } catch (e) {
+      toast(e.message, true);
+      btn.disabled = false;
+    }
+  });
+  bar.append(btn);
+  main.append(bar);
+}
+
 /* ---------- conta ---------- */
 
 async function viewAccount(main) {
@@ -1099,6 +1183,7 @@ const ROUTES = {
   painel: { label: "Indicadores e prazos", ico: "◷", group: "Análise", view: viewDashboard, roles: ["staff", "client"] },
   empresas: { label: "Empresas", ico: "⌂", group: "Configuração", view: viewCompanies, roles: ["staff"] },
   exportacao: { label: "Entrega", ico: "⇪", group: "Configuração", view: viewExport, roles: ["staff"] },
+  integracoes: { label: "Integrações", ico: "⚙", group: "Configuração", view: viewIntegrations, roles: ["staff"] },
   conta: { label: "A minha conta", ico: "☺", group: "Configuração", view: viewAccount, roles: ["staff", "client"] },
 };
 

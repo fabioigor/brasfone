@@ -2,6 +2,12 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-13 — Segredos das integrações na UI (cifrados) e servidor que segue o ramo
+
+- **Decisão:** as credenciais das integrações (Anthropic, email webhook/IMAP, WhatsApp, CentralGest) deixam de exigir edição do `.env` no servidor: configuram-se em Configuração > Integrações (só gabinete), ficam cifradas na base de dados (AES-256-GCM, chave derivada de `CONTAI_SECRET_KEY`/`JWT_SECRET`), sobrepõem-se ao ambiente e nunca voltam ao browser em claro. Guardar reinicia a app em produção para recarregar os componentes. O servidor de produção corre `contai-autoupdate` de 5 em 5 minutos e aplica automaticamente os commits novos do ramo.
+- **Contexto:** o token da API do Hetzner foi revogado após o provisionamento (boa prática) e não há acesso SSH a partir do ambiente de desenvolvimento. Sem estes dois mecanismos, cada alteração de código ou de segredo exigiria intervenção manual na consola do Hetzner. Os segredos passam a ser introduzidos pelo product owner directamente na app, sem transitar pela conversa com o assistente.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-13 — Sem contas de demonstração em produção; administração por variáveis de ambiente
 
 - **Decisão:** com `NODE_ENV=production` a app não semeia as contas de demonstração (`gabinete@demo.pt`, etc., com palavras-passe públicas no README); a primeira conta do gabinete é criada uma só vez a partir de `CONTAI_ADMIN_EMAIL` + `CONTAI_ADMIN_PASSWORD`, e cada utilizador pode alterar a sua palavra-passe em "A minha conta" (`POST /api/auth/password`, registado no audit log). `CONTAI_SEED_DEMO=1` força a demonstração (formação, ambientes de teste). A página de login só mostra as credenciais de demonstração quando o servidor as tem (`GET /api/public-config`).

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { Db, audit } from "./db.js";
+import { listSettings, saveSettings } from "./settings.js";
 import {
   authenticate,
   requireStaff,
@@ -62,6 +63,8 @@ export interface ServerOptions {
   whatsappFetch?: typeof fetch;
   /** Demo accounts are seeded: the login page may show their credentials. */
   demo?: boolean;
+  /** Called after integration settings are saved; production restarts the process so every component reloads. */
+  onSettingsSaved?: (() => void) | null;
 }
 
 const upload = multer({
@@ -76,6 +79,7 @@ export function createServer({
   whatsapp = whatsappConfigFromEnv(),
   whatsappFetch = fetch,
   demo = false,
+  onSettingsSaved = null,
 }: ServerOptions): express.Express {
   const app = express();
   // Raw body is needed to validate the Meta signature; keep it for webhooks only.
@@ -819,6 +823,23 @@ export function createServer({
     const r = db.prepare("DELETE FROM company_contacts WHERE id = ?").run(Number(req.params.id));
     if (r.changes === 0) return res.status(404).json({ error: "Contacto inexistente." });
     return res.json({ ok: true });
+  });
+
+  // ---------- Integracoes (definicoes cifradas na BD) ----------
+  app.get("/api/settings", auth, requireStaff, (_req, res) => {
+    return res.json({ settings: listSettings(db), restart: !!onSettingsSaved });
+  });
+
+  app.put("/api/settings", auth, requireStaff, (req, res) => {
+    const body = z.object({ values: z.record(z.string(), z.string().max(4000).nullable()) }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Pedido inválido." });
+    try {
+      const out = saveSettings(db, req.user!.id, body.data.values);
+      if (onSettingsSaved && (out.saved.length || out.cleared.length)) setTimeout(onSettingsSaved, 400);
+      return res.json({ ...out, restart: !!onSettingsSaved });
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
   });
 
   app.get("/api/channels/status", auth, requireStaff, (_req, res) => {

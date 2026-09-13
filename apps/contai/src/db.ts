@@ -258,6 +258,12 @@ function migrate(db: Db): void {
     db.exec("ALTER TABLE documents ADD COLUMN ocr_method TEXT");
     db.exec("ALTER TABLE documents ADD COLUMN ocr_confidence REAL");
   }
+  db.exec(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value_enc TEXT NOT NULL,
+    updated_by INTEGER,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
 }
 
 export function audit(
