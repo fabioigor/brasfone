@@ -93,6 +93,16 @@ const badge = (s) => el("span", { class: "badge " + (STATUS_BADGE[s] || "") }, s
 
 const OCR_LABEL = { texto: "texto", pdf_texto: "PDF com texto", tesseract: "OCR local", claude_visao: "OCR Claude", indisponivel: "sem texto" };
 const SOURCE_LABEL = { qr: "QR AT", ia: "IA", heuristica: "regras" };
+const FINDING_LABEL = {
+  IVA_CALCULO: "IVA mal calculado", TAXA_INEXISTENTE: "Taxa de IVA inexistente", TAXA_DESADEQUADA: "Taxa desadequada ao produto",
+  TAXAS_MISTAS_POSSIVEIS: "Artigos com taxas diferentes", TAXA_NAO_IDENTIFICADA: "Taxa de IVA não identificada", TOTAL_INCOERENTE: "Total incoerente",
+  DUPLICADO: "Documento duplicado", DATA_FUTURA: "Data futura", DATA_EM_FALTA: "Data em falta", AUMENTO_IMPOSTO_ANOMALO: "Aumento anómalo de imposto",
+  NIF_TERCEIRO_EM_FALTA: "NIF do terceiro em falta", OCR_CONFIANCA_BAIXA: "OCR com confiança baixa", TEXTO_NAO_EXTRAIDO: "Texto não extraído",
+  FONTES_DIVERGENTES: "Fontes de extracção divergentes", QR_INCOERENTE: "QR code incoerente", DOCUMENTO_ANULADO: "Documento anulado",
+  VARIOS_DOCUMENTOS_NO_FICHEIRO: "Vários documentos no ficheiro", SALDO_INVERTIDO: "Saldo com sinal invertido", VARIACAO_ANOMALA: "Variação anómala",
+  SALDO_FORA_DO_PADRAO: "Saldo fora do padrão", RACIO_FORA_DO_PADRAO: "Rácio fora do padrão", BALANCETE_DESEQUILIBRADO: "Balancete desequilibrado", EBITDA_NEGATIVO: "EBITDA negativo",
+};
+const findingLabel = (code) => FINDING_LABEL[code] || code.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
 const sourcesBadges = (d) => {
   let sources = [];
   try { sources = (JSON.parse(d.extracted_json || "{}").sources) || []; } catch (e) { /* ignore */ }
