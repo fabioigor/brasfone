@@ -6,6 +6,17 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { Db, audit } from "./db.js";
 import { listSettings, saveSettings } from "./settings.js";
+
+/** Version from package.json, exposed in /health to confirm which build is running after an update. */
+const APP_VERSION: string = (() => {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    for (const p of [path.join(here, "..", "package.json"), path.join(process.cwd(), "package.json")]) {
+      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf8")).version ?? "0.0.0";
+    }
+  } catch { /* sem package.json: versao desconhecida */ }
+  return "0.0.0";
+})();
 import {
   authenticate,
   requireStaff,
@@ -98,7 +109,7 @@ export function createServer({
 
   const auth = authenticate(db);
 
-  app.get("/health", (_req, res) => res.json({ status: "ok" }));
+  app.get("/health", (_req, res) => res.json({ status: "ok", version: APP_VERSION }));
   // Public, non-sensitive settings needed before login.
   app.get("/api/public-config", (_req, res) => res.json({ demo, brand: "Cont.ai by Lumarcont" }));
 
