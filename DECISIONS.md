@@ -2,6 +2,12 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-13 — Alojamento: Hetzner (infra-estrutura existente da Lumarcont)
+
+- **Facto a reter:** a Lumarcont **já tem servidores no Hetzner**. Qualquer recomendação futura de alojamento, backups, base de dados ou object storage deve partir desta infra-estrutura (Hetzner Cloud/Dedicated, Hetzner Object Storage, snapshots Hetzner) antes de considerar outros fornecedores.
+- **Decisão:** o Cont.ai é alojado nos servidores Hetzner da Lumarcont com `docker-compose.vps.yml` + Caddy (TLS automático). Empresa e servidores na UE, sem transferência internacional de dados a justificar (excepto a API da Anthropic, opcional). O Fly.io fica apenas como plano alternativo documentado.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-13 — Marca, alojamento e UX
 
 - **Marca:** o nome final é **Cont.ai by Lumarcont**; a menção "by Lumarcont" aparece no login, na barra lateral, no manifest da web app e no rodapé dos relatórios.

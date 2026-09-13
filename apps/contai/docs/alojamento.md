@@ -1,5 +1,7 @@
 # Alojamento do Cont.ai: análise e recomendação
 
+> **Decisão (2026-09-13):** a Lumarcont já tem servidores no **Hetzner**. O Cont.ai é alojado aí com `docker-compose.vps.yml` + Caddy. O resto deste documento mantém a análise que levou a esta decisão e o plano alternativo (Fly.io).
+
 ## O que a aplicação precisa
 
 | Necessidade | Porquê |
