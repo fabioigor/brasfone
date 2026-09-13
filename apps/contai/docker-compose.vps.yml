@@ -18,7 +18,8 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      - CONTAI_DOMAIN=${CONTAI_DOMAIN}
+      # Vazio ou indefinido -> ":80" (HTTP por IP). O Caddy so aplica o valor por omissao a variaveis inexistentes, nao a vazias.
+      - CONTAI_DOMAIN=${CONTAI_DOMAIN:-:80}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
