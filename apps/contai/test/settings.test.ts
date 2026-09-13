@@ -101,3 +101,25 @@ describe("teste de ligacao CentralGest", () => {
     mock.server.close();
   });
 });
+
+describe("estado do sistema", () => {
+  it("devolve versao, deploy e registo da actualizacao automatica (so gabinete)", async () => {
+    const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "contai-sys-"));
+    fs.writeFileSync(path.join(dir, "deploy.json"), JSON.stringify({ commit: "abc1234", branch: "main", updatedAt: "2026-09-13T20:00:00Z" }));
+    fs.writeFileSync(path.join(dir, "autoupdate.log"), "l1\nl2\nl3\n");
+    process.env.CONTAI_SYSTEM_LOG_DIR = dir;
+    const db = openDb(":memory:"); seedDemo(db);
+    const app = createServer({ db, provider: new HeuristicProvider(), storageRoot: "/tmp", structured: null });
+    const staff = (await request(app).post("/api/auth/login").send({ email: "gabinete@demo.pt", password: "gabinete123" })).body.token;
+    const client = (await request(app).post("/api/auth/login").send({ email: "padaria@demo.pt", password: "cliente123" })).body.token;
+    expect((await request(app).get("/api/system").set("Authorization", `Bearer ${client}`)).status).toBe(403);
+    const r = await request(app).get("/api/system").set("Authorization", `Bearer ${staff}`);
+    expect(r.status).toBe(200);
+    expect(r.body.version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(r.body.deploy.commit).toBe("abc1234");
+    expect(r.body.autoupdateLog).toEqual(["l1", "l2", "l3"]);
+    delete process.env.CONTAI_SYSTEM_LOG_DIR;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});

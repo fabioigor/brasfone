@@ -2,9 +2,14 @@
 # Actualizacao automatica (cron de 5 em 5 minutos): se o ramo remoto tiver commits novos, corre update.sh.
 # Corre inteiro a partir de uma funcao para que o pull a meio nao altere o script em execucao.
 set -euo pipefail
+# O cron arranca com PATH=/usr/bin:/bin, sem /usr/sbin (onde vive o runuser): fixar o PATH aqui.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LOG=/var/log/contai/autoupdate.log
+mkdir -p /var/log/contai
+trap 'echo "$(date -Is) ERRO na linha $LINENO (codigo $?)" >> "$LOG"' ERR
 main() {
   exec 9>/run/contai-autoupdate.lock; flock -n 9 || exit 0
-  local repo=/home/contai/brasfone log=/var/log/contai-autoupdate.log
+  local repo=/home/contai/brasfone log=$LOG
   cd "$repo"
   local g="runuser -u contai -- git"
   $g fetch -q origin

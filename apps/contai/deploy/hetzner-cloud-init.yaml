@@ -32,6 +32,7 @@ __ENV_INDENTED__
       exec bash /home/contai/brasfone/apps/contai/deploy/autoupdate.sh "$@"
   - path: /etc/cron.d/contai-autoupdate
     content: |
+      PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       */5 * * * * root /usr/local/bin/contai-autoupdate >/dev/null 2>&1
   - path: /usr/local/bin/contai-backup
     permissions: "0755"
@@ -56,6 +57,7 @@ runcmd:
   # Clonar como root e entregar ao utilizador: 'sudo -u contai' falha no primeiro arranque (palavra-passe expirada pelo cloud-init).
   - git clone --branch __BRANCH__ --depth 1 https://github.com/__REPO__.git /home/contai/brasfone && chown -R contai:contai /home/contai/brasfone
   - install -o contai -g contai -m 0600 /opt/contai.env /home/contai/brasfone/apps/contai/.env
+  - mkdir -p /var/log/contai && cd /home/contai/brasfone && printf '{"commit":"%s","branch":"%s","updatedAt":"%s"}\n' "$(runuser -u contai -- git rev-parse --short HEAD)" "$(runuser -u contai -- git rev-parse --abbrev-ref HEAD)" "$(date -Is)" > /var/log/contai/deploy.json
   - docker --version >> /var/log/contai-compose.log; docker compose version >> /var/log/contai-compose.log
   - cd /home/contai/brasfone/apps/contai && (CONTAI_DOMAIN="__DOMAIN__" docker compose -f docker-compose.vps.yml up -d --build >> /var/log/contai-compose.log 2>&1 || echo "COMPOSE FALHOU $(date -Is)" >> /var/log/contai-compose.log)
   - for i in $(seq 1 36); do curl -sf -o /dev/null http://127.0.0.1/health && break; sleep 5; done; if curl -sf -o /dev/null http://127.0.0.1/health; then echo "contai pronto $(date -Is)" > /var/log/contai-ready; else cd /home/contai/brasfone/apps/contai && docker compose -f docker-compose.vps.yml ps -a > /var/log/contai-docker.log 2>&1; docker compose -f docker-compose.vps.yml logs --no-color --tail 200 >> /var/log/contai-docker.log 2>&1; docker compose -f docker-compose.vps.yml down >> /var/log/contai-docker.log 2>&1; echo "APP NAO SAUDAVEL $(date -Is), contentores desligados para diagnostico" > /var/log/contai-ready; fi

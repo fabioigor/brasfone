@@ -1198,6 +1198,18 @@ async function viewIntegrations(main) {
   const status = await api("/api/channels/status");
   const origin = location.origin;
 
+  const sys = await api("/api/system").catch(() => null);
+  if (sys) {
+    const since = new Date(sys.startedAt).toLocaleString("pt-PT");
+    const dep = sys.deploy ? "commit " + sys.deploy.commit + " (" + sys.deploy.branch + ") em " + new Date(sys.deploy.updatedAt).toLocaleString("pt-PT") : "sem registo de deploy (ambiente local)";
+    const sysCard = el("div", { class: "card" }, [
+      el("h2", {}, "Sistema"),
+      el("p", { class: "small" }, ["Versão ", el("strong", {}, sys.version), " · a correr desde " + since + " · " + dep]),
+    ]);
+    if (sys.autoupdate) sysCard.append(el("details", {}, [el("summary", { class: "small" }, "Registo da actualização automática (" + sys.autoupdateLog.length + " linhas)"), el("pre", { class: "small", style: "white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0 0" }, sys.autoupdateLog.join("\n") || "Ainda sem actualizações. O servidor verifica o ramo de 5 em 5 minutos.")]));
+    main.append(sysCard);
+  }
+
   const st = el("div", { class: "card" });
   st.append(el("h2", {}, "Estado actual"));
   st.append(el("ul", { class: "small" }, [

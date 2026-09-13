@@ -6,8 +6,11 @@ services:
     env_file: .env
     environment:
       - PORT=3000
+      - CONTAI_SYSTEM_LOG_DIR=/var/log/contai
     volumes:
       - contai-data:/data
+      # Registo das actualizacoes automaticas, mostrado em Integracoes > Sistema (so leitura).
+      - /var/log/contai:/var/log/contai:ro
     restart: unless-stopped
     expose:
       - "3000"

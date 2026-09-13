@@ -111,6 +111,16 @@ export function createServer({
 
   app.get("/health", (_req, res) => res.json({ status: "ok", version: APP_VERSION }));
 
+  // Estado do sistema (versao, ultimo deploy, registo da actualizacao automatica) para o gabinete.
+  const startedAt = new Date().toISOString();
+  app.get("/api/system", auth, requireStaff, (_req, res) => {
+    const dir = process.env.CONTAI_SYSTEM_LOG_DIR || "";
+    const read = (name: string): string | null => { try { return dir ? fs.readFileSync(path.join(dir, name), "utf8") : null; } catch { return null; } };
+    let deploy: any = null; try { deploy = JSON.parse(read("deploy.json") || "null"); } catch { deploy = null; }
+    const log = (read("autoupdate.log") || "").trim().split("\n").filter(Boolean).slice(-40);
+    return res.json({ version: APP_VERSION, startedAt, node: process.version, deploy, autoupdateLog: log, autoupdate: !!dir });
+  });
+
   // Digital Asset Links: liga a app Android (Trusted Web Activity) a este dominio.
   app.get("/.well-known/assetlinks.json", (_req, res) => {
     const pkg = (process.env.ANDROID_PACKAGE || "pt.lumarcont.contai").trim();
