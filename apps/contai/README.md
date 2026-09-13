@@ -1,4 +1,4 @@
-# Cont.ai
+# Cont.ai by Lumarcont
 
 Portal digital para gabinetes de contabilidade, inspirado no Kangaroo Files: recepção de documentos dos clientes, classificação automática, arquivo digital organizado (Decreto-Lei 28/2019), geração de lançamentos contabilísticos com validação humana obrigatória, lançamento directo no CentralGest por API (com servidor MCP para agentes de IA) e exportação para Cegid Primavera.
 

@@ -50,8 +50,11 @@ export interface PipelineDeps {
 export const OCR_LOW_CONFIDENCE = 0.85;
 
 /** Findings derived from how the text was obtained (not from its content). */
-export function ocrFindings(ocr: OcrResult): Finding[] {
+export function ocrFindings(ocr: OcrResult, qrPresent = false): Finding[] {
   const out: Finding[] = [];
+  // When the AT QR code supplied the fiscal values, a weak OCR reading of the
+  // surrounding text is no longer a risk worth the reviewer's attention.
+  if (qrPresent && ocr.method !== "indisponivel") return out;
   if (ocr.method === "indisponivel") {
     out.push({
       code: "TEXTO_NAO_EXTRAIDO",
@@ -140,7 +143,7 @@ function proposeAndAudit(
   const auditCtx = buildAuditContext(db, company.id, a.extracted, documentId);
   auditCtx.divergences = a.divergences;
   auditCtx.qrCount = a.qrCount;
-  const findings = [...ocrFindings(a.ocr), ...auditDocument(a.classification.docType as DocType, a.extracted, auditCtx)];
+  const findings = [...ocrFindings(a.ocr, a.qr !== null), ...auditDocument(a.classification.docType as DocType, a.extracted, auditCtx)];
   persistDocumentFindings(db, company.id, documentId, findings);
   return { entryId, status, findings };
 }

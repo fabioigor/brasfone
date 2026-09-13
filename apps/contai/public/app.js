@@ -631,7 +631,7 @@ async function viewAudit(main) {
     }
     tbody.append(el("tr", {}, [
       el("td", {}, badge(f.severity)),
-      el("td", {}, [el("strong", {}, f.code), el("div", { class: "small" }, f.message)]),
+      el("td", {}, [el("strong", {}, findingLabel(f.code)), el("div", { class: "muted small" }, f.code), el("div", { class: "small" }, f.message)]),
       el("td", {}, [f.scope === "documento" ? (f.original_name || "documento #" + f.document_id) : "Balancete " + (f.period || ""), el("div", { class: "muted small" }, f.company_name)]),
       actions,
     ]));
@@ -844,25 +844,141 @@ async function manageContacts(company) {
   catch (e) { toast(e.message, true); }
 }
 
+
+/* ---------- Hoje (fila de trabalho) ---------- */
+
+const fmtEur = (n) => Number(n).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
+
+async function viewToday(main) {
+  const isStaff = user.role === "staff";
+  const [dash, entriesRes, findingsRes, inboundRes] = await Promise.all([
+    api("/api/dashboard"),
+    isStaff ? api("/api/entries?status=pendente") : Promise.resolve({ entries: [] }),
+    api("/api/findings?status=aberto"),
+    isStaff ? api("/api/inbound?status=sem_empresa") : Promise.resolve({ messages: [] }),
+  ]);
+  const entries = entriesRes.entries || [];
+  const findings = (findingsRes.findings || []).filter((f) => f.severity !== "info");
+  const inbound = inboundRes.messages || [];
+  const count = (arr, st) => (arr.find((x) => x.status === st) || {}).n || 0;
+  const today = new Date().toLocaleDateString("pt-PT", { weekday: "long", day: "numeric", month: "long" });
+
+  main.append(el("div", { class: "hero" }, [
+    el("div", {}, [
+      el("div", { class: "eyebrow" }, today),
+      el("h1", {}, isStaff ? (entries.length + findings.length + inbound.length === 0 ? "Tudo em dia." : "O que precisa de si hoje") : "A minha empresa"),
+      el("div", { class: "sub" }, isStaff
+        ? entries.length + " lançamento(s) por aprovar · " + findings.length + " alerta(s) · " + inbound.length + " remetente(s) por associar"
+        : "Documentos, alertas e relatórios da " + ((companies[0] || {}).name || "sua empresa")),
+    ]),
+    el("div", { class: "grid cols-4", style: "min-width:min(560px,100%)" }, [
+      el("div", { class: "card stat accent" }, [el("div", { class: "n" }, String(count(dash.documents, "validado") + count(dash.documents, "exportado"))), el("div", { class: "l" }, "Documentos validados")]),
+      el("div", { class: "card stat" }, [el("div", { class: "n" }, String(count(dash.documents, "classificado") + count(dash.documents, "proposto"))), el("div", { class: "l" }, "Em processamento")]),
+      el("div", { class: "card stat warn" }, [el("div", { class: "n" }, String(findings.length)), el("div", { class: "l" }, "Alertas abertos")]),
+      el("div", { class: "card stat" }, [el("div", { class: "n" }, String(dash.pendingRequests)), el("div", { class: "l" }, "Pedidos pendentes")]),
+    ]),
+  ]));
+
+  const left = el("div", { class: "stack" });
+  const right = el("div", { class: "stack" });
+
+  if (isStaff) {
+    left.append(el("div", { class: "eyebrow" }, "Lançamentos por aprovar"));
+    if (!entries.length) left.append(el("div", { class: "empty" }, [el("div", { class: "big" }, "✓"), "Nenhum lançamento à espera. Os documentos novos aparecem aqui já lidos e conferidos."]));
+    for (const e of entries.slice(0, 12)) left.append(triageEntry(e));
+    if (entries.length > 12) left.append(el("a", { href: "#validacao", class: "btn" }, "Ver todos os " + entries.length + " lançamentos"));
+  }
+
+  right.append(el("div", { class: "eyebrow" }, isStaff ? "Alertas de conferência" : "Alertas sobre os seus documentos"));
+  if (!findings.length) right.append(el("div", { class: "empty" }, "Sem alertas abertos."));
+  for (const f of findings.slice(0, 8)) {
+    right.append(el("div", { class: "item alert " + f.severity }, [
+      el("div", {}, [
+        el("div", { class: "title" }, findingLabel(f.code)),
+        el("div", { class: "meta" }, [badge(f.severity), f.original_name || ("Balancete " + (f.period || "")), "· " + f.company_name]),
+        el("div", { class: "small", style: "margin-top:6px" }, f.message),
+      ]),
+      isStaff ? el("div", { class: "actions" }, [
+        el("button", { class: "btn small", onclick: async () => { await api("/api/findings/" + f.id + "/resolve", { method: "POST", json: { status: "resolvido" } }); render(); } }, "Resolvido"),
+      ]) : null,
+    ]));
+  }
+  if (findings.length > 8) right.append(el("a", { href: "#conferencia", class: "btn" }, "Ver todos os alertas"));
+
+  if (isStaff && inbound.length) {
+    right.append(el("div", { class: "eyebrow", style: "margin-top:8px" }, "Remetentes por associar"));
+    for (const m of inbound.slice(0, 5)) {
+      const sel = el("select"); companyOptions(sel, false);
+      right.append(el("div", { class: "item" }, [
+        el("div", {}, [el("div", { class: "title" }, m.sender), el("div", { class: "meta" }, [badge(m.channel), m.subject || m.body_excerpt || (m.attachments + " anexo(s)")])]),
+        el("div", { class: "actions" }, [sel, el("button", { class: "btn small primary", onclick: async () => { try { await api("/api/inbound/" + m.id + "/assign", { method: "POST", json: { company_id: Number(sel.value) } }); toast("Remetente associado."); render(); } catch (e) { toast(e.message, true); } } }, "Associar")]),
+      ]));
+    }
+  }
+
+  if (!isStaff) {
+    const docs = (await api("/api/documents")).documents.slice(0, 6);
+    left.append(el("div", { class: "eyebrow" }, "Últimos documentos"));
+    if (!docs.length) left.append(el("div", { class: "empty" }, "Ainda não enviou documentos. Use a vista Documentos, o email ou o WhatsApp do gabinete."));
+    for (const d of docs) left.append(el("div", { class: "item" }, [
+      el("div", {}, [el("div", { class: "title" }, d.original_name), el("div", { class: "meta" }, [DOC_TYPE_LABEL[d.doc_type] || d.doc_type, d.doc_date || "", badge(d.status)])]),
+    ]));
+    left.append(el("a", { href: "#documentos", class: "btn primary" }, "Enviar documento"));
+  }
+
+  main.append(el("div", { class: "triage" }, [left, right]));
+
+  if (isStaff && dash.knowledge && dash.knowledge.some((k) => k.stale)) {
+    main.append(el("div", { class: "card", style: "border-left:4px solid var(--warn)" }, [el("strong", {}, "Conhecimento fiscal desactualizado"), el("div", { class: "small muted" }, "As regras de IVA ou os benchmarks ultrapassaram o prazo de revisão. Confirme a lei em vigor antes de confiar nos alertas.")]));
+  }
+}
+
+function triageEntry(e) {
+  const low = e.confidence < 0.8;
+  let sources = [];
+  try { sources = e.sources || []; } catch (x) { /* ignore */ }
+  const decide = async (action) => {
+    let reason;
+    if (action === "rejeitar") { reason = prompt("Motivo da rejeição:"); if (!reason) return; }
+    try { await api("/api/entries/" + e.id + "/decision", { method: "POST", json: { action, reason } }); toast(action === "aprovar" ? "Aprovado." : "Rejeitado."); render(); }
+    catch (err) { toast(err.message, true); }
+  };
+  const lines = el("div", { class: "lines" });
+  for (const l of e.lines) lines.append(el("span", { class: "acc" }, l.account), el("span", {}, l.description), el("span", { class: "num" }, l.debit ? fmtEur(l.debit) : ""), el("span", { class: "num" }, l.credit ? fmtEur(l.credit) : ""));
+  return el("div", { class: "item" }, [
+    el("div", {}, [
+      el("div", { class: "title" }, e.description),
+      el("div", { class: "meta" }, [e.company_name, "· " + e.original_name, "· " + e.entry_date, el("span", { class: "badge " + (low ? "warn" : "ok") + " conf" }, "confiança " + fmtConf(e.confidence))]),
+    ]),
+    el("div", { class: "actions" }, [
+      el("button", { class: "btn small primary", onclick: () => decide("aprovar") }, "Aprovar"),
+      el("a", { class: "btn small", href: "#validacao" }, "Editar"),
+      el("button", { class: "btn small danger", onclick: () => decide("rejeitar") }, "Rejeitar"),
+    ]),
+    lines,
+  ]);
+}
+
 /* ---------- navegacao ---------- */
 
 const ROUTES = {
-  painel: { label: "Painel", view: viewDashboard, roles: ["staff", "client"] },
-  documentos: { label: "Documentos", view: viewDocuments, roles: ["staff", "client"] },
-  validacao: { label: "Validação", view: viewValidation, roles: ["staff"] },
-  conferencia: { label: "Conferência", view: viewAudit, roles: ["staff", "client"] },
-  balancetes: { label: "Balancetes", view: viewBalances, roles: ["staff"] },
-  relatorios: { label: "Relatórios", view: viewReports, roles: ["staff", "client"] },
-  recepcao: { label: "Recepção", view: viewInbox, roles: ["staff"] },
-  pedidos: { label: "Pedidos", view: viewRequests, roles: ["staff", "client"] },
-  empresas: { label: "Empresas", view: viewCompanies, roles: ["staff"] },
-  exportacao: { label: "Exportação", view: viewExport, roles: ["staff"] },
+  hoje: { label: "Hoje", ico: "☀", group: "Trabalho", view: viewToday, roles: ["staff", "client"] },
+  documentos: { label: "Documentos", ico: "▤", group: "Trabalho", view: viewDocuments, roles: ["staff", "client"] },
+  validacao: { label: "Validação", ico: "✓", group: "Trabalho", view: viewValidation, roles: ["staff"] },
+  conferencia: { label: "Conferência", ico: "⚑", group: "Trabalho", view: viewAudit, roles: ["staff", "client"] },
+  recepcao: { label: "Recepção", ico: "✉", group: "Trabalho", view: viewInbox, roles: ["staff"] },
+  pedidos: { label: "Pedidos", ico: "◔", group: "Trabalho", view: viewRequests, roles: ["staff", "client"] },
+  balancetes: { label: "Balancetes", ico: "≡", group: "Análise", view: viewBalances, roles: ["staff"] },
+  relatorios: { label: "Relatórios", ico: "◫", group: "Análise", view: viewReports, roles: ["staff", "client"] },
+  painel: { label: "Indicadores e prazos", ico: "◷", group: "Análise", view: viewDashboard, roles: ["staff", "client"] },
+  empresas: { label: "Empresas", ico: "⌂", group: "Configuração", view: viewCompanies, roles: ["staff"] },
+  exportacao: { label: "Entrega", ico: "⇪", group: "Configuração", view: viewExport, roles: ["staff"] },
 };
 
 function currentRoute() {
-  const hash = (location.hash.replace("#", "").split("?")[0]) || "painel";
+  const hash = (location.hash.replace("#", "").split("?")[0]) || "hoje";
   const route = ROUTES[hash];
-  if (!route || !route.roles.includes(user.role)) return "painel";
+  if (!route || !route.roles.includes(user.role)) return "hoje";
   return hash;
 }
 
@@ -885,9 +1001,11 @@ async function render() {
   const nav = $("#nav");
   nav.innerHTML = "";
   const active = currentRoute();
+  let lastGroup = null;
   for (const [key, r] of Object.entries(ROUTES)) {
     if (!r.roles.includes(user.role)) continue;
-    nav.append(el("a", { href: "#" + key, class: key === active ? "active" : "" }, r.label));
+    if (r.group !== lastGroup) { nav.append(el("div", { class: "group" }, r.group)); lastGroup = r.group; }
+    nav.append(el("a", { href: "#" + key, class: key === active ? "active" : "" }, [el("span", { class: "ico" }, r.ico), r.label]));
   }
 
   const main = $("#main");
@@ -922,5 +1040,16 @@ $("#login-form").addEventListener("submit", async (ev) => {
 });
 
 $("#logout-btn").addEventListener("click", logout);
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem("cd_theme"); } catch (e) { /* ignore */ }
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+  else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.setAttribute("data-theme", "dark");
+  $("#theme-btn").addEventListener("click", () => {
+    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("cd_theme", next); } catch (e) { /* ignore */ }
+  });
+})();
 window.addEventListener("hashchange", render);
 render();

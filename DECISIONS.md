@@ -2,6 +2,13 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-13 — Marca, alojamento e UX
+
+- **Marca:** o nome final é **Cont.ai by Lumarcont**; a menção "by Lumarcont" aparece no login, na barra lateral, no manifest da web app e no rodapé dos relatórios.
+- **Alojamento:** Vercel foi avaliado e **rejeitado** para esta aplicação (serverless sem processos persistentes nem disco: incompatível com o poller IMAP, o processamento pós-webhook, o OCR em WASM e o arquivo DL 28/2019). Recomendação: contentor com volume persistente na UE, **Fly.io** para o piloto (Dockerfile e docker-compose no repositório), com migração para PostgreSQL gerido + object storage S3 quando houver vários gabinetes. Análise em `apps/contai/docs/alojamento.md`.
+- **UX/UI:** nova estrutura com barra lateral agrupada (Trabalho, Análise, Configuração), página inicial **"Hoje"** como fila de trabalho (lançamentos por aprovar com aprovação inline, alertas por gravidade, remetentes por associar), sistema visual com uma só cor de acção, tema claro/escuro e layout responsivo. Princípio: o contabilista abre a app e vê só o que precisa da sua decisão.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-13 — Recepção multicanal e OCR de nova geração (QR da AT, IA estruturada, fusão de fontes, memória)
 
 - **Decisão:** após análise de Kangaroo Files, Flowzi e BizDocs (`apps/contai/docs/analise-concorrencia.md`), adoptar: (1) QR code da AT como fonte autoritativa (NIFs, ATCUD, IVA por taxa), (2) extracção estruturada por Claude validada com zod, (3) fusão QR > IA > regras com proveniência por campo e alerta quando discordam, (4) memória de fornecedores aprendida das aprovações humanas, (5) recepção por email (webhook + IMAP) e WhatsApp (Cloud API) com remetentes autorizados por empresa.

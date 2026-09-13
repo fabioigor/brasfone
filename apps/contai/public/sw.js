@@ -1,5 +1,5 @@
 /* Cont.ai service worker: cache da casca da aplicacao para arranque offline. A API nunca e cacheada. */
-const CACHE = "contai-shell-v1";
+const CACHE = "contai-shell-v2";
 const SHELL = ["/", "/index.html", "/app.js", "/styles.css", "/manifest.json", "/icon.svg"];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

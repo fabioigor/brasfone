@@ -101,8 +101,14 @@ export function auditDocument(docType: DocType, x: ExtractedData, ctx: AuditCont
       message: `O ficheiro contém ${ctx.qrCount} QR codes distintos: parece agrupar vários documentos. Só o primeiro foi considerado; separe o ficheiro.`,
     });
   }
+  // Com QR (dados emitidos pela máquina do fornecedor) a divergência é informativa: o OCR é que errou.
+  const qrPrevails = x.sources?.includes("qr");
   for (const d of ctx.divergences ?? []) {
-    findings.push({ code: "FONTES_DIVERGENTES", severity: "aviso", message: `As fontes de extracção discordam (${d}). Prevaleceu ${x.fieldSources?.["totalAmount"] ?? "a heurística"}; confirme no original.` });
+    findings.push({
+      code: "FONTES_DIVERGENTES",
+      severity: qrPrevails ? "info" : "aviso",
+      message: `As fontes de extracção discordam (${d}). Prevaleceu ${qrPrevails ? "o QR code da AT" : (x.fieldSources?.["totalAmount"] === "ia" ? "a IA" : "a heurística")}${qrPrevails ? "." : "; confirme no original."}`,
+    });
   }
 
   if (docType === "recibo") return findings; // recibos não têm IVA próprio
@@ -172,7 +178,7 @@ export function auditDocument(docType: DocType, x: ExtractedData, ctx: AuditCont
         detail: { expected, declared: x.vatAmount },
       });
     }
-  } else if (x.vatRate === null && x.netAmount && x.vatAmount) {
+  } else if (x.vatRate === null && x.netAmount && x.vatAmount && (x.vatBreakdown ?? []).length <= 1) {
     findings.push({
       code: "TAXA_NAO_IDENTIFICADA",
       severity: "aviso",

@@ -1,0 +1,12 @@
+# Cont.ai by Lumarcont - arranque local ou num VPS com Docker
+services:
+  contai:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - contai-data:/data
+    restart: unless-stopped
+volumes:
+  contai-data:
