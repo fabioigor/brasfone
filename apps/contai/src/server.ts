@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { Db, audit } from "./db.js";
 import { listSettings, saveSettings } from "./settings.js";
-import { domainStatus, normaliseDomain, writeDomain } from "./domainSetup.js";
+import { domainStatus, normaliseDomain, writeDomain, configDirPending } from "./domainSetup.js";
 import Anthropic from "@anthropic-ai/sdk";
 
 /** Version from package.json, exposed in /health to confirm which build is running after an update. */
@@ -894,7 +894,7 @@ export function createServer({
     if (!body.success) return res.status(400).json({ error: "Pedido inválido." });
     const d = normaliseDomain(body.data.domain);
     if (d === "invalid") return res.status(400).json({ error: "Domínio inválido. Exemplo: app.lumarcont.pt (sem https:// nem barras)." });
-    if (!writeDomain(d ?? "")) return res.status(409).json({ error: "Este servidor não tem a pasta de configuração partilhada (CONTAI_CONFIG_DIR). Defina o domínio com contai-update." });
+    if (!writeDomain(d ?? "")) return res.status(409).json({ error: configDirPending() ? "A pasta de configuração ainda não está pronta; fica disponível na próxima actualização automática do servidor (até 5 minutos). Tente de novo daqui a pouco." : "Este servidor não tem a pasta de configuração partilhada (CONTAI_CONFIG_DIR). Defina o domínio com contai-update." });
     audit(db, req.user!.id, "domain_set", "settings", null, d ?? "");
     return res.json({ domain: d, applyWithinMinutes: 5 });
   });

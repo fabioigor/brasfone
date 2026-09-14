@@ -16,10 +16,18 @@ export function normaliseDomain(raw: string): string | null {
   return HOSTNAME.test(d) ? d : "invalid";
 }
 
+/** Directory exists but is not writable yet (first deploy after the mount was added). */
+export function configDirPending(): boolean {
+  const dir = process.env.CONTAI_CONFIG_DIR;
+  if (!dir) return false;
+  try { fs.accessSync(dir, fs.constants.W_OK); return false; } catch { return fs.existsSync(dir); }
+}
+
 export function configDir(): string | null {
   const dir = process.env.CONTAI_CONFIG_DIR;
   if (!dir) return null;
-  try { fs.mkdirSync(dir, { recursive: true }); return dir; } catch { return null; }
+  // Tem de existir e ser gravavel pelo utilizador do contentor (update.sh faz o chown no host).
+  try { fs.mkdirSync(dir, { recursive: true }); fs.accessSync(dir, fs.constants.W_OK); return dir; } catch { return null; }
 }
 
 export function readDomain(): string | null {
