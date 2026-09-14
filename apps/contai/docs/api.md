@@ -1,0 +1,102 @@
+# API HTTP do Cont.ai (gerado a partir de src/server.ts)
+
+Autenticação: `Authorization: Bearer <JWT>` obtido em `POST /api/auth/login`. Acesso **gabinete** = utilizadores `staff`; **autenticado** = staff ou cliente (clientes vêem só a sua empresa); **público** = sem token (webhooks validam segredo/assinatura; a pré-visualização usa um token curto no URL).
+
+| Método | Rota | Acesso |
+|---|---|---|
+| GET | `/` | público |
+| GET | `/.well-known/assetlinks.json` | público |
+| POST | `/api/audit/companies/:companyId` | gabinete |
+| POST | `/api/audit/documents/:id` | gabinete |
+| POST | `/api/auth/login` | público |
+| POST | `/api/auth/password` | autenticado |
+| GET | `/api/balances/:companyId` | autenticado |
+| GET | `/api/balances/:companyId/:period` | autenticado |
+| POST | `/api/balances/:companyId/:period/check` | gabinete |
+| POST | `/api/balances/:companyId/derive` | gabinete |
+| POST | `/api/balances/:companyId/import` | gabinete |
+| POST | `/api/centralgest/dispatch/:companyId` | gabinete |
+| GET | `/api/centralgest/dispatches` | gabinete |
+| GET | `/api/centralgest/status` | gabinete |
+| POST | `/api/centralgest/test` | gabinete |
+| GET | `/api/channels/status` | gabinete |
+| GET | `/api/companies` | autenticado |
+| POST | `/api/companies` | gabinete |
+| PATCH | `/api/companies/:id` | gabinete |
+| GET | `/api/companies/:id/contacts` | gabinete |
+| POST | `/api/companies/:id/contacts` | gabinete |
+| POST | `/api/companies/:id/users` | gabinete |
+| DELETE | `/api/contacts/:id` | gabinete |
+| GET | `/api/dashboard` | autenticado |
+| GET | `/api/documents` | autenticado |
+| POST | `/api/documents` | autenticado |
+| GET | `/api/documents/:id/file` | autenticado |
+| GET | `/api/documents/:id/preview` | público |
+| GET | `/api/documents/:id/preview-url` | autenticado |
+| POST | `/api/documents/:id/reprocess` | gabinete |
+| GET | `/api/documents/:id/text` | autenticado |
+| GET | `/api/domain` | gabinete |
+| PUT | `/api/domain` | gabinete |
+| GET | `/api/entries` | gabinete |
+| POST | `/api/entries/:id/decision` | gabinete |
+| POST | `/api/export/:companyId` | gabinete |
+| GET | `/api/export/batches` | gabinete |
+| GET | `/api/export/batches/:id/download` | gabinete |
+| GET | `/api/findings` | autenticado |
+| POST | `/api/findings/:id/resolve` | gabinete |
+| POST | `/api/findings/:id/second-opinion` | gabinete |
+| GET | `/api/inbound` | gabinete |
+| POST | `/api/inbound/:id/assign` | gabinete |
+| POST | `/api/inbound/email` | público |
+| GET | `/api/knowledge` | gabinete |
+| GET | `/api/me` | autenticado |
+| GET | `/api/onedrive/status` | gabinete |
+| POST | `/api/onedrive/sync` | gabinete |
+| GET | `/api/public-config` | público |
+| GET | `/api/reports` | autenticado |
+| POST | `/api/reports/:companyId` | gabinete |
+| GET | `/api/reports/:id` | autenticado |
+| GET | `/api/reports/:id/html` | autenticado |
+| GET | `/api/requests` | autenticado |
+| POST | `/api/requests` | gabinete |
+| POST | `/api/requests/:id/cancel` | gabinete |
+| GET | `/api/rules` | gabinete |
+| POST | `/api/rules` | gabinete |
+| DELETE | `/api/rules/:id` | gabinete |
+| PATCH | `/api/rules/:id` | gabinete |
+| GET | `/api/settings` | gabinete |
+| PUT | `/api/settings` | gabinete |
+| POST | `/api/settings/test/:group` | gabinete |
+| GET | `/api/system` | gabinete |
+| GET | `/health` | público |
+| ALL | `/share-target` | público |
+| GET | `/webhooks/whatsapp` | público |
+| POST | `/webhooks/whatsapp` | público |
+
+## Servidor MCP `contai` (25 ferramentas, stdio, `npm run mcp`)
+
+- `centralgest_lancar`
+- `centralgest_listar_despachos`
+- `contai_associar_contacto`
+- `contai_conferir_balancete`
+- `contai_conferir_documentos`
+- `contai_conhecimento_fiscal`
+- `contai_decidir_lancamento`
+- `contai_definir_codigo_centralgest`
+- `contai_definir_padrao`
+- `contai_estado`
+- `contai_gerar_relatorio`
+- `contai_importar_balancete`
+- `contai_listar_alertas`
+- `contai_listar_contactos`
+- `contai_listar_documentos`
+- `contai_listar_empresas`
+- `contai_listar_lancamentos`
+- `contai_listar_padroes`
+- `contai_listar_recepcoes`
+- `contai_memoria_fornecedores`
+- `contai_processar_documento`
+- `contai_reprocessar_documento`
+- `contai_resolver_alerta`
+- `contai_segunda_opiniao_iva`
+- `contai_texto_documento`

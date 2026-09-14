@@ -2,6 +2,10 @@
 
 Portal digital para gabinetes de contabilidade, inspirado no Kangaroo Files: recepção de documentos dos clientes, classificação automática, arquivo digital organizado (Decreto-Lei 28/2019), geração de lançamentos contabilísticos com validação humana obrigatória, lançamento directo no CentralGest por API (com servidor MCP para agentes de IA) e exportação para Cegid Primavera.
 
+## Dossier de transferência
+
+`docs/handover.md` resume produto, pedidos, arquitectura, infra-estrutura, estado e pendentes para quem continuar ou refazer o projecto; `docs/api.md` lista as 68 rotas e as 25 ferramentas MCP.
+
 ## Microsoft 365
 
 OneDrive (ou SharePoint) como arquivo de todos os documentos recebidos, em pastas por empresa, ano, mês e tipo, e caixa de email lida pela Graph API com a autenticação da aplicação Microsoft 365 (sem IMAP nem palavra-passe da caixa). Configuração em Integrações; guia do registo no Entra ID em `docs/microsoft365.md`.
