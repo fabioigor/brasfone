@@ -14,6 +14,10 @@ OneDrive (ou SharePoint) como arquivo de todos os documentos recebidos, em pasta
 
 Centros de custo por empresa escolhidos desde a digitalização (ecrã Digitalizar, formulário de Documentos, perguntas no WhatsApp) e aplicados às linhas do lançamento e à exportação; fornecedor desconhecido → pesquisa por NIF (VIES + pesquisa web por IA + nome no documento) com marcas e probabilidades, escolha humana, criação do fornecedor com centros de custo e aplicação aos lançamentos pendentes. Ver `docs/fornecedores.md`.
 
+## Pastas OneDrive por centro de custo
+
+Criar um centro de custo cria a pasta correspondente no OneDrive (com subpasta "A receber"); documentos com centro de custo arquivam-se dentro dela e ficheiros deixados em "A receber" entram na app já com esse centro. Ver `docs/microsoft365.md`.
+
 ## GestObrig: prazos declarativos e acessos às entidades
 
 Importação da listagem de obrigações do GestObrig (CSV/Excel, sem API pública) para a vista Indicadores e prazos do gabinete e de cada cliente, com prazos em atraso e a vencer também na página Hoje; cofre cifrado de acessos aos portais oficiais (AT, Segurança Social Directa, IAPMEI, fundos de compensação...) por empresa, com revelação auditada e botão para abrir o portal. Ver `docs/gestobrig.md`.

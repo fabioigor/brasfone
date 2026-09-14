@@ -72,10 +72,10 @@ describe("Microsoft 365 / OneDrive", () => {
 
     const g = fakeGraph();
     const sync = new OneDriveSync(db, tmp, new Microsoft365Client(cfg, g.fetchImpl), "Cont.ai", () => {});
-    expect(sync.counts()).toEqual({ synced: 0, pending: 2, failed: 0 });
+    expect(sync.counts()).toMatchObject({ synced: 0, pending: 2, failed: 0 });
     const out = await sync.syncPending();
     expect(out.map((o) => o.status)).toEqual(["sincronizado", "sincronizado"]);
-    expect(sync.counts()).toEqual({ synced: 2, pending: 0, failed: 0 });
+    expect(sync.counts()).toMatchObject({ synced: 2, pending: 0, failed: 0 });
     const rows = db.prepare("SELECT onedrive_path, onedrive_url FROM documents ORDER BY id").all() as any[];
     expect(rows[0].onedrive_path).toMatch(/^Cont\.ai\/Padaria Central Lda \(506284417\)\/\d{4}\/\d{2}\/Facturas de compra\/1-factura-a\.txt$/);
     expect(rows[1].onedrive_path).toContain("/Recibos/2-recibo-b.txt");
@@ -86,7 +86,7 @@ describe("Microsoft 365 / OneDrive", () => {
     await ingest("terceiro.txt", "Factura FT 1/1\nTotal: 10,00");
     const bad = new OneDriveSync(db, tmp, new Microsoft365Client(cfg, fakeGraph({ failUploads: true }).fetchImpl), "Cont.ai", () => {});
     for (let i = 0; i < MAX_ATTEMPTS + 1; i++) await bad.syncPending();
-    expect(bad.counts()).toEqual({ synced: 2, pending: 0, failed: 1 });
+    expect(bad.counts()).toMatchObject({ synced: 2, pending: 0, failed: 1 });
     expect((db.prepare("SELECT onedrive_error, onedrive_attempts FROM documents WHERE id = 3").get() as any)).toMatchObject({ onedrive_attempts: MAX_ATTEMPTS });
     expect(bad.retryFailed()).toBe(1);
     expect((await sync.syncPending()).map((o) => o.status)).toEqual(["sincronizado"]);

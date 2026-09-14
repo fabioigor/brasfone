@@ -24,6 +24,13 @@ Configuração > Integrações:
 - **Recepção por email:** Caixa de correio Microsoft 365 (o email da caixa), pasta (`inbox`) e intervalo. O teste mostra o número de mensagens e de não lidas. Quando a caixa 365 está definida, o IMAP é ignorado.
 - Guardar reinicia a app; o arquivo começa a sincronizar os documentos já existentes (20 por minuto) e a caixa passa a ser lida no intervalo definido.
 
+## Pastas por centro de custo (regra OneDrive ↔ centro de custo)
+
+- Ao criar um centro de custo em Empresas > Centros de custo (ou no formulário de fornecedor), a app cria no OneDrive a pasta `Cont.ai / Empresa (NIF) / Centros de custo / CÓDIGO - Nome` e a subpasta `A receber`. A pasta fica registada no centro de custo (id, caminho, ligação); se a criação falhar, repete-se no ciclo seguinte (até 5 tentativas) e Integrações mostra quantos centros estão por criar.
+- **Arquivo:** um documento com centro de custo é arquivado dentro da pasta do centro (`.../CÓDIGO - Nome/AAAA/MM/Tipo/<id>-<nome>`); sem centro, no caminho habitual da empresa.
+- **Recepção pela pasta:** de minuto a minuto a app lê a subpasta `A receber` de cada centro de custo activo. Cada ficheiro suportado (PDF, imagens, TXT, CSV, XML) entra na app com esse centro de custo (mesmo pipeline do portal, uploader "Recepção automática"), é arquivado na pasta do centro e removido de `A receber`. Ficheiros não suportados ficam ignorados; erros ficam registados (`onedrive_intake`) e repetem-se até 3 vezes. Cada entrada fica no `audit_log` (`onedrive_intake`).
+- Permissão necessária: a mesma `Files.ReadWrite.All`.
+
 ## Segurança
 
 - Segredos cifrados na base de dados (AES-256-GCM); nunca voltam ao browser em claro.
@@ -33,6 +40,6 @@ Configuração > Integrações:
 
 ## Limitações desta iteração
 
-- Não há leitura inversa (alterações feitas directamente no OneDrive não voltam à app); o OneDrive é arquivo, a app é a fonte.
+- A leitura inversa limita-se às subpastas "A receber" dos centros de custo; alterações feitas directamente no arquivo não voltam à app.
 - Ficheiros acima de 4 MB seguem por sessão de upload em blocos de 5 MiB; acima de 250 GB não é suportado pela Graph.
 - Enviar email a partir da app (confirmações ao remetente) fica para uma iteração seguinte (`Mail.Send`).

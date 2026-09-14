@@ -2,6 +2,13 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-14 — Pastas OneDrive ligadas aos centros de custo
+
+- **Decisão:** cada centro de custo tem uma pasta própria no OneDrive (`Cont.ai / Empresa (NIF) / Centros de custo / CÓDIGO - Nome`) criada automaticamente ao criar o centro (com repetição em caso de falha), com a subpasta `A receber`. Documentos com centro de custo são arquivados dentro dessa pasta; ficheiros colocados em `A receber` entram na app com esse centro de custo (mesmo pipeline, uploader "Recepção automática"), são arquivados e removidos da subpasta. Deduplicação por id do item; tipos não suportados ficam ignorados.
+- **Alternativa rejeitada:** duplicar o ficheiro (manter em `A receber` e no arquivo) criava duas cópias e confundia o utilizador; a cópia no arquivo é a referência.
+- **Contexto:** pedido do product owner ("pasta no OneDrive relacionada com um centro de custos; criar o centro cria a pasta").
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-14 — Centros de custo desde a recepção, fornecedores por NIF com IA, perguntas no WhatsApp
 
 - **Decisão:** centros de custo por empresa (tabela `cost_centers`) escolhidos no momento da digitalização/carregamento e nas perguntas do WhatsApp; guardados no documento e aplicados às linhas de gasto/rendimento do lançamento (campo `costCenter`, coluna `CentroCusto` na exportação Primavera). O tipo de documento indicado pelo cliente prevalece sobre a classificação automática, mas o lançamento continua a exigir validação humana.

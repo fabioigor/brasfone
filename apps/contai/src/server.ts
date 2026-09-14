@@ -1043,13 +1043,15 @@ export function createServer({
 
   app.get("/api/onedrive/status", auth, requireStaff, (_req, res) => {
     if (!onedrive) return res.json({ configured: false });
-    return res.json({ configured: true, ...onedrive.counts(), root: process.env.MS365_ROOT_FOLDER || "Cont.ai", target: process.env.MS365_SITE_ID ? "SharePoint " + process.env.MS365_SITE_ID : "OneDrive de " + (process.env.MS365_DRIVE_USER || "") });
+    return res.json({ configured: true, ...onedrive.counts(), intakeEnabled: onedrive.intakeEnabled, root: process.env.MS365_ROOT_FOLDER || "Cont.ai", target: process.env.MS365_SITE_ID ? "SharePoint " + process.env.MS365_SITE_ID : "OneDrive de " + (process.env.MS365_DRIVE_USER || "") });
   });
   app.post("/api/onedrive/sync", auth, requireStaff, async (req, res) => {
     if (!onedrive) return res.status(409).json({ error: "Microsoft 365 não configurado (Integrações > Microsoft 365)." });
     if (req.body?.retry_failed) onedrive.retryFailed();
+    const folders = await onedrive.ensureAllCostCenterFolders().catch(() => 0);
+    const intake = await onedrive.pollIntake().catch(() => ({ processed: 0, errors: 0, skipped: 0 }));
     const outcomes = await onedrive.syncPending(50, req.user!.id);
-    return res.json({ outcomes, ...onedrive.counts() });
+    return res.json({ outcomes, folders, intake, ...onedrive.counts() });
   });
 
   app.get("/api/channels/status", auth, requireStaff, (_req, res) => {
@@ -1081,15 +1083,21 @@ export function createServer({
     return res.json({ cost_centers: rows, doc_types: DOC_TYPE_OPTIONS.map((o) => ({ key: o.key, label: o.label })) });
   });
 
-  app.post("/api/companies/:id/cost-centers", auth, requireStaff, (req, res) => {
+  app.post("/api/companies/:id/cost-centers", auth, requireStaff, async (req, res) => {
     const companyId = companyScoped(req, res); if (companyId === null) return;
     const parsed = z.object({ code: z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9_.-]+$/, "Código só com letras, números, ponto, hífen ou sublinhado."), name: z.string().trim().min(1).max(80) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Dados inválidos." });
     const code = parsed.data.code.toUpperCase();
     if (db.prepare("SELECT id FROM cost_centers WHERE company_id = ? AND code = ?").get(companyId, code)) return res.status(409).json({ error: "Já existe um centro de custo com esse código." });
     const r = db.prepare("INSERT INTO cost_centers (company_id, code, name) VALUES (?, ?, ?)").run(companyId, code, parsed.data.name);
-    audit(db, req.user!.id, "cost_center_create", "cost_center", Number(r.lastInsertRowid), `${code} ${parsed.data.name}`);
-    return res.status(201).json({ cost_center: db.prepare("SELECT * FROM cost_centers WHERE id = ?").get(r.lastInsertRowid) });
+    const id = Number(r.lastInsertRowid);
+    audit(db, req.user!.id, "cost_center_create", "cost_center", id, `${code} ${parsed.data.name}`);
+    let onedriveNote: string | null = null;
+    if (onedrive) {
+      try { const f = await onedrive.ensureCostCenterFolder(id, req.user!.id); onedriveNote = `Pasta criada no OneDrive: ${f.path}`; }
+      catch (e: any) { onedriveNote = `Pasta no OneDrive por criar (${String(e?.message || e).slice(0, 120)}); a app volta a tentar.`; db.prepare("UPDATE cost_centers SET onedrive_error = ?, onedrive_attempts = 1 WHERE id = ?").run(String(e?.message || e).slice(0, 300), id); }
+    }
+    return res.status(201).json({ cost_center: db.prepare("SELECT * FROM cost_centers WHERE id = ?").get(id), onedrive: onedriveNote });
   });
 
   app.patch("/api/cost-centers/:id", auth, requireStaff, (req, res) => {

@@ -1845,9 +1845,15 @@ async function oneDrivePanel(card) {
     line.innerHTML = "";
     if (!st.configured) { line.append(el("span", { class: "badge muted" }, "não configurado"), " Preencha os campos e guarde; a sincronização arranca sozinha."); return; }
     line.append(el("span", { class: "badge ok" }, "activo"), " " + st.target + " / " + st.root + " · ", el("strong", {}, st.synced + " sincronizado(s)"), ", " + st.pending + " por enviar" + (st.failed ? ", " : ""), st.failed ? el("span", { class: "badge warn" }, st.failed + " com erro") : null);
+    line.append(el("div", { class: "small", style: "margin-top:6px" }, [
+      "Centros de custo com pasta: " + (st.costCenterFolders || 0) + (st.costCentersWithoutFolder ? " (" + st.costCentersWithoutFolder + " por criar)" : ""),
+      " · ficheiros recebidos pelas pastas \"A receber\": " + (st.intakeProcessed || 0) + (st.intakeErrors ? ", " + st.intakeErrors + " com erro" : ""),
+      st.intakeEnabled === false ? el("span", { class: "muted" }, " · leitura das pastas inactiva neste arranque") : null,
+    ]));
   };
   render(s);
   card.append(el("h3", {}, "Estado do arquivo"), line);
+  card.append(el("p", { class: "muted small" }, "Cada centro de custo tem uma pasta \"Centros de custo / CÓDIGO - Nome\" dentro da pasta da empresa, criada automaticamente quando o centro é criado. Documentos com centro de custo são arquivados dentro dessa pasta (ano / mês / tipo). Um ficheiro colocado na subpasta \"A receber\" entra na app com esse centro de custo e é depois removido dessa subpasta (a cópia fica no arquivo)."));
   if (s.configured) {
     const btn = el("button", { class: "btn", type: "button" }, "Sincronizar agora");
     const retry = el("button", { class: "btn ghost small", type: "button" }, "Repetir os com erro");

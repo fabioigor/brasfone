@@ -317,6 +317,25 @@ function migrate(db: Db): void {
     db.exec("ALTER TABLE supplier_profiles ADD COLUMN default_cost_center_id INTEGER");
     db.exec("ALTER TABLE supplier_profiles ADD COLUMN discovery_json TEXT");
   }
+  const ccCols = (db.prepare("PRAGMA table_info(cost_centers)").all() as any[]).map((c) => c.name);
+  if (!ccCols.includes("onedrive_path")) {
+    db.exec("ALTER TABLE cost_centers ADD COLUMN onedrive_folder_id TEXT");
+    db.exec("ALTER TABLE cost_centers ADD COLUMN onedrive_path TEXT");
+    db.exec("ALTER TABLE cost_centers ADD COLUMN onedrive_url TEXT");
+    db.exec("ALTER TABLE cost_centers ADD COLUMN onedrive_intake_id TEXT");
+    db.exec("ALTER TABLE cost_centers ADD COLUMN onedrive_error TEXT");
+    db.exec("ALTER TABLE cost_centers ADD COLUMN onedrive_attempts INTEGER NOT NULL DEFAULT 0");
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS onedrive_intake (
+    item_id TEXT PRIMARY KEY,
+    cost_center_id INTEGER NOT NULL REFERENCES cost_centers(id),
+    document_id INTEGER REFERENCES documents(id),
+    name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('processado','erro','ignorado')),
+    error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
   db.exec(`CREATE TABLE IF NOT EXISTS supplier_cost_centers (
     supplier_id INTEGER NOT NULL REFERENCES supplier_profiles(id) ON DELETE CASCADE,
     cost_center_id INTEGER NOT NULL REFERENCES cost_centers(id) ON DELETE CASCADE,

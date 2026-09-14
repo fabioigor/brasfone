@@ -60,6 +60,7 @@ Cliente: Lumarcont, gabinete de contabilidade em Faro (lumarcont.pt), fundado em
 - Canais: email (Microsoft 365 via Graph, webhook JSON/MIME, IMAP), WhatsApp Cloud API (assinatura validada, download de media, confirmação opcional), remetentes autorizados por empresa, alias `docs+<id>@`.
 - Arquivo OneDrive/SharePoint por Empresa (NIF)/Ano/Mês/Tipo, idempotente, com repetição e estado.
 - CentralGest: cliente contra contrato assumido, agora com o contrato real v5.1 analisado e plano de adaptação (`docs/centralgest-api.md`), simulador, teste de ligação, mapa de códigos, despacho idempotente; CSV Primavera como alternativa.
+- OneDrive por centro de custo: pasta criada automaticamente por centro, arquivo dentro dela, leitura da subpasta "A receber" (`docs/microsoft365.md`).
 - Fornecedores e centros de custo: centros por empresa desde a digitalização (web, telemóvel, WhatsApp com perguntas de tipo e centro), descoberta de fornecedor por NIF (VIES + pesquisa web por IA com probabilidades), registo com centros de custo e aplicação aos pendentes (`docs/fornecedores.md`).
 - GestObrig (sem API pública): importação de obrigações por ficheiro para Indicadores e prazos (gabinete e cliente), marcação manual, resumo na página Hoje; cofre de acessos às entidades por empresa com revelação auditada (`docs/gestobrig.md`).
 - Integrações em auto-serviço: definições cifradas, teste por grupo (Anthropic, email 365/IMAP, WhatsApp, Microsoft 365, CentralGest), domínio e TLS, estado do sistema (versão, commit, registo da actualização automática).

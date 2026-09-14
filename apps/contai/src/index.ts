@@ -10,6 +10,7 @@ import { DocumentOcr } from "./ocr/engine.js";
 import { buildStructuredExtractor } from "./extraction/analyse.js";
 import { imapConfigFromEnv, EmailPoller } from "./channels/email.js";
 import { whatsappConfigFromEnv } from "./channels/whatsapp.js";
+import { ingestDocument } from "./pipeline.js";
 import { applyStoredSettings } from "./settings.js";
 import { microsoft365ConfigFromEnv, Microsoft365Client, OneDriveSync } from "./integrations/microsoft365.js";
 import { graphMailConfigFromEnv, GraphMailPoller } from "./channels/graphMail.js";
@@ -47,7 +48,6 @@ async function main(): Promise<void> {
   const ms365 = microsoft365ConfigFromEnv();
   const ms365Client = ms365 ? new Microsoft365Client(ms365) : null;
   const onedrive = ms365 && ms365Client ? new OneDriveSync(db, STORAGE_ROOT, ms365Client, ms365.rootFolder) : null;
-  if (onedrive) onedrive.start(60_000);
 
   const app = createServer({
     db, provider, storageRoot: STORAGE_ROOT, centralgest, ocr, structured, demo, onedrive,
@@ -60,6 +60,11 @@ async function main(): Promise<void> {
     if (row) return row.id;
     return Number(db.prepare("INSERT INTO users (email, name, password_hash, role) VALUES ('canais@contai.local', 'Recepção automática', 'x', 'staff')").run().lastInsertRowid);
   };
+  if (onedrive) {
+    // Files dropped in a cost centre's "A receber" folder are ingested with that cost centre.
+    onedrive.setIntake({ systemUserId: sys(), ingest: (i) => ingestDocument(db, provider, STORAGE_ROOT, { ...i, channel: "portal" }, ocr, structured) });
+    onedrive.start(60_000);
+  }
   const graphMail = ms365Client ? graphMailConfigFromEnv() : null;
   const imap = graphMail ? null : imapConfigFromEnv();
   let mailLabel = "inactivo";
