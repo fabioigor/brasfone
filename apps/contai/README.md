@@ -2,9 +2,9 @@
 
 Portal digital para gabinetes de contabilidade, inspirado no Kangaroo Files: recepção de documentos dos clientes, classificação automática, arquivo digital organizado (Decreto-Lei 28/2019), geração de lançamentos contabilísticos com validação humana obrigatória, lançamento directo no CentralGest por API (com servidor MCP para agentes de IA) e exportação para Cegid Primavera.
 
-## Digitalizar pelo telemóvel e app Android
+## Digitalizar pelo telemóvel, app Android e app iOS
 
-Os clientes fotografam facturas e recibos em **Digitalizar** (câmara ou galeria, várias páginas, tratamento de imagem e PDF gerado no browser) e enviam ao gabinete; no Android também por **Partilhar com Cont.ai**. A web app instala-se pelo Chrome ("Instalar no telemóvel") e existe um projecto Trusted Web Activity para a Play Store em `apps/contai-android/`. Detalhes em `docs/android.md`.
+Os clientes fotografam facturas e recibos em **Digitalizar** (câmara ou galeria, várias páginas, tratamento de imagem e PDF gerado no browser) e enviam ao gabinete; no Android e no iOS também por **Partilhar com Cont.ai**. A web app instala-se pelo Chrome ou Safari ("Adicionar ao ecrã principal"); para as lojas existem o projecto Trusted Web Activity em `apps/contai-android/` (Play Store) e o projecto SwiftUI + WKWebView com extensão de partilha em `apps/contai-ios/` (App Store). Detalhes em `docs/android.md` e `docs/ios.md`.
 
 ## Funcionalidades
 

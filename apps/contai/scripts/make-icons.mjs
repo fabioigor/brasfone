@@ -16,4 +16,7 @@ function draw(size, maskable) {
 fs.writeFileSync("public/icon-192.png", draw(192, false));
 fs.writeFileSync("public/icon-512.png", draw(512, false));
 fs.writeFileSync("public/icon-maskable-512.png", draw(512, true));
+// iOS: 1024x1024 opaco e sem cantos (o sistema aplica a mascara); mesmo desenho a preencher o quadrado.
+fs.mkdirSync("../contai-ios/Contai/Assets.xcassets/AppIcon.appiconset", { recursive: true });
+fs.writeFileSync("../contai-ios/Contai/Assets.xcassets/AppIcon.appiconset/icon-1024.png", draw(1024, true));
 console.log("icones gerados");

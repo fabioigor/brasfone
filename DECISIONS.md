@@ -2,6 +2,12 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-14 — App iOS: invólucro nativo com extensão de partilha
+
+- **Decisão:** a app iOS (`apps/contai-ios/`) é um invólucro SwiftUI + WKWebView da web app, gerado com XcodeGen, com extensão de partilha "Enviar ao Cont.ai" (imagens e PDFs guardados no App Group e injectados na vista Digitalizar via `window.__contaiShared`). Mesma lógica que a versão Android: todo o produto vive na web app e actualiza-se pelo servidor; a loja só recebe nova versão quando o invólucro muda.
+- **Contexto:** o iOS não suporta Trusted Web Activity nem `share_target` para web apps, por isso a integração com o menu Partilhar exige código nativo. A alternativa Capacitor fica documentada para o caso de a revisão da Apple (regra 4.2) exigir mais funcionalidade nativa. Não é possível compilar nem assinar iOS a partir deste ambiente; o projecto está completo mas a primeira compilação tem de ser feita num Mac com Xcode e conta Apple Developer.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-13 — Identidade visual Lumarcont, digitalização pelo telemóvel e app Android
 
 - **Design:** o sistema visual passa a herdar a identidade de lumarcont.pt (logótipo dourado em serifa, neutros quentes, verde profundo, tipografia leve): dourado `#8f6d47` como única cor de acção (com contraste suficiente sobre branco), fundos quentes, marca "Cont.ai" em serifa com "BY LUMARCONT" espaçado, tagline do site no login ("Bem-vindo à nova era da contabilidade digital"). Sem carregar fontes externas (pilha de sistema com fallback serifado), para a web app funcionar offline e rápida em telemóvel. Tema escuro mantido.

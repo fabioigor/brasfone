@@ -1062,7 +1062,7 @@ async function promptInstall() {
   if (!installPrompt) { toast("No Android: menu do Chrome > Adicionar ao ecrã principal. No iPhone: Partilhar > Adicionar ao ecrã principal."); return; }
   installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null;
 }
-const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true || !!window.__contaiNative;
 
 function installCard() {
   if (isStandalone()) return null;
@@ -1129,6 +1129,17 @@ async function viewScan(main) {
 
   // Ficheiros recebidos pelo menu Partilhar do Android (guardados pelo service worker).
   const shared = Number((location.hash.split("?")[1] || "").replace(/^.*shared=(\d+).*$/, "$1")) || 0;
+  // Ficheiros entregues pela app nativa iOS (extensao de partilha -> WKWebView injecta window.__contaiShared).
+  if (Array.isArray(window.__contaiShared) && window.__contaiShared.length) {
+    const items = window.__contaiShared; window.__contaiShared = null;
+    for (const f of items) {
+      const bin = atob(f.base64); const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      await addFiles([new File([arr], f.name || "partilha", { type: f.type || "application/octet-stream" })]);
+    }
+    history.replaceState(null, "", "#digitalizar");
+    toast(items.length + " ficheiro(s) recebido(s) da partilha.");
+  }
   if (shared && "caches" in window) {
     try {
       const cache = await caches.open("contai-share");
