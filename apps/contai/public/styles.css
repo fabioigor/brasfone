@@ -345,3 +345,8 @@ tr.overdue td:first-child { box-shadow: inset 4px 0 0 var(--danger); }
 .cc-row label { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
 .warn-text { color: var(--warn); font-weight: 600; }
 .scan-actions label .lbl { display: block; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
+
+/* ---- e-Fatura ---- */
+.mail-preview { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #fff; color: #1C1917; max-height: 320px; overflow: auto; font-size: 13.5px; }
+.mail-preview table { width: 100%; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }

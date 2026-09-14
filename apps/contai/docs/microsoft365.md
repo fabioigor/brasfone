@@ -10,7 +10,7 @@
 1. https://entra.microsoft.com > Identidade > Aplicações > **Registos de aplicações** > Novo registo. Nome "Cont.ai by Lumarcont", tipos de conta "apenas este directório". Sem URI de redireccionamento.
 2. Na página da aplicação, copiar **ID da aplicação (cliente)** e **ID do directório (inquilino)**.
 3. **Certificados e segredos** > Novo segredo do cliente (validade 24 meses). Copiar o **valor** já (só aparece uma vez) e anotar a data de expiração.
-4. **Permissões de API** > Adicionar > Microsoft Graph > **Permissões de aplicação**: `Files.ReadWrite.All` (OneDrive) e `Mail.ReadWrite` (caixa de email). Depois **Conceder consentimento de administrador**.
+4. **Permissões de API** > Adicionar > Microsoft Graph > **Permissões de aplicação**: `Files.ReadWrite.All` (OneDrive), `Mail.ReadWrite` (caixa de email) e `Mail.Send` (email ao cliente com os documentos validados e em falta do e-Fatura). Depois **Conceder consentimento de administrador**.
 5. Recomendado, para limitar o acesso do email a uma só caixa: no Exchange Online PowerShell,
    `New-ApplicationAccessPolicy -AppId <client id> -PolicyScopeGroupId documentos@lumarcont.pt -AccessRight RestrictAccess -Description "Cont.ai"`.
    Sem esta política a permissão `Mail.ReadWrite` abrange todas as caixas do inquilino.
@@ -42,4 +42,4 @@ Configuração > Integrações:
 
 - A leitura inversa limita-se às subpastas "A receber" dos centros de custo; alterações feitas directamente no arquivo não voltam à app.
 - Ficheiros acima de 4 MB seguem por sessão de upload em blocos de 5 MiB; acima de 250 GB não é suportado pela Graph.
-- Enviar email a partir da app (confirmações ao remetente) fica para uma iteração seguinte (`Mail.Send`).
+- A app envia email apenas no fluxo e-Fatura (validados e em falta), a partir da caixa configurada; confirmações automáticas ao remetente de email ficam para uma iteração seguinte.

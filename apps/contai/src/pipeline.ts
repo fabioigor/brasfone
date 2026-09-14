@@ -19,6 +19,7 @@ import { OcrEngine, OcrResult } from "./ocr/engine.js";
 import { analyseDocument, DocumentAnalysis } from "./extraction/analyse.js";
 import { ClaudeStructuredExtractor } from "./extraction/structured.js";
 import { counterpartyNif, getProfile, touchProfile } from "./domain/supplierMemory.js";
+import { reconcileEFatura } from "./integrations/efatura.js";
 
 export interface IngestInput {
   companyId: number;
@@ -234,6 +235,11 @@ export async function ingestDocument(
   if (a.qr) audit(db, null, "qr", "document", documentId, `ATCUD ${a.qr.atcud || "-"} ${a.qr.docType} ${a.qr.docNumber}`);
 
   const r = proposeAndAudit(db, company, documentId, a, { replacePending: false });
+
+  // e-Fatura: a newly received document may validate a communicated one that was missing.
+  if ((db.prepare("SELECT COUNT(*) AS n FROM efatura_documents WHERE company_id = ? AND status = 'em_falta'").get(company.id) as any).n > 0) {
+    try { reconcileEFatura(db, company.id, null, { createRequests: false }); } catch { /* a conciliação nunca bloqueia a recepção */ }
+  }
 
   // Fulfil a document request only when the upload targets it explicitly.
   if (input.requestId) {

@@ -2,6 +2,12 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-14 — e-Fatura por ficheiro, conciliação automática, pedidos e email ao cliente
+
+- **Decisão:** integrar o e-Fatura pela exportação que o gabinete descarrega do Portal das Finanças (não há API pública da AT para listar documentos comunicados a um adquirente; não se faz scraping com credenciais do cliente). A conciliação com os documentos recebidos é determinística (ATCUD, NIF+número normalizado, NIF+data+total) e corre também sempre que chega um documento novo. Documentos em falta geram pedidos ao cliente automaticamente e cumprem-se sozinhos; o gabinete pode ignorar um comunicado. O email ao cliente (validados e em falta) sai pela Microsoft Graph com `Mail.Send` a partir da caixa do gabinete; sem 365, a app dá o texto para copiar.
+- **Contexto:** pedido do product owner ("e-faturas para importar e por API… validação automática dos documentos em falta… botão que envia email automático ao cliente com validados e em falta"). A interface `EFaturaSource` fica pronta para um conector por API se a AT o vier a disponibilizar.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-14 — Pastas OneDrive ligadas aos centros de custo
 
 - **Decisão:** cada centro de custo tem uma pasta própria no OneDrive (`Cont.ai / Empresa (NIF) / Centros de custo / CÓDIGO - Nome`) criada automaticamente ao criar o centro (com repetição em caso de falha), com a subpasta `A receber`. Documentos com centro de custo são arquivados dentro dessa pasta; ficheiros colocados em `A receber` entram na app com esse centro de custo (mesmo pipeline, uploader "Recepção automática"), são arquivados e removidos da subpasta. Deduplicação por id do item; tipos não suportados ficam ignorados.

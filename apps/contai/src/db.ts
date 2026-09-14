@@ -367,6 +367,48 @@ function migrate(db: Db): void {
     expires_at TEXT NOT NULL,
     UNIQUE (channel, sender)
   )`);
+  // e-Fatura: documentos comunicados pelos fornecedores/clientes, conciliados com os recebidos.
+  db.exec(`CREATE TABLE IF NOT EXISTS efatura_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    direction TEXT NOT NULL DEFAULT 'compra' CHECK (direction IN ('compra','venda')),
+    source TEXT NOT NULL DEFAULT 'ficheiro',
+    issuer_nif TEXT,
+    issuer_name TEXT,
+    acquirer_nif TEXT,
+    doc_type TEXT,
+    doc_number TEXT,
+    doc_number_norm TEXT NOT NULL,
+    atcud TEXT,
+    doc_date TEXT,
+    total REAL,
+    vat REAL,
+    base REAL,
+    portal_status TEXT,
+    sector TEXT,
+    status TEXT NOT NULL DEFAULT 'em_falta' CHECK (status IN ('validado','em_falta','ignorado')),
+    document_id INTEGER REFERENCES documents(id),
+    match_confidence REAL,
+    request_id INTEGER REFERENCES doc_requests(id),
+    reconciled_at TEXT,
+    imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (company_id, issuer_nif, doc_number_norm)
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_efatura_company_status ON efatura_documents(company_id, status, doc_date)");
+  const reqCols = (db.prepare("PRAGMA table_info(doc_requests)").all() as any[]).map((c) => c.name);
+  if (!reqCols.includes("efatura_id")) db.exec("ALTER TABLE doc_requests ADD COLUMN efatura_id INTEGER");
+  db.exec(`CREATE TABLE IF NOT EXISTS efatura_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    sent_by INTEGER,
+    recipients TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    validated_count INTEGER NOT NULL,
+    missing_count INTEGER NOT NULL,
+    mode TEXT NOT NULL,
+    error TEXT,
+    sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
   db.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value_enc TEXT NOT NULL,

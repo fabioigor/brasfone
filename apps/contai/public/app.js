@@ -491,6 +491,142 @@ async function viewSuppliers(main) {
   await load();
 }
 
+/* ---------- e-Fatura: conciliacao e documentos em falta ---------- */
+
+const EFATURA_STATUS = { validado: ["Validado", "ok"], em_falta: ["Em falta", "bad"], ignorado: ["Ignorado", "muted"] };
+
+async function viewEFatura(main) {
+  const isStaff = user.role === "staff";
+  main.append(el("h2", {}, "e-Fatura: documentos comunicados e em falta"));
+  main.append(el("p", { class: "muted" }, isStaff
+    ? "Importe a exportação do e-Fatura (Consultar faturas > exportar) de cada empresa. A app cruza os documentos comunicados pelos fornecedores com os recebidos: os que faltam ficam automaticamente em Pedidos ao cliente e validam-se sozinhos quando chegam. O botão de email envia ao cliente a lista de validados e em falta."
+    : "Documentos que os seus fornecedores comunicaram ao e-Fatura, cruzados com os que já nos enviou. Os que estão em falta podem ser enviados aqui directamente."));
+
+  const companySel = isStaff ? el("select") : null; if (companySel) companyOptions(companySel, false);
+  const companyId = () => (companySel ? Number(companySel.value) : (companies[0] || {}).id);
+  const statusSel = el("select", {}, [el("option", { value: "todos" }, "Todos"), el("option", { value: "em_falta" }, "Em falta"), el("option", { value: "validado" }, "Validados"), el("option", { value: "ignorado" }, "Ignorados")]);
+  const periodSel = el("select", {}, [el("option", { value: "" }, "Todos os períodos")]);
+  const stats = el("div", { class: "grid cols-4" });
+  const tbody = el("tbody"); const ncBody = el("tbody"); const ncCard = el("div", { class: "card", hidden: "" });
+  const mailInfo = el("p", { class: "muted small" });
+
+  const load = async () => {
+    if (!companyId()) return;
+    const q = new URLSearchParams({ status: statusSel.value }); if (periodSel.value) q.set("period", periodSel.value);
+    const data = await api("/api/companies/" + companyId() + "/efatura?" + q.toString());
+    const s = data.summary;
+    const cur = periodSel.value; periodSel.innerHTML = ""; periodSel.append(el("option", { value: "" }, "Todos os períodos"));
+    for (const p of s.periods) periodSel.append(el("option", { value: p }, p.split("-").reverse().join("/")));
+    periodSel.value = s.periods.includes(cur) ? cur : "";
+    stats.innerHTML = "";
+    stats.append(
+      el("div", { class: "card stat flat" }, [el("div", { class: "n" }, String(s.communicated)), el("div", { class: "l" }, "Comunicados ao e-Fatura")]),
+      el("div", { class: "card stat flat" }, [el("div", { class: "n", style: "color:var(--ok)" }, String(s.validated)), el("div", { class: "l" }, "Validados (recebidos)")]),
+      el("div", { class: "card stat flat " + (s.missing ? "warn" : "") }, [el("div", { class: "n", style: s.missing ? "color:var(--danger)" : "" }, String(s.missing)), el("div", { class: "l" }, "Em falta" + (s.missing ? " · " + fmtEur(s.missingTotal) : ""))]),
+      el("div", { class: "card stat flat" }, [el("div", { class: "n" }, String(s.notCommunicated)), el("div", { class: "l" }, "Recebidos não comunicados")]),
+    );
+    mailInfo.textContent = s.lastImport ? "Última importação: " + new Date(s.lastImport.replace(" ", "T") + "Z").toLocaleString("pt-PT") + (data.mail.configured ? " · email enviado por " + data.mail.from : " · envio de email não configurado (Integrações > Microsoft 365 + caixa de correio)") : "Ainda sem importação do e-Fatura para esta empresa.";
+    tbody.innerHTML = "";
+    if (!data.documents.length) tbody.append(el("tr", {}, el("td", { colspan: "7", class: "muted" }, s.communicated ? "Nada a mostrar com este filtro." : (isStaff ? "Importe o ficheiro do e-Fatura acima." : "O gabinete ainda não carregou o e-Fatura deste período."))));
+    for (const d of data.documents) {
+      const [label, cls] = EFATURA_STATUS[d.status] || [d.status, ""];
+      const actions = el("div", { class: "actions" });
+      if (d.document_id) actions.append(el("button", { class: "btn small", onclick: () => openDocModal(d.document_id, d.document_name || "Documento") }, "Ver documento"));
+      if (!isStaff && d.status === "em_falta") {
+        const fi = el("input", { type: "file", style: "font-size:12px", accept: ".pdf,image/*" });
+        fi.addEventListener("change", async () => { if (!fi.files[0]) return; try { const fd = new FormData(); fd.append("file", fi.files[0]); if (d.request_id) fd.append("request_id", String(d.request_id)); await api("/api/documents", { method: "POST", body: fd }); toast("Documento enviado."); await load(); } catch (e) { toast(e.message, true); } });
+        actions.append(fi);
+      }
+      if (isStaff && d.status === "em_falta") actions.append(el("button", { class: "btn small ghost", title: "Não pedir este documento (ex.: não pertence à empresa)", onclick: async () => { try { await api("/api/efatura/" + d.id, { method: "PATCH", json: { status: "ignorado" } }); await load(); } catch (e) { toast(e.message, true); } } }, "Ignorar"));
+      if (isStaff && d.status === "ignorado") actions.append(el("button", { class: "btn small ghost", onclick: async () => { try { await api("/api/efatura/" + d.id, { method: "PATCH", json: { status: "em_falta" } }); await load(); } catch (e) { toast(e.message, true); } } }, "Voltar a pedir"));
+      tbody.append(el("tr", {}, [
+        el("td", { "data-l": "Data" }, fmtDate(d.doc_date)),
+        el("td", { "data-l": "Emitente" }, [el("strong", {}, d.issuer_name || "—"), el("div", { class: "muted small" }, "NIF " + (d.issuer_nif || "") + (d.direction === "venda" ? " · venda" : ""))]),
+        el("td", { "data-l": "Documento" }, [(d.doc_type || "") + " " + (d.doc_number || ""), d.atcud ? el("div", { class: "muted small" }, "ATCUD " + d.atcud) : null]),
+        el("td", { "data-l": "Total", class: "num" }, d.total != null ? fmtEur(d.total) : ""),
+        el("td", { "data-l": "Estado" }, [el("span", { class: "badge " + cls }, label), d.match_confidence && d.match_confidence < 1 ? el("span", { class: "badge info", style: "margin-left:4px", title: "Correspondência por data e total" }, "aprox.") : null, d.request_status === "pendente" ? el("div", { class: "muted small" }, "pedido ao cliente") : null]),
+        el("td", { "data-l": "Portal" }, d.portal_status || ""),
+        el("td", {}, actions),
+      ]));
+    }
+    ncBody.innerHTML = ""; ncCard.hidden = !(data.not_communicated || []).length;
+    for (const m of data.not_communicated || []) ncBody.append(el("tr", {}, [el("td", {}, fmtDate(m.date)), el("td", {}, "NIF " + (m.nif || "")), el("td", {}, m.number || ""), el("td", { class: "num" }, m.total != null ? fmtEur(m.total) : ""), el("td", {}, el("button", { class: "btn small", onclick: () => openDocModal(m.document_id, m.original_name || "Documento") }, "Ver"))]));
+  };
+
+  if (isStaff) {
+    const fileInput = el("input", { type: "file", accept: ".csv,.txt,.xlsx,.xls" });
+    const out = el("div", { class: "small", style: "margin-top:8px" });
+    const previewBtn = el("button", { class: "btn", type: "button" }, "Pré-visualizar");
+    const importBtn = el("button", { class: "btn primary", type: "button" }, "Importar e conciliar");
+    const send = async (dry) => {
+      if (!fileInput.files[0]) { toast("Escolha o ficheiro exportado do e-Fatura.", true); return; }
+      const fd = new FormData(); fd.append("file", fileInput.files[0]);
+      previewBtn.disabled = importBtn.disabled = true; out.className = "small muted"; out.textContent = dry ? "A ler..." : "A importar e conciliar...";
+      try {
+        const r = await api("/api/companies/" + companyId() + "/efatura/import" + (dry ? "?dry_run=1" : ""), { method: "POST", body: fd });
+        out.innerHTML = "";
+        if (dry) {
+          out.append(el("div", {}, [el("strong", {}, "Pré-visualização: "), r.total + " documento(s) reconhecidos. Colunas: " + Object.keys(r.mapping).join(", ") + "."]));
+          const tb = el("tbody"); for (const row of r.rows.slice(0, 12)) tb.append(el("tr", {}, [el("td", {}, row.docDate || ""), el("td", {}, (row.issuerNif || "") + " " + (row.issuerName || "")), el("td", {}, (row.docType || "") + " " + (row.docNumber || "")), el("td", { class: "num" }, row.total != null ? fmtEur(row.total) : ""), el("td", {}, row.portalStatus || "")]));
+          out.append(el("div", { class: "table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Data"), el("th", {}, "Emitente"), el("th", {}, "Documento"), el("th", {}, "Total"), el("th", {}, "Situação")])), tb])));
+        } else {
+          out.append(el("div", {}, [el("strong", {}, "Importação concluída: "), r.imported + " novo(s), " + r.updated + " actualizado(s), " + r.skipped + " sem número. Conciliação: " + r.reconcile.validated + " validado(s), " + r.reconcile.missing + " em falta, " + r.reconcile.requestsCreated + " pedido(s) criado(s) ao cliente" + (r.reconcile.requestsFulfilled ? ", " + r.reconcile.requestsFulfilled + " pedido(s) cumprido(s)" : "") + "."]));
+          toast("e-Fatura importado e conciliado."); fileInput.value = ""; await load();
+        }
+      } catch (e) { out.className = "small error"; out.textContent = e.message; }
+      finally { previewBtn.disabled = importBtn.disabled = false; }
+    };
+    previewBtn.addEventListener("click", () => send(true)); importBtn.addEventListener("click", () => send(false));
+    const reconcileBtn = el("button", { class: "btn", type: "button", onclick: async () => { try { const r = await api("/api/companies/" + companyId() + "/efatura/reconcile", { method: "POST" }); toast("Conciliação: " + r.reconcile.validated + " validado(s), " + r.reconcile.missing + " em falta."); await load(); } catch (e) { toast(e.message, true); } } }, "Conciliar agora");
+    const mailBtn = el("button", { class: "btn gold", type: "button", onclick: () => notifyClientModal(companyId(), periodSel.value || null, load) }, "Enviar email ao cliente");
+    main.append(el("div", { class: "card" }, [
+      el("div", { class: "form-row" }, [el("label", {}, ["Empresa", companySel]), el("label", { style: "flex:2" }, ["Ficheiro exportado do e-Fatura", fileInput]), previewBtn, importBtn]),
+      el("p", { class: "muted small" }, "No Portal das Finanças: e-Fatura > Adquirente > Consultar faturas > escolher o período > Exportar (Excel/CSV). Reimportar actualiza sem duplicar. Não há API pública da AT para esta listagem; a interface EFaturaSource está pronta para um conector futuro."),
+      out,
+    ]));
+    main.append(el("div", { class: "card" }, [el("div", { class: "form-row" }, [el("label", {}, ["Estado", statusSel]), el("label", {}, ["Período", periodSel]), reconcileBtn, mailBtn]), mailInfo]));
+    companySel.addEventListener("change", () => load().catch((e) => toast(e.message, true)));
+  } else {
+    main.append(el("div", { class: "card" }, [el("div", { class: "form-row" }, [el("label", {}, ["Estado", statusSel]), el("label", {}, ["Período", periodSel])]), mailInfo]));
+  }
+  statusSel.addEventListener("change", () => load().catch((e) => toast(e.message, true)));
+  periodSel.addEventListener("change", () => load().catch((e) => toast(e.message, true)));
+  main.append(stats);
+  main.append(el("div", { class: "card table-wrap" }, el("table", { class: "docs" }, [el("thead", {}, el("tr", {}, [el("th", {}, "Data"), el("th", {}, "Emitente"), el("th", {}, "Documento"), el("th", {}, "Total"), el("th", {}, "Estado"), el("th", {}, "Portal"), el("th", {}, "")])), tbody])));
+  ncCard.append(el("h2", {}, "Recebidos mas não comunicados pelo fornecedor"), el("p", { class: "muted small" }, "Documentos de compra que a empresa enviou e que não constam do e-Fatura nos meses importados: confirme se o fornecedor comunicou (pode ser um documento sem valor fiscal ou comunicado noutro mês)."),
+    el("div", { class: "table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Data"), el("th", {}, "Emitente"), el("th", {}, "Número"), el("th", {}, "Total"), el("th", {}, "")])), ncBody])));
+  main.append(ncCard);
+  try { await load(); } catch (e) { main.append(el("p", { class: "error small" }, e.message)); }
+}
+
+async function notifyClientModal(companyId, period, onSent) {
+  const holder = el("div", { class: "stack" }, el("p", { class: "muted small" }, "A preparar o email..."));
+  const close = openModal("Email ao cliente: validados e em falta", holder, { wide: true });
+  try {
+    const d = await api("/api/companies/" + companyId + "/efatura/notify" + (period ? "?period=" + period : ""));
+    const to = el("input", { value: d.to.join(", "), placeholder: "email1@empresa.pt, email2@empresa.pt" });
+    const msg = el("textarea", { rows: "2", placeholder: "Nota adicional (opcional)" });
+    const preview = el("div", { class: "mail-preview", html: d.html });
+    const sendBtn = el("button", { class: "btn primary", type: "button" }, d.mail.configured ? "Enviar por " + d.mail.from : "Gerar texto para copiar");
+    const result = el("div", { class: "small" });
+    sendBtn.addEventListener("click", async () => {
+      sendBtn.disabled = true;
+      try {
+        const r = await api("/api/companies/" + companyId + "/efatura/notify", { method: "POST", json: { to: to.value.split(",").map((x) => x.trim()).filter(Boolean), period, message: msg.value || null } });
+        if (r.sent) { toast("Email enviado a " + r.to.join(", ")); close(); if (onSent) onSent(); }
+        else { result.innerHTML = ""; result.append(el("p", { class: "warn-text" }, r.reason), el("textarea", { rows: "12", style: "width:100%", readonly: "" }, r.text)); sendBtn.disabled = false; }
+      } catch (e) { toast(e.message, true); sendBtn.disabled = false; }
+    });
+    holder.innerHTML = "";
+    holder.append(
+      el("div", { class: "small" }, [el("strong", {}, d.validated.length + " validado(s)"), " · ", el("strong", { style: "color:var(--danger)" }, d.missing.length + " em falta"), d.history.length ? el("span", { class: "muted" }, " · último envio " + new Date(d.history[0].sent_at.replace(" ", "T") + "Z").toLocaleString("pt-PT") + " (" + d.history[0].mode + (d.history[0].error ? ", erro" : "") + ")") : null]),
+      el("label", {}, ["Destinatários", to]), el("label", {}, ["Assunto", el("input", { value: d.subject, readonly: "" })]), el("label", {}, ["Nota adicional", msg]),
+      el("div", { class: "eyebrow" }, "Pré-visualização"), preview,
+      el("div", { class: "form-row" }, [sendBtn]), result,
+    );
+  } catch (e) { holder.innerHTML = ""; holder.append(el("p", { class: "error" }, e.message)); }
+}
+
 /* ---------- obrigacoes declarativas (GestObrig) ---------- */
 
 const OBLIGATION_STATUS = { por_cumprir: ["Por cumprir", "warn"], cumprida: ["Cumprida", "ok"], fora_prazo: ["Fora de prazo", "bad"], justificada: ["Justificada", "info"] };
@@ -938,7 +1074,7 @@ async function viewRequests(main) {
     }
     tbody.append(
       el("tr", {}, [
-        el("td", {}, [r.title, el("div", { class: "muted small" }, r.company_name)]),
+        el("td", {}, [r.title, r.from_efatura ? el("span", { class: "badge info", style: "margin-left:6px" }, "e-Fatura") : null, el("div", { class: "muted small" }, [r.company_name, r.details ? " · " + r.details : ""])]),
         el("td", {}, r.due_date),
         el("td", {}, badge(r.status)),
         actions,
@@ -1456,6 +1592,10 @@ async function viewToday(main) {
   }
   if (findings.length > 8) right.append(el("a", { href: "#conferencia", class: "btn" }, "Ver todos os alertas"));
 
+  if (dash.efatura && dash.efatura.missing > 0) {
+    right.append(el("div", { class: "eyebrow", style: "margin-top:8px" }, "e-Fatura: documentos em falta"));
+    right.append(el("div", { class: "item alert erro" }, [el("div", {}, [el("div", { class: "title" }, dash.efatura.missing + " documento(s) comunicado(s) pelos fornecedores ainda não recebido(s)"), el("div", { class: "meta" }, ["total " + fmtEur(dash.efatura.missingTotal), "· " + dash.efatura.validated + " validado(s)"])]), el("div", { class: "actions" }, el("a", { class: "btn small primary", href: "#efatura" }, isStaff ? "Ver" : "Enviar agora"))]));
+  }
   const gb = dash.gestobrig;
   if (gb && (gb.summary.overdue + gb.summary.dueSoon > 0)) {
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -2022,6 +2162,7 @@ const ROUTES = {
   balancetes: { label: "Balancetes", ico: "≡", group: "Análise", view: viewBalances, roles: ["staff"] },
   relatorios: { label: "Relatórios", ico: "◫", group: "Análise", view: viewReports, roles: ["staff", "client"] },
   painel: { label: "Indicadores e prazos", ico: "◷", group: "Análise", view: viewDashboard, roles: ["staff", "client"] },
+  efatura: { label: "e-Fatura", ico: "⧉", group: "Análise", view: viewEFatura, roles: ["staff", "client"] },
   empresas: { label: "Empresas", ico: "⌂", group: "Configuração", view: viewCompanies, roles: ["staff"] },
   fornecedores: { label: "Fornecedores", ico: "⊞", group: "Configuração", view: viewSuppliers, roles: ["staff"] },
   exportacao: { label: "Entrega", ico: "⇪", group: "Configuração", view: viewExport, roles: ["staff"] },

@@ -35,6 +35,12 @@ Autenticação: `Authorization: Bearer <JWT>` obtido em `POST /api/auth/login`. 
 | POST | `/api/suppliers/discover` | gabinete |
 | POST | `/api/companies/:id/suppliers` | gabinete |
 | PATCH | `/api/suppliers/:id` | gabinete |
+| GET | `/api/companies/:id/efatura` | autenticado |
+| POST | `/api/companies/:id/efatura/import` | gabinete |
+| POST | `/api/companies/:id/efatura/reconcile` | gabinete |
+| GET | `/api/companies/:id/efatura/notify` | gabinete |
+| POST | `/api/companies/:id/efatura/notify` | gabinete |
+| PATCH | `/api/efatura/:id` | gabinete |
 | GET | `/api/companies/:id/credentials` | autenticado |
 | POST | `/api/companies/:id/credentials` | autenticado |
 | POST | `/api/companies/:id/credentials/:credId/reveal` | autenticado |

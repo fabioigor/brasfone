@@ -21,6 +21,8 @@ Cada anexo suportado (PDF, PNG, JPG, WebP, TIFF, TXT, CSV, XML) segue o mesmo pi
 - Configurar no painel da Meta o webhook `https://<host>/webhooks/whatsapp` com o verify token; o `GET` responde ao `hub.challenge` e o `POST` valida `X-Hub-Signature-256` (HMAC SHA-256 do corpo com o app secret), responde 200 de imediato e processa em segundo plano.
 - Imagens e documentos são descarregados pela Graph API (`/{media-id}` → URL → bytes) e passam pelo OCR. Mensagens só de texto ficam registadas como "sem anexos".
 
+Depois de receber um documento, com `WHATSAPP_ASK=1` (por omissão), a app pergunta ao cliente o tipo de documento e o centro de custo (ver `docs/fornecedores.md`).
+
 ## Segurança
 
 - O webhook de email exige segredo partilhado; o de WhatsApp exige assinatura válida.

@@ -34,6 +34,8 @@ import {
 import { AiProvider } from "./ai/provider.js";
 import { ingestDocument, reprocessDocument, applyIntakeAnswers } from "./pipeline.js";
 import { SupplierDiscovery } from "./integrations/supplierDiscovery.js";
+import { parseEFaturaExport, importEFatura, reconcileEFatura, efaturaSummary, notCommunicated, buildNotification } from "./integrations/efatura.js";
+import { Microsoft365Files } from "./integrations/microsoft365.js";
 import { IntakeDialog, DOC_TYPE_OPTIONS } from "./channels/dialog.js";
 import { getProfile, isKnownSupplier, counterpartyNif } from "./domain/supplierMemory.js";
 import { applyCostCenter } from "./domain/entries.js";
@@ -93,6 +95,10 @@ export interface ServerOptions {
   discovery?: SupplierDiscovery | null;
   /** Reception dialog (WhatsApp questions); built when the WhatsApp config has `ask`. */
   dialog?: IntakeDialog | null;
+  /** Outbound email (Microsoft Graph Mail.Send); defaults to the OneDrive client's files helper when present. */
+  mailer?: Pick<Microsoft365Files, "sendMail"> | null;
+  /** Mailbox that sends notifications (default MS365_MAIL_USER, then MS365_DRIVE_USER). */
+  mailFrom?: string | null;
 }
 
 const upload = multer({
@@ -111,8 +117,12 @@ export function createServer({
   onedrive = null,
   discovery = null,
   dialog = null,
+  mailer = null,
+  mailFrom = null,
 }: ServerOptions): express.Express {
   const app = express();
+  const mailSender = mailer ?? (onedrive ? onedrive.files : null);
+  const mailSenderFrom = (): string | null => mailFrom || process.env.MS365_MAIL_USER || process.env.MS365_DRIVE_USER || null;
   const discoveryService = discovery ?? new SupplierDiscovery(db, { fetchImpl: whatsappFetch, agent: agents });
   const intake = dialog ?? (whatsapp?.ask ? new IntakeDialog(db) : null);
   const DOC_TYPES = new Set<string>(DOC_TYPE_OPTIONS.map((o) => o.key).concat(["guia_transporte"]));
@@ -483,7 +493,7 @@ export function createServer({
     const requested = req.query.company_id ? Number(req.query.company_id) : null;
     const companyId = scopedCompanyId(req, requested);
     let sql =
-      "SELECT r.*, c.name AS company_name FROM doc_requests r JOIN companies c ON c.id = r.company_id WHERE 1=1";
+      "SELECT r.*, c.name AS company_name, (r.efatura_id IS NOT NULL) AS from_efatura FROM doc_requests r JOIN companies c ON c.id = r.company_id WHERE 1=1";
     const params: any[] = [];
     if (companyId !== null) {
       sql += " AND r.company_id = ?";
@@ -1249,6 +1259,76 @@ export function createServer({
     return res.json({ supplier: supplierRow(cur.id) });
   });
 
+  // ---------- e-Fatura: importação, conciliação, pedidos automáticos e email ao cliente ----------
+  app.get("/api/companies/:id/efatura", auth, (req, res) => {
+    const companyId = companyScoped(req, res); if (companyId === null) return;
+    const conds = ["e.company_id = ?"]; const params: any[] = [companyId];
+    const status = typeof req.query.status === "string" ? req.query.status : "";
+    if (status && status !== "todos") { conds.push("e.status = ?"); params.push(status); }
+    if (typeof req.query.period === "string" && req.query.period) { conds.push("substr(e.doc_date,1,7) = ?"); params.push(req.query.period); }
+    const rows = db.prepare(`SELECT e.*, d.original_name AS document_name, r.status AS request_status FROM efatura_documents e LEFT JOIN documents d ON d.id = e.document_id LEFT JOIN doc_requests r ON r.id = e.request_id WHERE ${conds.join(" AND ")} ORDER BY CASE e.status WHEN 'em_falta' THEN 0 ELSE 1 END, e.doc_date DESC, e.id DESC LIMIT 1000`).all(...params);
+    const missingDocs = notCommunicated(db, companyId).map((m) => ({ ...m, original_name: (db.prepare("SELECT original_name FROM documents WHERE id = ?").get(m.document_id) as any)?.original_name ?? null }));
+    return res.json({ documents: rows, summary: efaturaSummary(db, companyId), not_communicated: missingDocs, mail: { configured: !!(mailSender && mailSenderFrom()), from: mailSenderFrom() } });
+  });
+
+  app.post("/api/companies/:id/efatura/import", auth, requireStaff, upload.single("file"), (req, res) => {
+    const companyId = companyScoped(req, res); if (companyId === null) return;
+    if (!req.file) return res.status(400).json({ error: "Envie o ficheiro exportado do e-Fatura (CSV ou Excel)." });
+    const parsed = parseEFaturaExport(req.file.buffer, req.file.originalname);
+    if (!parsed.rows.length) return res.status(400).json({ error: "Não foi possível reconhecer documentos no ficheiro. Exporte a lista em e-Fatura > Consultar faturas (colunas emitente, tipo, número, data, total).", headers: parsed.headers });
+    if (String(req.query.dry_run ?? req.body?.dry_run ?? "") === "1") return res.json({ dryRun: true, total: parsed.rows.length, headers: parsed.headers, mapping: parsed.mapping, rows: parsed.rows.slice(0, 200) });
+    const report = importEFatura(db, companyId, parsed.rows, req.user!.id, "ficheiro");
+    const rec = reconcileEFatura(db, companyId, req.user!.id);
+    return res.json({ dryRun: false, ...report, reconcile: rec, summary: efaturaSummary(db, companyId) });
+  });
+
+  app.post("/api/companies/:id/efatura/reconcile", auth, requireStaff, (req, res) => {
+    const companyId = companyScoped(req, res); if (companyId === null) return;
+    const rec = reconcileEFatura(db, companyId, req.user!.id);
+    return res.json({ reconcile: rec, summary: efaturaSummary(db, companyId) });
+  });
+
+  app.patch("/api/efatura/:id", auth, requireStaff, (req, res) => {
+    const parsed = z.object({ status: z.enum(["em_falta", "ignorado"]) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Estado inválido (em_falta ou ignorado)." });
+    const cur = db.prepare("SELECT * FROM efatura_documents WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!cur) return res.status(404).json({ error: "Documento e-Fatura inexistente." });
+    db.prepare("UPDATE efatura_documents SET status = ? WHERE id = ?").run(parsed.data.status, cur.id);
+    if (parsed.data.status === "ignorado" && cur.request_id) db.prepare("UPDATE doc_requests SET status = 'cancelado' WHERE id = ? AND status = 'pendente'").run(cur.request_id);
+    audit(db, req.user!.id, "efatura_update", "efatura", cur.id, parsed.data.status);
+    return res.json({ ok: true });
+  });
+
+  app.get("/api/companies/:id/efatura/notify", auth, requireStaff, (req, res) => {
+    const companyId = companyScoped(req, res); if (companyId === null) return;
+    const draft = buildNotification(db, companyId, { period: typeof req.query.period === "string" && req.query.period ? req.query.period : null, appUrl: process.env.CONTAI_PUBLIC_URL || null });
+    const history = db.prepare("SELECT * FROM efatura_notifications WHERE company_id = ? ORDER BY id DESC LIMIT 10").all(companyId);
+    return res.json({ ...draft, mail: { configured: !!(mailSender && mailSenderFrom()), from: mailSenderFrom() }, history });
+  });
+
+  app.post("/api/companies/:id/efatura/notify", auth, requireStaff, async (req, res) => {
+    const companyId = companyScoped(req, res); if (companyId === null) return;
+    const parsed = z.object({ to: z.array(z.string().email()).max(20).optional(), cc: z.array(z.string().email()).max(10).optional(), period: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(), message: z.string().max(2000).nullable().optional() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Dados inválidos (destinatários têm de ser emails)." });
+    const draft = buildNotification(db, companyId, { period: parsed.data.period ?? null, message: parsed.data.message ?? null, appUrl: process.env.CONTAI_PUBLIC_URL || null });
+    const to = parsed.data.to && parsed.data.to.length ? parsed.data.to : draft.to;
+    if (!to.length) return res.status(400).json({ error: "A empresa não tem emails de cliente nem remetentes de email registados. Indique os destinatários." });
+    const from = mailSenderFrom();
+    if (!mailSender || !from) {
+      db.prepare("INSERT INTO efatura_notifications (company_id, sent_by, recipients, subject, validated_count, missing_count, mode, error) VALUES (?, ?, ?, ?, ?, ?, 'manual', 'Microsoft 365 sem caixa de envio configurada')").run(companyId, req.user!.id, to.join(", "), draft.subject, draft.validated.length, draft.missing.length);
+      return res.status(200).json({ sent: false, reason: "Microsoft 365 não configurado para enviar email (Integrações > Microsoft 365 e caixa de correio). Copie o texto abaixo.", to, subject: draft.subject, text: draft.text });
+    }
+    try {
+      await mailSender.sendMail(from, { to, cc: parsed.data.cc, subject: draft.subject, html: draft.html, text: draft.text });
+      db.prepare("INSERT INTO efatura_notifications (company_id, sent_by, recipients, subject, validated_count, missing_count, mode) VALUES (?, ?, ?, ?, ?, ?, 'graph')").run(companyId, req.user!.id, to.join(", "), draft.subject, draft.validated.length, draft.missing.length);
+      audit(db, req.user!.id, "efatura_notify", "company", companyId, JSON.stringify({ to, validated: draft.validated.length, missing: draft.missing.length }));
+      return res.json({ sent: true, to, subject: draft.subject, from });
+    } catch (e: any) {
+      db.prepare("INSERT INTO efatura_notifications (company_id, sent_by, recipients, subject, validated_count, missing_count, mode, error) VALUES (?, ?, ?, ?, ?, ?, 'graph', ?)").run(companyId, req.user!.id, to.join(", "), draft.subject, draft.validated.length, draft.missing.length, String(e?.message || e).slice(0, 300));
+      return res.status(502).json({ error: `Envio falhou: ${String(e?.message || e).slice(0, 200)}`, text: draft.text });
+    }
+  });
+
   // ---------- Obrigações declarativas (GestObrig) ----------
   const soonDays = (): number => Math.max(1, Number(process.env.GESTOBRIG_SOON_DAYS || 7) || 7);
   const obligationSelect = `SELECT o.*, c.name AS company_name, c.nif AS company_nif FROM obligations o JOIN companies c ON c.id = o.company_id`;
@@ -1412,6 +1492,8 @@ export function createServer({
       url: process.env.GESTOBRIG_URL || "https://www.gestobrig.com",
     };
 
+    const efatura = companyId !== null ? efaturaSummary(db, companyId) : null;
+
     return res.json({
       documents: docCounts,
       entries: entryCounts,
@@ -1420,6 +1502,7 @@ export function createServer({
       knowledge,
       obligations,
       gestobrig,
+      efatura,
     });
   });
 

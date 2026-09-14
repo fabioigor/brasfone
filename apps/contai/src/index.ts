@@ -12,7 +12,7 @@ import { imapConfigFromEnv, EmailPoller } from "./channels/email.js";
 import { whatsappConfigFromEnv } from "./channels/whatsapp.js";
 import { ingestDocument } from "./pipeline.js";
 import { applyStoredSettings } from "./settings.js";
-import { microsoft365ConfigFromEnv, Microsoft365Client, OneDriveSync } from "./integrations/microsoft365.js";
+import { microsoft365ConfigFromEnv, Microsoft365Client, OneDriveSync, Microsoft365Files } from "./integrations/microsoft365.js";
 import { graphMailConfigFromEnv, GraphMailPoller } from "./channels/graphMail.js";
 
 const PORT = Number(process.env.PORT || 3000);
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
 
   const app = createServer({
     db, provider, storageRoot: STORAGE_ROOT, centralgest, ocr, structured, demo, onedrive,
+    mailer: ms365Client ? new Microsoft365Files(ms365Client) : null,
     // Em producao o contentor reinicia (restart: unless-stopped) e recarrega tudo com as novas definicoes.
     onSettingsSaved: process.env.NODE_ENV === "production" ? () => { console.log("Definições alteradas: a reiniciar."); process.exit(0); } : null,
   });
