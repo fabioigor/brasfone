@@ -17,8 +17,13 @@ main() {
   local b l r
   b=$($g rev-parse --abbrev-ref HEAD); l=$($g rev-parse HEAD); r=$($g rev-parse "origin/$b")
   date -Is > "$LOGDIR/last-check"
-  if [ "$l" = "$r" ]; then exit 0; fi
-  echo "$(date -Is) actualizar $b ${l:0:7} -> ${r:0:7}" >> "$LOG"
+  # Dominio pedido pela app (ficheiro partilhado) diferente do aplicado -> reaplicar o compose.
+  local want have; want="$(tr -d '[:space:]' < /var/lib/contai/config/domain 2>/dev/null || echo "__sem_ficheiro__")"
+  have="$(tr -d '[:space:]' < "$LOGDIR/domain.applied" 2>/dev/null || echo "__nunca__")"
+  local domain_changed=0; if [ "$want" != "__sem_ficheiro__" ] && [ "$want" != "$have" ]; then domain_changed=1; fi
+  if [ "$l" = "$r" ] && [ "$domain_changed" = 0 ]; then exit 0; fi
+  if [ "$domain_changed" = 1 ]; then echo "$(date -Is) dominio alterado: '$have' -> '$want'" >> "$LOG"; fi
+  if [ "$l" != "$r" ]; then echo "$(date -Is) actualizar $b ${l:0:7} -> ${r:0:7}" >> "$LOG"; fi
   if bash "$REPO/apps/contai/deploy/update.sh" >> "$LOG" 2>&1; then echo "$(date -Is) ok" >> "$LOG"; else echo "$(date -Is) FALHOU (ver acima)" >> "$LOG"; fi
   tail -n 400 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 }

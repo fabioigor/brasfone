@@ -2,6 +2,12 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-14 — Domínio, TLS e testes de credenciais em auto-serviço; fase de testes com o cliente
+
+- **Decisão:** o domínio define-se na própria app (Integrações > Domínio e TLS) e é aplicado pelo servidor sem SSH, através de uma pasta de configuração partilhada entre o contentor e o host lida pelo temporizador de actualização. Cada grupo de credenciais tem um teste que não guarda nada (Anthropic, IMAP, WhatsApp, CentralGest). Objectivo: o product owner completa a configuração sozinho e sem passar segredos pela conversa com o assistente.
+- **Fase de testes:** o produto entra agora em utilização de teste pela Lumarcont, com feedback para ajustes e novas funcionalidades; o token da API do Hetzner mantém-se activo durante esta fase, usado apenas para operações de infra-estrutura (recriar ou redimensionar o servidor), nunca guardado em ficheiros.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-14 — App iOS: invólucro nativo com extensão de partilha
 
 - **Decisão:** a app iOS (`apps/contai-ios/`) é um invólucro SwiftUI + WKWebView da web app, gerado com XcodeGen, com extensão de partilha "Enviar ao Cont.ai" (imagens e PDFs guardados no App Group e injectados na vista Digitalizar via `window.__contaiShared`). Mesma lógica que a versão Android: todo o produto vive na web app e actualiza-se pelo servidor; a loja só recebe nova versão quando o invólucro muda.

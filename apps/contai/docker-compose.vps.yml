@@ -7,8 +7,11 @@ services:
     environment:
       - PORT=3000
       - CONTAI_SYSTEM_LOG_DIR=/var/log/contai
+      - CONTAI_CONFIG_DIR=/config
     volumes:
       - contai-data:/data
+      # Configuracao escrita pela app e lida pelo host (dominio para o Caddy). update.sh garante a pasta e o dono.
+      - /var/lib/contai/config:/config
       # Registo das actualizacoes automaticas, mostrado em Integracoes > Sistema (so leitura).
       - /var/log/contai:/var/log/contai:ro
     restart: unless-stopped

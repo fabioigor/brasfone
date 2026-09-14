@@ -1222,6 +1222,8 @@ async function viewIntegrations(main) {
     main.append(sysCard);
   }
 
+  await domainCard(main);
+
   const st = el("div", { class: "card" });
   st.append(el("h2", {}, "Estado actual"));
   st.append(el("ul", { class: "small" }, [
@@ -1253,6 +1255,22 @@ async function viewIntegrations(main) {
     }
     card.append(col);
     if (g === "centralgest") await centralGestPanel(card, inputs);
+    if (["ia", "email", "whatsapp"].includes(g)) {
+      const tBtn = el("button", { class: "btn", type: "button" }, "Testar com os valores acima");
+      const tOut = el("p", { class: "small muted" });
+      tBtn.addEventListener("click", async () => {
+        tBtn.disabled = true; tOut.textContent = "A testar..."; tOut.className = "small muted";
+        try {
+          const values = {};
+          for (const s of data.settings.filter((x) => x.group === g)) { const val = inputs[s.key].input.value; if (val.trim()) values[s.key] = val.trim(); }
+          const r = await api("/api/settings/test/" + g, { method: "POST", json: { values } });
+          tOut.textContent = (r.ok ? "OK" : "Falhou") + " em " + r.ms + " ms: " + r.detail + (r.ok ? " Os valores ainda não foram guardados." : "");
+          tOut.className = "small " + (r.ok ? "ok" : "error");
+        } catch (e) { tOut.textContent = e.message; tOut.className = "small error"; }
+        finally { tBtn.disabled = false; }
+      });
+      card.append(el("div", { class: "form-row", style: "margin-top:10px" }, [tBtn]), tOut);
+    }
     main.append(card);
   }
 
@@ -1289,6 +1307,48 @@ async function viewIntegrations(main) {
   });
   bar.append(btn);
   main.append(bar);
+}
+
+/** Dominio e TLS: instrucoes de DNS, verificacao e activacao sem SSH. */
+async function domainCard(main) {
+  const card = el("div", { class: "card" });
+  card.append(el("h2", {}, "Domínio e TLS"));
+  const body = el("div");
+  card.append(body);
+  main.append(card);
+  const draw = async () => {
+    body.innerHTML = "";
+    const s = await api("/api/domain");
+    const ip = s.serverIp || location.hostname;
+    const state = el("p", { class: "small" });
+    if (!s.domain) state.append(el("span", { class: "badge muted" }, "sem domínio"), " A app está acessível por IP em HTTP. Defina um domínio para activar o certificado TLS e as apps de loja.");
+    else {
+      state.append(el("strong", {}, s.domain), " · DNS: ", s.dns.length ? s.dns.join(", ") : "sem registo A", " ",
+        s.dnsOk === true ? el("span", { class: "badge ok" }, "aponta para este servidor") : s.dnsOk === false ? el("span", { class: "badge warn" }, s.dns.length ? "aponta para outro IP" : "ainda sem DNS") : el("span", { class: "badge muted" }, "por confirmar"),
+        " · TLS: ", s.tls === "ok" ? el("span", { class: "badge ok" }, "activo") : s.tls === "erro" ? el("span", { class: "badge warn" }, "ainda não (" + (s.tlsDetail || "erro") + ")") : el("span", { class: "badge muted" }, "por verificar"),
+        s.applied === false ? el("span", { class: "badge info", style: "margin-left:6px" }, "o servidor aplica nos próximos 5 minutos") : null);
+    }
+    body.append(state);
+    body.append(el("ol", { class: "small muted" }, [
+      el("li", {}, ["No painel onde gere o DNS do domínio, crie um registo ", el("strong", {}, "A"), " com o nome do subdomínio (ex.: ", el("code", {}, "app"), ") a apontar para ", el("strong", {}, ip), ". TTL curto (300 s) acelera a activação."]),
+      el("li", {}, "Escreva abaixo o domínio completo (ex.: app.lumarcont.pt) e guarde. O servidor reconfigura-se sozinho e pede o certificado Let's Encrypt quando o DNS estiver a apontar."),
+      el("li", {}, "Depois, entre por https://<domínio>. O acesso por IP continua a funcionar em HTTP."),
+    ]));
+    const input = el("input", { type: "text", placeholder: "app.lumarcont.pt", value: s.domain || "", style: "min-width:260px" });
+    const save = el("button", { class: "btn primary", type: "button" }, "Guardar domínio");
+    const check = el("button", { class: "btn", type: "button" }, "Verificar DNS e TLS");
+    const clear = el("button", { class: "btn ghost small", type: "button" }, "Remover domínio");
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      try { const r = await api("/api/domain", { method: "PUT", json: { domain: input.value } }); toast(r.domain ? "Domínio guardado. O servidor aplica-o nos próximos " + r.applyWithinMinutes + " minutos." : "Domínio removido."); await draw(); }
+      catch (e) { toast(e.message, true); } finally { save.disabled = false; }
+    });
+    check.addEventListener("click", async () => { check.disabled = true; try { await draw(); } finally { check.disabled = false; } });
+    clear.addEventListener("click", async () => { try { await api("/api/domain", { method: "PUT", json: { domain: "" } }); toast("Domínio removido; volta a HTTP por IP em 5 minutos."); await draw(); } catch (e) { toast(e.message, true); } });
+    if (!s.configurable) body.append(el("p", { class: "small error" }, "Este servidor não tem a pasta de configuração partilhada; defina o domínio com contai-update na consola."));
+    body.append(el("div", { class: "form-row" }, [el("label", {}, ["Domínio da app", input]), save, check, s.domain ? clear : null]));
+  };
+  await draw();
 }
 
 /** Estado da ligacao CentralGest, teste sem guardar e mapa de codigos de empresa. */

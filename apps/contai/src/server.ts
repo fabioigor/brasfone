@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { Db, audit } from "./db.js";
 import { listSettings, saveSettings } from "./settings.js";
+import { domainStatus, normaliseDomain, writeDomain } from "./domainSetup.js";
+import Anthropic from "@anthropic-ai/sdk";
 
 /** Version from package.json, exposed in /health to confirm which build is running after an update. */
 const APP_VERSION: string = (() => {
@@ -881,6 +883,63 @@ export function createServer({
     const r = db.prepare("DELETE FROM company_contacts WHERE id = ?").run(Number(req.params.id));
     if (r.changes === 0) return res.status(404).json({ error: "Contacto inexistente." });
     return res.json({ ok: true });
+  });
+
+  // ---------- Dominio e TLS (auto-servico) ----------
+  app.get("/api/domain", auth, requireStaff, async (_req, res) => {
+    return res.json(await domainStatus(process.env.CONTAI_SYSTEM_LOG_DIR || null));
+  });
+  app.put("/api/domain", auth, requireStaff, async (req, res) => {
+    const body = z.object({ domain: z.string().max(253) }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Pedido inválido." });
+    const d = normaliseDomain(body.data.domain);
+    if (d === "invalid") return res.status(400).json({ error: "Domínio inválido. Exemplo: app.lumarcont.pt (sem https:// nem barras)." });
+    if (!writeDomain(d ?? "")) return res.status(409).json({ error: "Este servidor não tem a pasta de configuração partilhada (CONTAI_CONFIG_DIR). Defina o domínio com contai-update." });
+    audit(db, req.user!.id, "domain_set", "settings", null, d ?? "");
+    return res.json({ domain: d, applyWithinMinutes: 5 });
+  });
+
+  // ---------- Testes de credenciais (sem guardar) ----------
+  app.post("/api/settings/test/:group", auth, requireStaff, async (req, res) => {
+    const v = (k: string): string => String((req.body?.values ?? {})[k] ?? process.env[k] ?? "").trim();
+    const started = Date.now();
+    const done = (ok: boolean, detail: string, extra: Record<string, unknown> = {}) => {
+      audit(db, req.user!.id, "settings_test", "settings", null, JSON.stringify({ group: req.params.group, ok }));
+      return res.json({ ok, detail, ms: Date.now() - started, ...extra });
+    };
+    try {
+      if (req.params.group === "ia") {
+        const key = v("ANTHROPIC_API_KEY"); if (!key) return res.status(400).json({ error: "Indique a chave da API Anthropic." });
+        const client = new Anthropic({ apiKey: key });
+        const models = await client.models.list({ limit: 20 });
+        const ids = models.data.map((m) => m.id);
+        const wanted = [v("CONTAI_OCR_MODEL") || "claude-opus-5", v("CONTAI_AGENT_MODEL") || "claude-opus-5"].filter((x, i, a) => a.indexOf(x) === i);
+        const missing = wanted.filter((m) => !ids.some((id) => id === m || id.startsWith(m)));
+        return done(true, `Chave válida. ${ids.length} modelo(s) disponíveis${missing.length ? `; atenção: ${missing.join(", ")} não consta da lista` : ""}.`, { models: ids });
+      }
+      if (req.params.group === "email") {
+        const host = v("IMAP_HOST"), user = v("IMAP_USER"), pass = v("IMAP_PASSWORD");
+        if (!host || !user || !pass) return res.status(400).json({ error: "Indique servidor, utilizador e palavra-passe IMAP (o webhook não precisa de teste)." });
+        const { ImapFlow } = await import("imapflow");
+        const client = new ImapFlow({ host, port: Number(v("IMAP_PORT") || 993), secure: v("IMAP_SECURE") !== "0", auth: { user, pass }, logger: false, connectionTimeout: 8000 } as any);
+        await client.connect();
+        try {
+          const box = await client.mailboxOpen(v("IMAP_MAILBOX") || "INBOX", { readOnly: true });
+          return done(true, `Ligação IMAP OK a ${host}: pasta ${box.path} com ${box.exists} mensagem(ns).`);
+        } finally { await client.logout().catch(() => {}); }
+      }
+      if (req.params.group === "whatsapp") {
+        const token = v("WHATSAPP_ACCESS_TOKEN"), phone = v("WHATSAPP_PHONE_NUMBER_ID");
+        if (!token || !phone) return res.status(400).json({ error: "Indique o access token e o phone number ID." });
+        const r = await whatsappFetch(`https://graph.facebook.com/${v("WHATSAPP_GRAPH_VERSION") || "v21.0"}/${encodeURIComponent(phone)}?fields=display_phone_number,verified_name,quality_rating`, { headers: { authorization: `Bearer ${token}` } });
+        const body: any = await r.json().catch(() => ({}));
+        if (!r.ok) return done(false, `Meta respondeu HTTP ${r.status}: ${body?.error?.message || "sem detalhe"}.`);
+        return done(true, `Número ${body.display_phone_number || phone} (${body.verified_name || "sem nome verificado"}), qualidade ${body.quality_rating || "n/d"}.${v("WHATSAPP_APP_SECRET") ? "" : " Falta o app secret para validar as assinaturas dos eventos."}`);
+      }
+      return res.status(404).json({ error: "Grupo sem teste." });
+    } catch (e: any) {
+      return done(false, String(e?.message || e).slice(0, 300));
+    }
   });
 
   // ---------- Integracoes (definicoes cifradas na BD) ----------
