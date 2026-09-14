@@ -661,7 +661,7 @@ async function obligationsSection(main, isStaff, initial) {
 
   let gestUrl = (initial && initial.url) || "https://www.gestobrig.com";
   const openLink = el("a", { class: "btn small", href: gestUrl, target: "_blank", rel: "noopener" }, "Abrir GestObrig");
-  head.append(companySel, statusSel, isStaff ? openLink : null);
+  head.append(...[companySel, statusSel, isStaff ? openLink : null].filter(Boolean));
 
   const load = async () => {
     const q = new URLSearchParams({ status: statusSel.value });
@@ -723,7 +723,7 @@ async function credentialsSection(main, isStaff) {
   const companyId = () => (companySel ? Number(companySel.value) : (companies[0] || {}).id);
   const list = el("div", { class: "stack" });
   const addBtn = el("button", { class: "btn small" }, "Adicionar acesso");
-  head.append(companySel, addBtn);
+  head.append(...[companySel, addBtn].filter(Boolean));
   let entities = [];
 
   const revealRow = async (c, holder) => {
