@@ -238,6 +238,9 @@ async function viewDashboard(main) {
     );
   }
 
+  await obligationsSection(main, isStaff, data.gestobrig);
+  await credentialsSection(main, isStaff);
+
   const obl = el("tbody");
   for (const o of data.obligations) {
     obl.append(el("tr", {}, [el("td", {}, o.dueDate), el("td", {}, o.label), el("td", {}, el("span", { class: "badge info" }, o.code))]));
@@ -249,6 +252,181 @@ async function viewDashboard(main) {
       el("div", { class: "table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Data limite"), el("th", {}, "Obrigação"), el("th", {}, "Código")])), obl])),
     ])
   );
+}
+
+/* ---------- obrigacoes declarativas (GestObrig) ---------- */
+
+const OBLIGATION_STATUS = { por_cumprir: ["Por cumprir", "warn"], cumprida: ["Cumprida", "ok"], fora_prazo: ["Fora de prazo", "bad"], justificada: ["Justificada", "info"] };
+function obligationBadge(o, today) {
+  const [label, cls] = OBLIGATION_STATUS[o.status] || [o.status, ""];
+  if (o.status === "por_cumprir" && o.due_date && o.due_date < today) return el("span", { class: "badge bad" }, "Em atraso");
+  return el("span", { class: "badge " + cls }, label);
+}
+const fmtDate = (d) => (d ? d.split("-").reverse().join("/") : "");
+
+async function obligationsSection(main, isStaff, initial) {
+  const card = el("div", { class: "card" });
+  const head = el("div", { style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap" }, [el("h2", { style: "margin:0;flex:1" }, "Obrigações declarativas e prazos")]);
+  card.append(head);
+  card.append(el("p", { class: "muted small" }, isStaff
+    ? "Estado das obrigações controladas no GestObrig (importadas em Integrações > GestObrig). Marque aqui as entregas feitas fora do GestObrig; o cliente vê o mesmo estado na sua área."
+    : "Estado das obrigações fiscais e declarativas da sua empresa, controladas pelo gabinete. Verde é entregue; a vermelho estão as que passaram do prazo."));
+
+  const companySel = isStaff ? el("select") : null;
+  if (companySel) companyOptions(companySel, true);
+  const statusSel = el("select", {}, [
+    el("option", { value: "abertas" }, "Por cumprir"), el("option", { value: "todas" }, "Todas"),
+    el("option", { value: "cumprida" }, "Cumpridas"), el("option", { value: "fora_prazo" }, "Fora de prazo"), el("option", { value: "justificada" }, "Justificadas"),
+  ]);
+  const stats = el("div", { class: "grid cols-4" });
+  const tbody = el("tbody");
+  const empty = el("div", { class: "empty", hidden: "" });
+  const table = el("div", { class: "table-wrap" }, el("table", { class: "docs" }, [
+    el("thead", {}, el("tr", {}, [isStaff ? el("th", {}, "Empresa") : null, el("th", {}, "Obrigação"), el("th", {}, "Período"), el("th", {}, "Prazo"), el("th", {}, "Estado"), el("th", {}, "Entregue"), el("th", {}, isStaff ? "Responsável" : ""), isStaff ? el("th", {}, "") : null])),
+    tbody,
+  ]));
+
+  let gestUrl = (initial && initial.url) || "https://www.gestobrig.com";
+  const openLink = el("a", { class: "btn small", href: gestUrl, target: "_blank", rel: "noopener" }, "Abrir GestObrig");
+  head.append(companySel, statusSel, isStaff ? openLink : null);
+
+  const load = async () => {
+    const q = new URLSearchParams({ status: statusSel.value });
+    if (companySel && companySel.value) q.set("company_id", companySel.value);
+    const data = await api("/api/obligations?" + q.toString());
+    gestUrl = data.gestobrigUrl || gestUrl; openLink.href = gestUrl;
+    const s = data.summary;
+    stats.innerHTML = "";
+    stats.append(
+      el("div", { class: "card stat flat " + (s.overdue ? "warn" : "") }, [el("div", { class: "n", style: s.overdue ? "color:var(--danger)" : "" }, String(s.overdue)), el("div", { class: "l" }, "Em atraso")]),
+      el("div", { class: "card stat flat " + (s.dueSoon ? "warn" : "") }, [el("div", { class: "n" }, String(s.dueSoon)), el("div", { class: "l" }, "A vencer em " + data.soonDays + " dias")]),
+      el("div", { class: "card stat flat" }, [el("div", { class: "n" }, String(s.open)), el("div", { class: "l" }, "Por cumprir")]),
+      el("div", { class: "card stat flat" }, [el("div", { class: "n" }, String(s.doneThisMonth)), el("div", { class: "l" }, "Cumpridas este mês")]),
+    );
+    tbody.innerHTML = "";
+    const rows = data.obligations || [];
+    empty.hidden = rows.length > 0; table.hidden = rows.length === 0;
+    empty.textContent = statusSel.value === "abertas" && (s.open === 0)
+      ? (isStaff ? "Sem obrigações por cumprir registadas. Importe a exportação do GestObrig em Integrações > GestObrig para ver aqui o controlo de prazos." : "Sem obrigações por cumprir. Quando o gabinete carregar o controlo de prazos, aparece aqui.")
+      : "Nada a mostrar com este filtro.";
+    for (const o of rows) {
+      const actions = [];
+      if (isStaff) {
+        const setStatus = async (status) => { try { await api("/api/obligations/" + o.id, { method: "PATCH", json: { status } }); toast("Obrigação actualizada."); await load(); } catch (e) { toast(e.message, true); } };
+        if (o.status === "por_cumprir") actions.push(el("button", { class: "btn small primary", onclick: () => setStatus("cumprida") }, "Cumprida"), el("button", { class: "btn small", onclick: () => setStatus("justificada"), title: "Não aplicável ou justificada junto da entidade" }, "Justificar"));
+        else actions.push(el("button", { class: "btn small", onclick: () => setStatus("por_cumprir") }, "Reabrir"));
+      }
+      tbody.append(el("tr", { class: o.status === "por_cumprir" && o.due_date && o.due_date < data.today ? "overdue" : "" }, [
+        isStaff ? el("td", { "data-l": "Empresa" }, o.company_name) : null,
+        el("td", { "data-l": "Obrigação" }, [el("strong", {}, o.label), o.notes ? el("div", { class: "muted small" }, o.notes) : null]),
+        el("td", { "data-l": "Período" }, o.period || ""),
+        el("td", { "data-l": "Prazo" }, fmtDate(o.due_date)),
+        el("td", { "data-l": "Estado" }, obligationBadge(o, data.today)),
+        el("td", { "data-l": "Entregue" }, fmtDate(o.submitted_at)),
+        el("td", { "data-l": isStaff ? "Responsável" : "" }, isStaff ? (o.responsible || "") : ""),
+        isStaff ? el("td", {}, el("div", { class: "actions" }, actions)) : null,
+      ]));
+    }
+  };
+  statusSel.addEventListener("change", () => load().catch((e) => toast(e.message, true)));
+  if (companySel) companySel.addEventListener("change", () => load().catch((e) => toast(e.message, true)));
+  card.append(stats, empty, table);
+  main.append(card);
+  try { await load(); } catch (e) { card.append(el("p", { class: "error small" }, e.message)); }
+}
+
+/* ---------- cofre de acessos as entidades ---------- */
+
+async function credentialsSection(main, isStaff) {
+  const card = el("div", { class: "card" });
+  const head = el("div", { style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap" }, [el("h2", { style: "margin:0;flex:1" }, "Acessos às entidades")]);
+  card.append(head);
+  card.append(el("p", { class: "muted small" }, isStaff
+    ? "Utilizador e palavra-passe de cada empresa nos portais oficiais (Portal das Finanças, Segurança Social Directa, IAPMEI, fundos de compensação...). Guardados cifrados; cada consulta fica no registo de auditoria. O cliente vê os acessos da sua empresa e pode copiá-los para entrar nos portais e aceitar termos, certificados e comunicações."
+    : "Os acessos da sua empresa aos portais oficiais, guardados pelo gabinete. Use \"Mostrar\" para ver a palavra-passe e \"Abrir portal\" para entrar e aceitar termos da Segurança Social, renovar o certificado PME ou tratar de outras comunicações. Cada consulta fica registada."));
+
+  const companySel = isStaff ? el("select") : null;
+  if (companySel) companyOptions(companySel, false);
+  const companyId = () => (companySel ? Number(companySel.value) : (companies[0] || {}).id);
+  const list = el("div", { class: "stack" });
+  const addBtn = el("button", { class: "btn small" }, "Adicionar acesso");
+  head.append(companySel, addBtn);
+  let entities = [];
+
+  const revealRow = async (c, holder) => {
+    try {
+      const r = await api("/api/companies/" + companyId() + "/credentials/" + c.id + "/reveal", { method: "POST" });
+      holder.innerHTML = "";
+      const copyBtn = (label, value) => el("button", { class: "btn small", type: "button", onclick: async () => { try { await navigator.clipboard.writeText(value); toast(label + " copiado."); } catch (e) { toast("Copie manualmente: o browser não permitiu o acesso à área de transferência.", true); } } }, "Copiar " + label.toLowerCase());
+      holder.append(el("div", { class: "cred-reveal" }, [
+        el("div", {}, [el("span", { class: "muted small" }, "Utilizador "), el("code", {}, r.username || "(sem utilizador)"), " ", r.username ? copyBtn("Utilizador", r.username) : null]),
+        el("div", {}, [el("span", { class: "muted small" }, "Palavra-passe "), el("code", {}, r.password || "(sem palavra-passe)"), " ", r.password ? copyBtn("Palavra-passe", r.password) : null]),
+        el("div", { class: "muted small" }, "Esconde-se automaticamente em 60 segundos."),
+      ]));
+      setTimeout(() => { holder.innerHTML = ""; }, 60000);
+    } catch (e) { toast(e.message, true); }
+  };
+
+  const editForm = (c) => {
+    const entSel = el("select", {}, entities.map((e) => el("option", { value: e.code }, e.label)));
+    if (c) entSel.value = c.entity;
+    const label = el("input", { placeholder: "Designação (opcional)", value: c ? c.label : "" });
+    const url = el("input", { placeholder: "https://...", value: c ? (c.url || "") : "" });
+    const usernameIn = el("input", { placeholder: "Utilizador / NIF / NISS", autocomplete: "off", value: c ? (c.username || "") : "" });
+    const password = el("input", { type: "password", placeholder: c && c.has_password ? "(mantida; escreva para substituir)" : "Palavra-passe", autocomplete: "new-password" });
+    const notes = el("textarea", { rows: "2", placeholder: "Notas (ex.: 2FA no telemóvel do gerente)" }); notes.value = c ? (c.notes || "") : "";
+    const hint = el("div", { class: "muted small" });
+    const applyEntity = () => { const e = entities.find((x) => x.code === entSel.value); hint.textContent = (e && e.hint) || ""; if (!c && e && e.url && !url.value) url.value = e.url; if (!c && e && !label.value) label.placeholder = e.label; };
+    entSel.addEventListener("change", applyEntity); applyEntity();
+    const save = el("button", { class: "btn primary", type: "submit" }, c ? "Guardar" : "Adicionar");
+    const form = el("form", { class: "form-col wide" }, [
+      el("label", {}, ["Entidade", entSel, hint]), el("label", {}, ["Designação", label]), el("label", {}, ["Endereço do portal", url]),
+      el("label", {}, ["Utilizador", usernameIn]), el("label", {}, ["Palavra-passe", password]), el("label", {}, ["Notas", notes]),
+      el("div", { class: "form-row" }, [save]),
+    ]);
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault(); save.disabled = true;
+      try {
+        await api("/api/companies/" + companyId() + "/credentials", { method: "POST", json: { id: c ? c.id : undefined, entity: entSel.value, label: label.value || null, url: url.value || null, username: usernameIn.value || null, password: password.value || null, notes: notes.value || null } });
+        toast(c ? "Acesso actualizado." : "Acesso guardado."); close(); await load();
+      } catch (e) { toast(e.message, true); } finally { save.disabled = false; }
+    });
+    const close = openModal(c ? "Editar acesso" : "Novo acesso", form);
+  };
+  addBtn.addEventListener("click", () => editForm(null));
+
+  const load = async () => {
+    const data = await api("/api/companies/" + companyId() + "/credentials");
+    entities = data.entities || [];
+    list.innerHTML = "";
+    if (!data.credentials.length) {
+      list.append(el("div", { class: "empty" }, isStaff ? "Sem acessos registados para esta empresa. Adicione manualmente ou importe a lista de acessos do GestObrig em Integrações > GestObrig." : "O gabinete ainda não registou acessos para a sua empresa."));
+      return;
+    }
+    for (const c of data.credentials) {
+      const holder = el("div", { style: "grid-column:1 / -1" });
+      const actions = [
+        c.url ? el("a", { class: "btn small", href: c.url, target: "_blank", rel: "noopener" }, "Abrir portal") : null,
+        c.has_password || c.username ? el("button", { class: "btn small primary", onclick: () => revealRow(c, holder) }, "Mostrar") : null,
+        el("button", { class: "btn small", onclick: () => editForm(c) }, "Editar"),
+        isStaff ? el("button", { class: "btn small danger", onclick: async () => { if (!confirm("Apagar o acesso \"" + c.label + "\"?")) return; try { await api("/api/companies/" + companyId() + "/credentials/" + c.id, { method: "DELETE" }); toast("Acesso apagado."); await load(); } catch (e) { toast(e.message, true); } } }, "Apagar") : null,
+      ];
+      list.append(el("div", { class: "item" }, [
+        el("div", {}, [
+          el("div", { class: "title" }, c.label),
+          el("div", { class: "meta" }, [el("span", { class: "badge info" }, c.entity), c.username ? "utilizador " + c.username : "sem utilizador", c.has_password ? "· palavra-passe guardada" : "· sem palavra-passe", c.updated_at ? "· actualizado " + new Date(c.updated_at.replace(" ", "T") + "Z").toLocaleDateString("pt-PT") : ""]),
+          c.notes ? el("div", { class: "small", style: "margin-top:4px" }, c.notes) : null,
+        ]),
+        el("div", { class: "actions" }, actions),
+        holder,
+      ]));
+    }
+  };
+  if (companySel) companySel.addEventListener("change", () => load().catch((e) => toast(e.message, true)));
+  card.append(list);
+  main.append(card);
+  if (!companyId()) { list.append(el("div", { class: "empty" }, "Sem empresas.")); return; }
+  try { await load(); } catch (e) { list.append(el("p", { class: "error small" }, e.message)); }
 }
 
 async function viewDocuments(main) {
@@ -1030,6 +1208,19 @@ async function viewToday(main) {
   }
   if (findings.length > 8) right.append(el("a", { href: "#conferencia", class: "btn" }, "Ver todos os alertas"));
 
+  const gb = dash.gestobrig;
+  if (gb && (gb.summary.overdue + gb.summary.dueSoon > 0)) {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    right.append(el("div", { class: "eyebrow", style: "margin-top:8px" }, "Prazos declarativos"));
+    right.append(el("div", { class: "small muted" }, gb.summary.overdue + " em atraso · " + gb.summary.dueSoon + " a vencer em " + gb.soonDays + " dias"));
+    for (const o of gb.open.filter((x) => x.due_date).slice(0, 5)) {
+      right.append(el("div", { class: "item alert " + (o.due_date < todayIso ? "erro" : "") }, [
+        el("div", {}, [el("div", { class: "title" }, o.label), el("div", { class: "meta" }, [obligationBadge(o, todayIso), "prazo " + fmtDate(o.due_date), isStaff ? "· " + o.company_name : (o.period ? "· " + o.period : "")])]),
+      ]));
+    }
+    right.append(el("a", { href: "#painel", class: "btn" }, "Ver todas as obrigações"));
+  }
+
   if (isStaff && inbound.length) {
     right.append(el("div", { class: "eyebrow", style: "margin-top:8px" }, "Remetentes por associar"));
     for (const m of inbound.slice(0, 5)) {
@@ -1236,6 +1427,7 @@ const SETTING_GROUPS = {
   whatsapp: { title: "WhatsApp Cloud API (Meta)", intro: "Dados da app Meta e do número. Registe o webhook abaixo na Meta com o token de verificação." },
   android: { title: "Aplicação Android (Play Store)", intro: "A app Android é uma Trusted Web Activity desta web app (projecto em apps/contai-android). Depois de publicada, indique aqui o identificador e as impressões SHA-256 da chave de assinatura para a app abrir em ecrã inteiro. Sem Play Store, os clientes instalam directamente pelo Chrome (Adicionar ao ecrã principal)." },
   microsoft365: { title: "Microsoft 365 (OneDrive como arquivo)", intro: "Cada documento recebido é copiado para o OneDrive (ou SharePoint) da Lumarcont, em pastas por empresa, ano, mês e tipo, com o número do documento no nome do ficheiro. Registo de aplicação no Entra ID com permissão de aplicação Files.ReadWrite.All e consentimento do administrador; o teste abaixo confirma o acesso à drive." },
+  gestobrig: { title: "GestObrig (obrigações declarativas e acessos)", intro: "O GestObrig não tem API pública. A ligação faz-se por ficheiros: exporte do GestObrig a lista de obrigações (e, se quiser, a lista de acessos às entidades) em CSV ou Excel e carregue-a aqui; as empresas são reconhecidas pelo NIF. Os prazos aparecem em Análise > Indicadores e prazos e na página Hoje, do gabinete e de cada cliente; os acessos ficam cifrados no cofre de cada empresa." },
   centralgest: { title: "CentralGest (API)", intro: "Lançamento directo dos lançamentos aprovados no CentralGest Cloud, com idempotência (idExterno contai-entry-<id>). Peça a adesão à API à CentralGest (suporte@centralgest.com); enquanto não houver credenciais pode usar o simulador local para ensaiar o fluxo. Sem API, a entrega faz-se por CSV Primavera." },
 };
 
@@ -1293,6 +1485,7 @@ async function viewIntegrations(main) {
     }
     card.append(col);
     if (g === "centralgest") await centralGestPanel(card, inputs);
+    if (g === "gestobrig") gestObrigPanel(card);
     if (g === "microsoft365") await oneDrivePanel(card);
     if (["ia", "email", "whatsapp", "microsoft365"].includes(g)) {
       const tBtn = el("button", { class: "btn", type: "button" }, "Testar com os valores acima");
@@ -1459,6 +1652,62 @@ async function centralGestPanel(card, inputs) {
 
   card.append(el("h3", {}, "Estado da ligação"), stateLine, el("div", { class: "form-row" }, [testBtn]), testOut, map,
     el("p", { class: "muted small" }, "Contrato da API assumido e documentado em docs/centralgest-api.md até à recepção da documentação oficial; os lançamentos seguem em Entrega > CentralGest."));
+}
+
+function gestObrigPanel(card) {
+  const fileInput = el("input", { type: "file", accept: ".csv,.txt,.xlsx,.xls" });
+  const scope = el("select"); companyOptions(scope, true); scope.firstChild.textContent = "Reconhecer empresas pelo NIF (ficheiro com várias empresas)";
+  const preview = el("div", { class: "small", style: "margin-top:8px" });
+  const previewBtn = el("button", { class: "btn", type: "button" }, "Pré-visualizar");
+  const importBtn = el("button", { class: "btn primary", type: "button" }, "Importar obrigações");
+  const send = async (dry) => {
+    if (!fileInput.files[0]) { toast("Escolha o ficheiro exportado do GestObrig.", true); return; }
+    const fd = new FormData(); fd.append("file", fileInput.files[0]); if (scope.value) fd.append("company_id", scope.value);
+    previewBtn.disabled = importBtn.disabled = true; preview.className = "small muted"; preview.textContent = dry ? "A ler o ficheiro..." : "A importar...";
+    try {
+      const r = await api("/api/obligations/import" + (dry ? "?dry_run=1" : ""), { method: "POST", body: fd });
+      preview.innerHTML = "";
+      const mapped = Object.keys(r.mapping || {}).map((k) => ({ nif: "NIF", company: "empresa", label: "obrigação", period: "período", due: "prazo", status: "estado", submitted: "entrega", responsible: "responsável", notes: "notas", ref: "referência" }[k] || k));
+      preview.append(el("div", {}, [el("strong", {}, dry ? "Pré-visualização: " : "Importação concluída: "), dry ? r.matched + " de " + r.total + " linha(s) com empresa reconhecida." : r.imported + " nova(s), " + r.updated + " actualizada(s), " + r.skippedTotal + " ignorada(s)."]));
+      preview.append(el("div", { class: "muted" }, "Colunas reconhecidas: " + (mapped.join(", ") || "nenhuma") + "."));
+      if (dry && r.rows) {
+        const tb = el("tbody");
+        for (const row of r.rows.slice(0, 15)) tb.append(el("tr", {}, [el("td", {}, row.companyName || ""), el("td", {}, row.nif || ""), el("td", {}, row.label), el("td", {}, row.period || ""), el("td", {}, row.dueDate || ""), el("td", {}, (OBLIGATION_STATUS[row.status] || [row.status])[0]), el("td", {}, row.matched ? el("span", { class: "badge ok" }, "reconhecida") : el("span", { class: "badge warn" }, "sem empresa"))]));
+        preview.append(el("div", { class: "table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Empresa"), el("th", {}, "NIF"), el("th", {}, "Obrigação"), el("th", {}, "Período"), el("th", {}, "Prazo"), el("th", {}, "Estado"), el("th", {}, "")])), tb])));
+        if (r.rows.length > 15) preview.append(el("div", { class: "muted" }, "... e mais " + (r.rows.length - 15) + " linha(s)."));
+      }
+      if (!dry && r.skipped && r.skipped.length) preview.append(el("details", {}, [el("summary", {}, r.skippedTotal + " linha(s) ignorada(s)"), el("ul", {}, r.skipped.map((sk) => el("li", {}, (sk.company || sk.nif || "?") + " · " + sk.label + ": " + sk.reason)))]));
+      if (!dry) toast("Obrigações importadas.");
+    } catch (e) { preview.className = "small error"; preview.textContent = e.message; }
+    finally { previewBtn.disabled = importBtn.disabled = false; }
+  };
+  previewBtn.addEventListener("click", () => send(true)); importBtn.addEventListener("click", () => send(false));
+
+  const accFile = el("input", { type: "file", accept: ".csv,.txt,.xlsx,.xls" });
+  const accBtn = el("button", { class: "btn primary", type: "button" }, "Importar acessos");
+  const accOut = el("p", { class: "small muted" });
+  accBtn.addEventListener("click", async () => {
+    if (!accFile.files[0]) { toast("Escolha o ficheiro de acessos.", true); return; }
+    const fd = new FormData(); fd.append("file", accFile.files[0]);
+    accBtn.disabled = true; accOut.className = "small muted"; accOut.textContent = "A importar...";
+    try {
+      const r = await api("/api/credentials/import", { method: "POST", body: fd });
+      accOut.className = "small ok"; accOut.textContent = r.imported + " acesso(s) novo(s), " + r.updated + " actualizado(s), " + r.skippedTotal + " ignorado(s)" + (r.skipped.length ? ": " + r.skipped.map((sk) => (sk.company || sk.nif || "?") + " (" + sk.reason + ")").join("; ") : ".");
+      accFile.value = "";
+    } catch (e) { accOut.className = "small error"; accOut.textContent = e.message; }
+    finally { accBtn.disabled = false; }
+  });
+
+  card.append(
+    el("h3", {}, "Importar obrigações"),
+    el("p", { class: "muted small" }, "No GestObrig: Obrigações > Listagem > Exportar (Excel ou CSV), com as colunas empresa ou NIF, obrigação, período, prazo, estado e data de entrega. Reimportar o mesmo ficheiro actualiza os estados sem duplicar."),
+    el("div", { class: "form-row" }, [el("label", { style: "flex:2" }, ["Ficheiro exportado", fileInput]), el("label", { style: "flex:2" }, ["Empresa", scope]), previewBtn, importBtn]),
+    preview,
+    el("h3", { style: "margin-top:16px" }, "Importar acessos às entidades"),
+    el("p", { class: "muted small" }, "Ficheiro com as colunas empresa ou NIF, entidade (Finanças, Segurança Social, IAPMEI...), utilizador, palavra-passe e, opcionalmente, endereço e notas. As palavras-passe ficam cifradas; apague o ficheiro depois de importar."),
+    el("div", { class: "form-row" }, [el("label", { style: "flex:2" }, ["Ficheiro de acessos", accFile]), accBtn]),
+    accOut,
+  );
 }
 
 /* ---------- conta ---------- */

@@ -266,6 +266,36 @@ function migrate(db: Db): void {
     db.exec("ALTER TABLE documents ADD COLUMN onedrive_error TEXT");
     db.exec("ALTER TABLE documents ADD COLUMN onedrive_attempts INTEGER NOT NULL DEFAULT 0");
   }
+  db.exec(`CREATE TABLE IF NOT EXISTS obligations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    source TEXT NOT NULL DEFAULT 'gestobrig',
+    external_ref TEXT,
+    code TEXT NOT NULL,
+    label TEXT NOT NULL,
+    period TEXT,
+    due_date TEXT,
+    status TEXT NOT NULL DEFAULT 'por_cumprir' CHECK (status IN ('por_cumprir','cumprida','fora_prazo','justificada')),
+    submitted_at TEXT,
+    responsible TEXT,
+    notes TEXT,
+    proof_document_id INTEGER REFERENCES documents(id),
+    imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_obligations_company_due ON obligations(company_id, due_date)");
+  db.exec(`CREATE TABLE IF NOT EXISTS company_credentials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    entity TEXT NOT NULL,
+    label TEXT NOT NULL,
+    url TEXT,
+    username TEXT,
+    password_enc TEXT,
+    notes TEXT,
+    updated_by INTEGER,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_credentials_company ON company_credentials(company_id)");
   db.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value_enc TEXT NOT NULL,

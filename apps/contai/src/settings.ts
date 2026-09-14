@@ -9,7 +9,7 @@ import { Db, audit } from "./db.js";
 export interface SettingDef {
   key: string;
   label: string;
-  group: "ia" | "email" | "whatsapp" | "microsoft365" | "centralgest" | "android";
+  group: "ia" | "email" | "whatsapp" | "microsoft365" | "centralgest" | "gestobrig" | "android";
   secret: boolean;
   hint?: string;
   placeholder?: string;
@@ -44,6 +44,8 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: "MS365_ROOT_FOLDER", label: "Pasta raiz", group: "microsoft365", secret: false, placeholder: "Cont.ai", hint: "Dentro dela: Empresa (NIF) / Ano / Mês / Tipo de documento." },
   { key: "ANDROID_PACKAGE", label: "Identificador da app Android", group: "android", secret: false, placeholder: "pt.lumarcont.contai", hint: "Package name da Trusted Web Activity publicada na Play Store." },
   { key: "ANDROID_SHA256_FINGERPRINTS", label: "Impressões SHA-256 da chave de assinatura", group: "android", secret: false, hint: "Uma ou várias, separadas por vírgula (Play Console > Integridade da app > Assinatura). Publicadas em /.well-known/assetlinks.json para a app abrir sem barra de endereço." },
+  { key: "GESTOBRIG_URL", label: "Endereço do GestObrig do gabinete", group: "gestobrig", secret: false, placeholder: "https://www.gestobrig.com", hint: "Ligação aberta pelos botões \"Abrir GestObrig\" (site do gabinete ou instância própria)." },
+  { key: "GESTOBRIG_SOON_DAYS", label: "Dias para considerar um prazo \"a vencer\"", group: "gestobrig", secret: false, placeholder: "7", hint: "Obrigações por cumprir com prazo dentro deste número de dias aparecem destacadas ao cliente e ao gabinete." },
   { key: "CENTRALGEST_MOCK", label: "Simulador local (1/0)", group: "centralgest", secret: false, placeholder: "0", hint: "1 arranca um CentralGest simulado dentro da app para testar o fluxo de lançamento sem credenciais. Ignorado quando URL e chave estão preenchidos." },
 ];
 

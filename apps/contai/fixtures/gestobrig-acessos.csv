@@ -1,0 +1,6 @@
+Empresa;NIF;Entidade;Utilizador;Palavra-passe;URL;Notas
+Padaria Central Lda;506284417;Portal das Finanças;506284417;Senha-AT-Ficticia-1;https://www.portaldasfinancas.gov.pt;Senha da empresa
+Padaria Central Lda;506284417;Segurança Social Directa;20012345678;Senha-SSD-Ficticia-2;https://app.seg-social.pt/sso/login;NISS da entidade empregadora
+Padaria Central Lda;506284417;IAPMEI;padaria@exemplo.pt;Senha-PME-Ficticia-3;;Renovação anual do certificado PME
+TecnoNorte Unipessoal Lda;509442013;Portal das Finanças;509442013;Senha-AT-Ficticia-4;;
+Desconhecida Lda;500000000;Portal das Finanças;500000000;xxx;;

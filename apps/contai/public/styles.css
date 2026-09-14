@@ -325,3 +325,9 @@ tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 60%, transpa
   table.docs td.acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; padding-top: 4px; }
   table.docs tbody tr:hover td { background: transparent; }
 }
+
+/* ---- obrigacoes e cofre de acessos ---- */
+.card .stat.flat { padding: 12px 14px; }
+tr.overdue td:first-child { box-shadow: inset 4px 0 0 var(--danger); }
+.cred-reveal { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--surface-2); font-size: 13.5px; }
+.cred-reveal code { user-select: all; font-size: 14px; background: var(--surface); padding: 2px 6px; border-radius: 6px; }

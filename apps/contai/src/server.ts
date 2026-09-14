@@ -44,6 +44,8 @@ import {
 } from "./channels/whatsapp.js";
 import { exportApprovedEntries } from "./domain/exportPrimavera.js";
 import { upcomingObligations } from "./domain/obligations.js";
+import { parseGestObrigExport, importObligations, obligationsSummary, parseAccessExport } from "./integrations/gestobrig.js";
+import { ENTITIES, listCredentials, saveCredential, revealCredential, deleteCredential, importCredentials } from "./domain/credentials.js";
 import { EntryLine, isBalanced } from "./domain/entries.js";
 import { CentralGestClient, dispatchApprovedEntries, CentralGestError } from "./integrations/centralgest.js";
 import { auditStoredDocument } from "./domain/vatAudit.js";
@@ -1005,6 +1007,130 @@ export function createServer({
     });
   });
 
+  // ---------- Obrigações declarativas (GestObrig) ----------
+  const soonDays = (): number => Math.max(1, Number(process.env.GESTOBRIG_SOON_DAYS || 7) || 7);
+  const obligationSelect = `SELECT o.*, c.name AS company_name, c.nif AS company_nif FROM obligations o JOIN companies c ON c.id = o.company_id`;
+
+  app.get("/api/obligations", auth, (req, res) => {
+    const companyId = scopedCompanyId(req, req.query.company_id ? Number(req.query.company_id) : null);
+    const conds: string[] = []; const params: unknown[] = [];
+    if (companyId !== null) { conds.push("o.company_id = ?"); params.push(companyId); }
+    const status = typeof req.query.status === "string" && req.query.status ? req.query.status : "abertas";
+    if (status === "abertas") conds.push("o.status = 'por_cumprir'");
+    else if (status && status !== "todas") { conds.push("o.status = ?"); params.push(status); }
+    if (typeof req.query.from === "string" && req.query.from) { conds.push("o.due_date >= ?"); params.push(req.query.from); }
+    if (typeof req.query.to === "string" && req.query.to) { conds.push("o.due_date <= ?"); params.push(req.query.to); }
+    const where = conds.length ? " WHERE " + conds.join(" AND ") : "";
+    const rows = db.prepare(`${obligationSelect}${where} ORDER BY CASE WHEN o.status = 'por_cumprir' THEN 0 ELSE 1 END, o.due_date IS NULL, o.due_date, c.name LIMIT 500`).all(...params);
+    const today = new Date().toISOString().slice(0, 10);
+    return res.json({ obligations: rows, summary: obligationsSummary(db, companyId, today, soonDays()), today, soonDays: soonDays(), gestobrigUrl: process.env.GESTOBRIG_URL || "https://www.gestobrig.com" });
+  });
+
+  // Importa a exportação de obrigações do GestObrig (CSV ou Excel). ?dry_run=1 só mostra o que seria importado.
+  app.post("/api/obligations/import", auth, requireStaff, upload.single("file"), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Envie o ficheiro exportado do GestObrig (CSV ou Excel)." });
+    const parsed = parseGestObrigExport(req.file.buffer, req.file.originalname);
+    if (!parsed.rows.length) return res.status(400).json({ error: "Não foi possível reconhecer obrigações no ficheiro. Verifique se a primeira linha tem os cabeçalhos (empresa/NIF, obrigação, prazo, estado).", headers: parsed.headers });
+    const onlyCompanyId = req.body?.company_id ? Number(req.body.company_id) : null;
+    if (onlyCompanyId && !db.prepare("SELECT id FROM companies WHERE id = ?").get(onlyCompanyId)) return res.status(404).json({ error: "Empresa inexistente." });
+    const dryRun = String(req.query.dry_run ?? req.body?.dry_run ?? "") === "1";
+    if (dryRun) {
+      const nifs = new Set((db.prepare("SELECT nif FROM companies").all() as any[]).map((c) => c.nif));
+      const rows = parsed.rows.map((r) => ({ ...r, matched: !!onlyCompanyId || (r.nif ? nifs.has(r.nif) : false) }));
+      return res.json({ dryRun: true, total: rows.length, matched: rows.filter((r) => r.matched).length, headers: parsed.headers, mapping: parsed.mapping, rows: rows.slice(0, 200) });
+    }
+    const report = importObligations(db, parsed.rows, req.user!.id, "gestobrig", onlyCompanyId);
+    return res.json({ dryRun: false, ...report, skipped: report.skipped.slice(0, 50).map((s) => ({ reason: s.reason, label: s.row.label, nif: s.row.nif, company: s.row.companyName })), skippedTotal: report.skipped.length, headers: parsed.headers, mapping: parsed.mapping });
+  });
+
+  // Actualização manual (cumprida / justificada / reaberta) pelo gabinete.
+  app.patch("/api/obligations/:id", auth, requireStaff, (req, res) => {
+    const schema = z.object({
+      status: z.enum(["por_cumprir", "cumprida", "fora_prazo", "justificada"]).optional(),
+      submitted_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+      notes: z.string().max(2000).nullable().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Dados inválidos." });
+    const id = Number(req.params.id);
+    const cur = db.prepare("SELECT * FROM obligations WHERE id = ?").get(id) as any;
+    if (!cur) return res.status(404).json({ error: "Obrigação inexistente." });
+    const d = parsed.data;
+    let status = d.status ?? cur.status;
+    let submitted = d.submitted_at === undefined ? cur.submitted_at : d.submitted_at;
+    if (d.status === "cumprida" && !submitted) submitted = new Date().toISOString().slice(0, 10);
+    if (d.status === "cumprida" && cur.due_date && submitted && submitted > cur.due_date) status = "fora_prazo";
+    if (d.status === "por_cumprir") submitted = null;
+    db.prepare("UPDATE obligations SET status = ?, submitted_at = ?, notes = ? WHERE id = ?").run(status, submitted, d.notes === undefined ? cur.notes : d.notes, id);
+    audit(db, req.user!.id, "obligation_update", "obligations", id, JSON.stringify({ status }));
+    return res.json({ obligation: db.prepare(`${obligationSelect} WHERE o.id = ?`).get(id) });
+  });
+
+  app.delete("/api/obligations/:id", auth, requireStaff, (req, res) => {
+    const r = db.prepare("DELETE FROM obligations WHERE id = ?").run(Number(req.params.id));
+    if (!r.changes) return res.status(404).json({ error: "Obrigação inexistente." });
+    audit(db, req.user!.id, "obligation_delete", "obligations", Number(req.params.id));
+    return res.json({ ok: true });
+  });
+
+  // ---------- Cofre de acessos às entidades (AT, Segurança Social, IAPMEI...) ----------
+  const companyForCredentials = (req: Request, res: Response): number | null => {
+    const requested = Number(req.params.id);
+    const companyId = scopedCompanyId(req, requested);
+    if (companyId !== requested) { res.status(403).json({ error: "Sem acesso a esta empresa." }); return null; }
+    if (!db.prepare("SELECT id FROM companies WHERE id = ?").get(companyId)) { res.status(404).json({ error: "Empresa inexistente." }); return null; }
+    return companyId;
+  };
+
+  app.get("/api/credentials/entities", auth, (_req, res) => res.json({ entities: ENTITIES }));
+
+  app.get("/api/companies/:id/credentials", auth, (req, res) => {
+    const companyId = companyForCredentials(req, res); if (companyId === null) return;
+    return res.json({ credentials: listCredentials(db, companyId), entities: ENTITIES });
+  });
+
+  // Cliente e gabinete podem criar/actualizar acessos da empresa; só o gabinete apaga.
+  app.post("/api/companies/:id/credentials", auth, (req, res) => {
+    const companyId = companyForCredentials(req, res); if (companyId === null) return;
+    const schema = z.object({
+      id: z.number().int().positive().optional(),
+      entity: z.string().min(1).max(20),
+      label: z.string().max(120).nullable().optional(),
+      url: z.string().max(500).nullable().optional(),
+      username: z.string().max(200).nullable().optional(),
+      password: z.string().max(500).nullable().optional(),
+      notes: z.string().max(2000).nullable().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Dados inválidos." });
+    if (parsed.data.url && !/^https?:\/\//i.test(parsed.data.url)) return res.status(400).json({ error: "O endereço tem de começar por http:// ou https://." });
+    try {
+      const id = saveCredential(db, companyId, req.user!.id, parsed.data, parsed.data.id ?? null);
+      return res.json({ credential: listCredentials(db, companyId).find((c) => c.id === id) });
+    } catch (e: any) { return res.status(404).json({ error: e.message }); }
+  });
+
+  app.post("/api/companies/:id/credentials/:credId/reveal", auth, (req, res) => {
+    const companyId = companyForCredentials(req, res); if (companyId === null) return;
+    try { return res.json(revealCredential(db, Number(req.params.credId), companyId, req.user!.id)); }
+    catch (e: any) { return res.status(404).json({ error: e.message }); }
+  });
+
+  app.delete("/api/companies/:id/credentials/:credId", auth, requireStaff, (req, res) => {
+    const companyId = companyForCredentials(req, res); if (companyId === null) return;
+    if (!deleteCredential(db, Number(req.params.credId), companyId, req.user!.id)) return res.status(404).json({ error: "Acesso inexistente." });
+    return res.json({ ok: true });
+  });
+
+  // Importa a lista de acessos exportada do GestObrig (CSV/Excel com empresa ou NIF, entidade, utilizador, palavra-passe).
+  app.post("/api/credentials/import", auth, requireStaff, upload.single("file"), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Envie o ficheiro de acessos (CSV ou Excel)." });
+    const rows = parseAccessExport(req.file.buffer, req.file.originalname);
+    if (!rows.length) return res.status(400).json({ error: "Não foi possível reconhecer acessos no ficheiro (colunas esperadas: NIF ou empresa, entidade, utilizador, palavra-passe)." });
+    const r = importCredentials(db, rows, req.user!.id);
+    return res.json({ imported: r.imported, updated: r.updated, skippedTotal: r.skipped.length, skipped: r.skipped.slice(0, 50).map((s) => ({ reason: s.reason, entity: s.row.entity, nif: s.row.nif, company: s.row.companyName })) });
+  });
+
   // ---------- Dashboard e calendario fiscal ----------
   app.get("/api/dashboard", auth, (req, res) => {
     const companyId = scopedCompanyId(req, req.query.company_id ? Number(req.query.company_id) : null);
@@ -1034,6 +1160,16 @@ export function createServer({
       obligations = upcomingObligations(today, "mensal", 45);
     }
 
+    const horizon = new Date(new Date(today + "T00:00:00Z").getTime() + 60 * 86400_000).toISOString().slice(0, 10);
+    const managed = db.prepare(`${obligationSelect} WHERE ${companyId !== null ? "o.company_id = ? AND" : ""} o.status = 'por_cumprir' AND (o.due_date IS NULL OR o.due_date <= ?) ORDER BY o.due_date IS NULL, o.due_date, c.name LIMIT 100`).all(...params, horizon);
+    const gestobrig = {
+      summary: obligationsSummary(db, companyId, today, soonDays()),
+      open: managed,
+      total: (db.prepare(`SELECT COUNT(*) AS n FROM obligations ${where}`).get(...params) as any).n as number,
+      soonDays: soonDays(),
+      url: process.env.GESTOBRIG_URL || "https://www.gestobrig.com",
+    };
+
     return res.json({
       documents: docCounts,
       entries: entryCounts,
@@ -1041,6 +1177,7 @@ export function createServer({
       openFindings,
       knowledge,
       obligations,
+      gestobrig,
     });
   });
 

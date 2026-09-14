@@ -2,6 +2,13 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-14 — GestObrig por ficheiro, prazos na área do cliente e cofre de acessos
+
+- **Decisão:** integrar o GestObrig sem API (não existe API pública; contacto técnico gestobrigweb@gmail.com) através da importação da listagem de obrigações exportada (CSV/Excel), reconhecendo empresas pelo NIF, com reimportação idempotente. Os prazos passam a alimentar Análise > Indicadores e prazos e a página Hoje, do gabinete e de cada cliente. A interface `ObligationsSource` fica definida para um futuro conector por API.
+- **Acessos às entidades:** cofre por empresa (AT, Segurança Social Directa, IAPMEI, fundos de compensação, ACT, Banco de Portugal, GestObrig, outra) com palavras-passe cifradas AES-256-GCM, reveladas uma a uma e auditadas; o cliente vê e actualiza os da sua empresa, só o gabinete apaga. **Sem autologin:** os portais usam CAPTCHA, 2FA e Chave Móvel Digital; a app abre o portal e o cliente cola os dados. Importação da lista de acessos do GestObrig também por ficheiro.
+- **Contexto:** pedido do product owner para que a área do cliente (site e app) mostre "Indicadores e prazos" com os dados do GestObrig e dê acesso aos utilizadores/palavras-passe guardados para aceitar a T da Segurança Social, o certificado PME e comunicações de outras entidades.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-14 — Microsoft 365: OneDrive como repositório dos documentos e email com autenticação da aplicação
 
 - **Decisão:** integrar o Microsoft 365 pela Graph API com autenticação de aplicação (client credentials) e uma só aplicação registada no Entra ID: (1) arquivo de todos os documentos recebidos no OneDrive (ou SharePoint) da Lumarcont em pastas Empresa (NIF)/Ano/Mês/Tipo, sincronização idempotente em segundo plano com registo de erros e repetição; (2) leitura da caixa de recepção (ex.: documentos@lumarcont.pt) pela Graph, sem palavra-passe da caixa, substituindo o IMAP quando configurada (IMAP mantém-se para caixas fora do 365). Pedido do product owner: o OneDrive é o repositório oficial dos digitalizados e o email tem de usar a autenticação do Microsoft 365.
