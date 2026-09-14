@@ -12,7 +12,7 @@ export interface ExportResult {
   csv: string;
 }
 
-const HEADER = "Diario;Data;Documento;Conta;Descricao;Debito;Credito";
+const HEADER = "Diario;Data;Documento;Conta;Descricao;Debito;Credito;CentroCusto";
 
 const money = (n: number) => n.toFixed(2).replace(".", ",");
 
@@ -49,6 +49,7 @@ export function exportApprovedEntries(db: Db, companyId: number, userId: number)
           csvField(l.description || row.description),
           money(l.debit),
           money(l.credit),
+          csvField(l.costCenter || ""),
         ].join(";")
       );
     }

@@ -32,7 +32,12 @@ import {
   verifyPreviewToken,
 } from "./auth.js";
 import { AiProvider } from "./ai/provider.js";
-import { ingestDocument, reprocessDocument } from "./pipeline.js";
+import { ingestDocument, reprocessDocument, applyIntakeAnswers } from "./pipeline.js";
+import { SupplierDiscovery } from "./integrations/supplierDiscovery.js";
+import { IntakeDialog, DOC_TYPE_OPTIONS } from "./channels/dialog.js";
+import { getProfile, isKnownSupplier, counterpartyNif } from "./domain/supplierMemory.js";
+import { applyCostCenter } from "./domain/entries.js";
+import { DocType } from "./domain/classification.js";
 import { OcrEngine, DocumentOcr } from "./ocr/engine.js";
 import { ClaudeStructuredExtractor } from "./extraction/structured.js";
 import { buildStructuredExtractor } from "./extraction/analyse.js";
@@ -84,6 +89,10 @@ export interface ServerOptions {
   onSettingsSaved?: (() => void) | null;
   /** OneDrive archive worker (null when Microsoft 365 is not configured). */
   onedrive?: OneDriveSync | null;
+  /** Supplier discovery by NIF (VIES + AI web search); built from `agents` and `whatsappFetch` when omitted. */
+  discovery?: SupplierDiscovery | null;
+  /** Reception dialog (WhatsApp questions); built when the WhatsApp config has `ask`. */
+  dialog?: IntakeDialog | null;
 }
 
 const upload = multer({
@@ -100,8 +109,13 @@ export function createServer({
   demo = false,
   onSettingsSaved = null,
   onedrive = null,
+  discovery = null,
+  dialog = null,
 }: ServerOptions): express.Express {
   const app = express();
+  const discoveryService = discovery ?? new SupplierDiscovery(db, { fetchImpl: whatsappFetch, agent: agents });
+  const intake = dialog ?? (whatsapp?.ask ? new IntakeDialog(db) : null);
+  const DOC_TYPES = new Set<string>(DOC_TYPE_OPTIONS.map((o) => o.key).concat(["guia_transporte"]));
   // Raw body is needed to validate the Meta signature; keep it for webhooks only.
   app.use(express.json({ limit: "25mb", verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
 
@@ -247,6 +261,12 @@ export function createServer({
       return res.status(403).json({ error: "Sem acesso a essa empresa." });
     }
     const requestId = req.body.request_id ? Number(req.body.request_id) : null;
+    const costCenterId = req.body.cost_center_id ? Number(req.body.cost_center_id) : null;
+    if (costCenterId && !db.prepare("SELECT id FROM cost_centers WHERE id = ? AND company_id = ? AND active = 1").get(costCenterId, companyId)) {
+      return res.status(400).json({ error: "Centro de custo inexistente nesta empresa." });
+    }
+    const declaredType = typeof req.body.doc_type === "string" && req.body.doc_type ? req.body.doc_type : null;
+    if (declaredType && !DOC_TYPES.has(declaredType)) return res.status(400).json({ error: "Tipo de documento desconhecido." });
     const outcome = await ingestDocument(db, provider, storageRoot, {
       companyId,
       uploaderId: req.user!.id,
@@ -255,6 +275,8 @@ export function createServer({
       buffer: req.file.buffer,
       channel: "portal",
       requestId,
+      costCenterId,
+      clientDocType: declaredType as DocType | null,
     }, ocr, structured);
     if (onedrive && !outcome.duplicate) setTimeout(() => { onedrive.syncPending().catch(() => {}); }, 500);
     return res.status(outcome.duplicate ? 200 : 201).json(outcome);
@@ -345,12 +367,26 @@ export function createServer({
          WHERE e.status = ? ORDER BY e.created_at LIMIT 200`
       )
       .all(status) as any[];
+    const companyNif = new Map<number, string>(); const ccByCompany = new Map<number, any[]>();
+    const supplierInfo = (companyId: number, extracted: any) => {
+      if (!companyNif.has(companyId)) companyNif.set(companyId, ((db.prepare("SELECT nif FROM companies WHERE id = ?").get(companyId) as any)?.nif) ?? "");
+      const nif = extracted ? counterpartyNif(extracted, companyNif.get(companyId)!) : null;
+      if (!nif) return null;
+      const p = getProfile(db, companyId, nif);
+      const ccs = p ? (db.prepare("SELECT c.id, c.code, c.name FROM supplier_cost_centers s JOIN cost_centers c ON c.id = s.cost_center_id WHERE s.supplier_id = ? ORDER BY c.code").all(p.id) as any[]) : [];
+      return { nif, known: isKnownSupplier(p), registered: !!p?.registeredAt, name: p?.name ?? extracted?.issuerName ?? null, brand: p?.brand ?? null, expense_account: p?.expenseAccount ?? null, doc_count: p?.docCount ?? 0, default_cost_center_id: p?.defaultCostCenterId ?? null, cost_centers: ccs };
+    };
+    const costCenters = (companyId: number) => {
+      if (!ccByCompany.has(companyId)) ccByCompany.set(companyId, db.prepare("SELECT id, code, name FROM cost_centers WHERE company_id = ? AND active = 1 ORDER BY code").all(companyId) as any[]);
+      return ccByCompany.get(companyId)!;
+    };
     return res.json({
       entries: rows.map((r) => {
         let sources: string[] = [];
         let extracted: any = null;
         try { extracted = JSON.parse(r.extracted_json || "null"); sources = extracted?.sources || []; } catch { /* ignore */ }
-        return { ...r, lines: JSON.parse(r.lines_json), lines_json: undefined, extracted_json: undefined, sources, extracted };
+        const docMeta = db.prepare("SELECT cost_center_id, client_doc_type FROM documents WHERE id = ?").get(r.document_id) as any;
+        return { ...r, lines: JSON.parse(r.lines_json), lines_json: undefined, extracted_json: undefined, sources, extracted, supplier: supplierInfo(r.company_id, extracted), cost_centers: costCenters(r.company_id), document_cost_center_id: docMeta?.cost_center_id ?? null, client_doc_type: docMeta?.client_doc_type ?? null };
       }),
     });
   });
@@ -365,6 +401,7 @@ export function createServer({
           description: z.string(),
           debit: z.number().min(0),
           credit: z.number().min(0),
+          cost_center: z.string().max(40).nullable().optional(),
         })
       )
       .optional(),
@@ -396,7 +433,9 @@ export function createServer({
     // Aprovar, com edicao opcional das linhas.
     let lines: EntryLine[] = JSON.parse(entry.lines_json);
     if (body.data.lines) {
-      lines = body.data.lines;
+      const validCodes = new Set((db.prepare("SELECT code FROM cost_centers WHERE company_id = ?").all(entry.company_id) as any[]).map((c) => c.code));
+      lines = body.data.lines.map((l) => ({ account: l.account, description: l.description, debit: l.debit, credit: l.credit, costCenter: l.cost_center && validCodes.has(l.cost_center) ? l.cost_center : null }));
+      if (body.data.lines.some((l) => l.cost_center && !validCodes.has(l.cost_center))) return res.status(400).json({ error: "Centro de custo desconhecido nesta empresa." });
       if (!isBalanced(lines)) {
         return res.status(400).json({ error: "As linhas editadas não estão balanceadas (débito != crédito)." });
       }
@@ -815,9 +854,28 @@ export function createServer({
     const incoming = parseWhatsAppPayload(req.body);
     for (const m of incoming) {
       try {
+        const sender = normaliseAddress("whatsapp", m.from);
+        // Resposta às perguntas de recepção (tipo de documento, centro de custo): sem anexos e com diálogo aberto.
+        if (intake && whatsapp.reply && !m.media.length && m.text) {
+          const a = intake.answer("whatsapp", sender, m.text);
+          if (a.handled) {
+            db.prepare("INSERT OR IGNORE INTO inbound_messages (channel, external_id, sender, recipient, subject, body_excerpt, company_id, status, attachments) VALUES ('whatsapp', ?, ?, ?, 'resposta às perguntas de recepção', ?, (SELECT company_id FROM channel_dialogs WHERE channel = 'whatsapp' AND sender = ?), 'processado', 0)")
+              .run(m.messageId, sender, m.phoneNumberId, m.text.slice(0, 300), sender);
+            if (a.reply) await waClient.sendText(m.from, a.reply);
+            continue;
+          }
+        }
         const inbound = await toInboundMessage(m, waClient);
         const result = await processInbound(db, inboundDeps(), inbound);
-        if (whatsapp.reply && result.status !== "duplicado") await waClient.sendText(m.from, confirmationText(result));
+        if (whatsapp.reply && result.status !== "duplicado") {
+          let text = confirmationText(result);
+          const fresh = result.outcomes.filter((o) => !o.duplicate);
+          if (intake && result.status === "processado" && result.companyId && fresh.length) {
+            const q = intake.start({ channel: "whatsapp", sender, companyId: result.companyId, documentIds: fresh.map((o) => o.documentId), detectedType: fresh[0]!.docType });
+            if (q) text = q;
+          }
+          await waClient.sendText(m.from, text);
+        }
       } catch (e: any) {
         console.error("[whatsapp] falha a processar", m.messageId, e.message);
         db.prepare(
@@ -1005,6 +1063,182 @@ export function createServer({
       ai_extraction: !!structured,
       ocr: ocr instanceof DocumentOcr ? ocr.engines : ["personalizado"],
     });
+  });
+
+  // ---------- Centros de custo ----------
+  const companyScoped = (req: Request, res: Response): number | null => {
+    const requested = Number(req.params.id);
+    const companyId = scopedCompanyId(req, requested);
+    if (companyId !== requested) { res.status(403).json({ error: "Sem acesso a esta empresa." }); return null; }
+    if (!db.prepare("SELECT id FROM companies WHERE id = ?").get(companyId)) { res.status(404).json({ error: "Empresa inexistente." }); return null; }
+    return companyId;
+  };
+
+  app.get("/api/companies/:id/cost-centers", auth, (req, res) => {
+    const companyId = companyScoped(req, res); if (companyId === null) return;
+    const all = String(req.query.all ?? "") === "1" && req.user!.role === "staff";
+    const rows = db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM documents d WHERE d.cost_center_id = c.id) AS documents FROM cost_centers c WHERE c.company_id = ? ${all ? "" : "AND c.active = 1"} ORDER BY c.code`).all(companyId);
+    return res.json({ cost_centers: rows, doc_types: DOC_TYPE_OPTIONS.map((o) => ({ key: o.key, label: o.label })) });
+  });
+
+  app.post("/api/companies/:id/cost-centers", auth, requireStaff, (req, res) => {
+    const companyId = companyScoped(req, res); if (companyId === null) return;
+    const parsed = z.object({ code: z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9_.-]+$/, "Código só com letras, números, ponto, hífen ou sublinhado."), name: z.string().trim().min(1).max(80) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Dados inválidos." });
+    const code = parsed.data.code.toUpperCase();
+    if (db.prepare("SELECT id FROM cost_centers WHERE company_id = ? AND code = ?").get(companyId, code)) return res.status(409).json({ error: "Já existe um centro de custo com esse código." });
+    const r = db.prepare("INSERT INTO cost_centers (company_id, code, name) VALUES (?, ?, ?)").run(companyId, code, parsed.data.name);
+    audit(db, req.user!.id, "cost_center_create", "cost_center", Number(r.lastInsertRowid), `${code} ${parsed.data.name}`);
+    return res.status(201).json({ cost_center: db.prepare("SELECT * FROM cost_centers WHERE id = ?").get(r.lastInsertRowid) });
+  });
+
+  app.patch("/api/cost-centers/:id", auth, requireStaff, (req, res) => {
+    const parsed = z.object({ name: z.string().trim().min(1).max(80).optional(), active: z.boolean().optional() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Dados inválidos." });
+    const cur = db.prepare("SELECT * FROM cost_centers WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!cur) return res.status(404).json({ error: "Centro de custo inexistente." });
+    db.prepare("UPDATE cost_centers SET name = ?, active = ? WHERE id = ?").run(parsed.data.name ?? cur.name, parsed.data.active === undefined ? cur.active : (parsed.data.active ? 1 : 0), cur.id);
+    audit(db, req.user!.id, "cost_center_update", "cost_center", cur.id, JSON.stringify(parsed.data));
+    return res.json({ cost_center: db.prepare("SELECT * FROM cost_centers WHERE id = ?").get(cur.id) });
+  });
+
+  app.delete("/api/cost-centers/:id", auth, requireStaff, (req, res) => {
+    const cur = db.prepare("SELECT * FROM cost_centers WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!cur) return res.status(404).json({ error: "Centro de custo inexistente." });
+    const used = (db.prepare("SELECT COUNT(*) AS n FROM documents WHERE cost_center_id = ?").get(cur.id) as any).n + (db.prepare("SELECT COUNT(*) AS n FROM supplier_profiles WHERE default_cost_center_id = ?").get(cur.id) as any).n;
+    if (used > 0) {
+      db.prepare("UPDATE cost_centers SET active = 0 WHERE id = ?").run(cur.id);
+      audit(db, req.user!.id, "cost_center_deactivate", "cost_center", cur.id);
+      return res.json({ ok: true, deactivated: true, note: "Centro de custo em uso: ficou inactivo em vez de apagado." });
+    }
+    db.prepare("DELETE FROM supplier_cost_centers WHERE cost_center_id = ?").run(cur.id);
+    db.prepare("DELETE FROM cost_centers WHERE id = ?").run(cur.id);
+    audit(db, req.user!.id, "cost_center_delete", "cost_center", cur.id);
+    return res.json({ ok: true, deactivated: false });
+  });
+
+  // Tipo e centro de custo indicados depois da recepção (gabinete); re-propõe o lançamento pendente.
+  app.post("/api/documents/:id/intake", auth, requireStaff, (req, res) => {
+    const parsed = z.object({ doc_type: z.string().optional(), cost_center_id: z.number().int().nullable().optional() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Dados inválidos." });
+    if (parsed.data.doc_type && !DOC_TYPES.has(parsed.data.doc_type)) return res.status(400).json({ error: "Tipo de documento desconhecido." });
+    try {
+      const out = applyIntakeAnswers(db, Number(req.params.id), { docType: (parsed.data.doc_type as DocType | undefined) ?? undefined, costCenterId: parsed.data.cost_center_id }, req.user!.id);
+      return res.json(out);
+    } catch (e: any) { return res.status(/^Documento inexistente/.test(e.message || "") ? 404 : 400).json({ error: e.message }); }
+  });
+
+  // ---------- Fornecedores: registo, descoberta por NIF ----------
+  const supplierRow = (id: number) => {
+    const p = db.prepare("SELECT p.*, c.name AS company_name FROM supplier_profiles p JOIN companies c ON c.id = p.company_id WHERE p.id = ?").get(id) as any;
+    if (!p) return null;
+    const ccs = db.prepare("SELECT c.id, c.code, c.name FROM supplier_cost_centers s JOIN cost_centers c ON c.id = s.cost_center_id WHERE s.supplier_id = ? ORDER BY c.code").all(id);
+    let aliases: string[] = []; try { aliases = JSON.parse(p.aliases_json || "[]"); } catch { /* ignore */ }
+    return { ...p, aliases, aliases_json: undefined, discovery_json: undefined, known: !!(p.registered_at || p.expense_account || p.revenue_account), cost_centers: ccs };
+  };
+
+  app.get("/api/suppliers", auth, requireStaff, (req, res) => {
+    const companyId = req.query.company_id ? Number(req.query.company_id) : null;
+    const status = typeof req.query.status === "string" ? req.query.status : "todos";
+    const rows = db.prepare(`SELECT p.id FROM supplier_profiles p ${companyId ? "WHERE p.company_id = ?" : ""} ORDER BY p.last_seen DESC, p.id DESC LIMIT 500`).all(...(companyId ? [companyId] : [])) as any[];
+    let list = rows.map((r) => supplierRow(r.id)!);
+    // Pending entries per (company, nif) so the accountant sees which unknown suppliers block validation.
+    const pending = new Map<string, number>();
+    const pend = db.prepare(`SELECT e.company_id, d.extracted_json, c.nif AS company_nif FROM entries e JOIN documents d ON d.id = e.document_id JOIN companies c ON c.id = e.company_id WHERE e.status = 'pendente' ${companyId ? "AND e.company_id = ?" : ""}`).all(...(companyId ? [companyId] : [])) as any[];
+    for (const p of pend) { try { const nif = counterpartyNif(JSON.parse(p.extracted_json || "null") ?? { nifs: [] }, p.company_nif); if (nif) pending.set(`${p.company_id}:${nif}`, (pending.get(`${p.company_id}:${nif}`) ?? 0) + 1); } catch { /* ignore */ } }
+    list = list.map((s) => ({ ...s, pending_entries: pending.get(`${s.company_id}:${s.nif}`) ?? 0 }));
+    if (status === "desconhecidos") list = list.filter((s) => !s.known);
+    else if (status === "registados") list = list.filter((s) => !!s.registered_at);
+    return res.json({ suppliers: list, discovery_sources: discoveryService.sourcesAvailable });
+  });
+
+  app.post("/api/suppliers/discover", auth, requireStaff, async (req, res) => {
+    const parsed = z.object({ nif: z.string().min(9).max(12), company_id: z.number().int().optional(), document_id: z.number().int().optional(), refresh: z.boolean().optional() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Indique o NIF a pesquisar." });
+    let nameOnDocument: string | null = null; let companyName: string | null = null;
+    if (parsed.data.document_id) {
+      const d = db.prepare("SELECT extracted_json FROM documents WHERE id = ?").get(parsed.data.document_id) as any;
+      try { const x = JSON.parse(d?.extracted_json || "null"); if (x && x.issuerNif === parsed.data.nif.replace(/\D/g, "")) nameOnDocument = x.issuerName ?? null; } catch { /* ignore */ }
+    }
+    if (parsed.data.company_id) companyName = (db.prepare("SELECT name FROM companies WHERE id = ?").get(parsed.data.company_id) as any)?.name ?? null;
+    try {
+      const result = await discoveryService.discover(parsed.data.nif, { nameOnDocument, companyName }, { refresh: parsed.data.refresh, userId: req.user!.id });
+      return res.json(result);
+    } catch (e: any) { return res.status(400).json({ error: e.message }); }
+  });
+
+  app.post("/api/companies/:id/suppliers", auth, requireStaff, (req, res) => {
+    const companyId = companyScoped(req, res); if (companyId === null) return;
+    const schema = z.object({
+      nif: z.string().regex(/^\d{9}$/, "NIF com 9 dígitos."),
+      name: z.string().trim().min(2).max(160),
+      brand: z.string().trim().max(120).nullable().optional(),
+      aliases: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+      website: z.string().trim().max(300).nullable().optional(),
+      activity: z.string().trim().max(160).nullable().optional(),
+      expense_account: z.string().trim().regex(/^\d{2,12}$/).nullable().optional(),
+      cost_center_ids: z.array(z.number().int()).max(50).optional(),
+      default_cost_center_id: z.number().int().nullable().optional(),
+      candidate: z.object({ name: z.string(), kind: z.string(), probability: z.number(), sources: z.array(z.string()).optional() }).nullable().optional(),
+      apply_to_pending: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Dados inválidos." });
+    const d = parsed.data;
+    if (d.website && !/^https?:\/\//i.test(d.website)) return res.status(400).json({ error: "O site tem de começar por http:// ou https://." });
+    const ccIds = [...new Set([...(d.cost_center_ids ?? []), ...(d.default_cost_center_id ? [d.default_cost_center_id] : [])])];
+    for (const id of ccIds) if (!db.prepare("SELECT id FROM cost_centers WHERE id = ? AND company_id = ?").get(id, companyId)) return res.status(400).json({ error: "Centro de custo inexistente nesta empresa." });
+    const tx = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO supplier_profiles (company_id, nif, name, brand, aliases_json, website, activity, expense_account, registered_at, registered_by, default_cost_center_id, discovery_json, doc_count, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, 0, NULL)
+         ON CONFLICT (company_id, nif) DO UPDATE SET name = excluded.name, brand = excluded.brand, aliases_json = excluded.aliases_json, website = excluded.website, activity = excluded.activity,
+           expense_account = COALESCE(excluded.expense_account, supplier_profiles.expense_account), registered_at = datetime('now'), registered_by = excluded.registered_by,
+           default_cost_center_id = excluded.default_cost_center_id, discovery_json = COALESCE(excluded.discovery_json, supplier_profiles.discovery_json), updated_at = datetime('now')`
+      ).run(companyId, d.nif, d.name, d.brand ?? null, JSON.stringify(d.aliases ?? []), d.website ?? null, d.activity ?? null, d.expense_account ?? null, req.user!.id, d.default_cost_center_id ?? null, d.candidate ? JSON.stringify(d.candidate) : null);
+      const sid = (db.prepare("SELECT id FROM supplier_profiles WHERE company_id = ? AND nif = ?").get(companyId, d.nif) as any).id as number;
+      db.prepare("DELETE FROM supplier_cost_centers WHERE supplier_id = ?").run(sid);
+      for (const id of ccIds) db.prepare("INSERT OR IGNORE INTO supplier_cost_centers (supplier_id, cost_center_id) VALUES (?, ?)").run(sid, id);
+      let applied = 0;
+      if (d.apply_to_pending !== false) {
+        const code = d.default_cost_center_id ? (db.prepare("SELECT code FROM cost_centers WHERE id = ?").get(d.default_cost_center_id) as any)?.code ?? null : null;
+        const companyNif = (db.prepare("SELECT nif FROM companies WHERE id = ?").get(companyId) as any).nif as string;
+        const pend = db.prepare("SELECT e.id, e.lines_json, e.document_id, d.extracted_json, d.doc_type, d.cost_center_id FROM entries e JOIN documents d ON d.id = e.document_id WHERE e.company_id = ? AND e.status = 'pendente'").all(companyId) as any[];
+        for (const p of pend) {
+          let nif: string | null = null; try { nif = counterpartyNif(JSON.parse(p.extracted_json || "null") ?? { nifs: [] }, companyNif); } catch { /* ignore */ }
+          if (nif !== d.nif) continue;
+          let lines: EntryLine[] = JSON.parse(p.lines_json);
+          const docCode = p.cost_center_id ? (db.prepare("SELECT code FROM cost_centers WHERE id = ?").get(p.cost_center_id) as any)?.code ?? null : null;
+          if (docCode || code) lines = applyCostCenter(lines, docCode || code);
+          if (d.expense_account && ["factura_compra", "despesa", "nota_credito"].includes(p.doc_type)) lines = lines.map((l) => (/^(3|6)/.test(l.account) ? { ...l, account: d.expense_account! } : l));
+          db.prepare("UPDATE entries SET lines_json = ? WHERE id = ?").run(JSON.stringify(lines), p.id);
+          applied++;
+        }
+      }
+      audit(db, req.user!.id, "supplier_register", "supplier", sid, JSON.stringify({ nif: d.nif, name: d.name, brand: d.brand ?? null, probability: d.candidate?.probability ?? null, costCenters: ccIds.length, applied }));
+      return { sid, applied };
+    });
+    const out = tx();
+    return res.status(201).json({ supplier: supplierRow(out.sid), applied_to_pending: out.applied });
+  });
+
+  app.patch("/api/suppliers/:id", auth, requireStaff, (req, res) => {
+    const cur = db.prepare("SELECT * FROM supplier_profiles WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!cur) return res.status(404).json({ error: "Fornecedor inexistente." });
+    const parsed = z.object({
+      name: z.string().trim().min(2).max(160).optional(), brand: z.string().trim().max(120).nullable().optional(), website: z.string().trim().max(300).nullable().optional(),
+      activity: z.string().trim().max(160).nullable().optional(), expense_account: z.string().trim().regex(/^\d{2,12}$/).nullable().optional(),
+      cost_center_ids: z.array(z.number().int()).max(50).optional(), default_cost_center_id: z.number().int().nullable().optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Dados inválidos." });
+    const d = parsed.data;
+    const ccIds = d.cost_center_ids !== undefined || d.default_cost_center_id !== undefined ? [...new Set([...(d.cost_center_ids ?? []), ...(d.default_cost_center_id ? [d.default_cost_center_id] : [])])] : null;
+    if (ccIds) for (const id of ccIds) if (!db.prepare("SELECT id FROM cost_centers WHERE id = ? AND company_id = ?").get(id, cur.company_id)) return res.status(400).json({ error: "Centro de custo inexistente nesta empresa." });
+    db.prepare("UPDATE supplier_profiles SET name = ?, brand = ?, website = ?, activity = ?, expense_account = ?, default_cost_center_id = ?, registered_at = COALESCE(registered_at, datetime('now')), registered_by = COALESCE(registered_by, ?), updated_at = datetime('now') WHERE id = ?")
+      .run(d.name ?? cur.name, d.brand === undefined ? cur.brand : d.brand, d.website === undefined ? cur.website : d.website, d.activity === undefined ? cur.activity : d.activity, d.expense_account === undefined ? cur.expense_account : d.expense_account, d.default_cost_center_id === undefined ? cur.default_cost_center_id : d.default_cost_center_id, req.user!.id, cur.id);
+    if (ccIds) { db.prepare("DELETE FROM supplier_cost_centers WHERE supplier_id = ?").run(cur.id); for (const id of ccIds) db.prepare("INSERT OR IGNORE INTO supplier_cost_centers (supplier_id, cost_center_id) VALUES (?, ?)").run(cur.id, id); }
+    audit(db, req.user!.id, "supplier_update", "supplier", cur.id, JSON.stringify(d));
+    return res.json({ supplier: supplierRow(cur.id) });
   });
 
   // ---------- Obrigações declarativas (GestObrig) ----------

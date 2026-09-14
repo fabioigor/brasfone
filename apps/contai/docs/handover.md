@@ -45,7 +45,7 @@ Cliente: Lumarcont, gabinete de contabilidade em Faro (lumarcont.pt), fundado em
 - **IA:** `src/ai/provider.ts` (fornecedor heurístico local por omissão; Anthropic via SDK oficial quando há `ANTHROPIC_API_KEY`), `src/ai/agents.ts` (memória descritiva de relatórios, segunda opinião de IVA), `src/extraction/structured.ts` (extracção estruturada por Claude, JSON validado com zod), `src/ocr/engine.ts` (Claude visão, Tesseract, pdfjs, rasterização com @napi-rs/canvas). Modelos configuráveis (`CONTAI_OCR_MODEL`, `CONTAI_AGENT_MODEL`, por omissão `claude-opus-5`; `claude-haiku-4-5` como trabalhador barato na classificação).
 - **Conhecimento:** `src/knowledge/vat-rules.json` (taxas por território: Continente 23/13/6, Açores 16/9/4, Madeira 22/12/4; Listas I e II do CIVA), `sector-benchmarks.json` (indicativos, por CAE), `index.ts` com verificação de `last_verified`.
 - **Base de dados (18 tabelas):** users, companies, documents (com colunas OCR e OneDrive), entries, doc_requests, export_batches, export_batch_entries, dispatches, findings, trial_balances, trial_balance_lines, balance_rules, reports, supplier_profiles, company_contacts, inbound_messages, audit_log, settings (valores cifrados AES-256-GCM). Esquema completo em `src/db.ts`.
-- **API HTTP:** 78 rotas (lista gerada em `docs/api.md`). **MCP:** 25 ferramentas `contai_*` e `centralgest_*` (`src/mcp/server.ts`, stdio).
+- **API HTTP:** 87 rotas (lista gerada em `docs/api.md`). **MCP:** 25 ferramentas `contai_*` e `centralgest_*` (`src/mcp/server.ts`, stdio).
 - **Frontend:** `public/index.html`, `public/app.js` (uma função `viewX(main)` por página; router por hash; `el()` para DOM), `public/scan.js` (tratamento de imagem e escritor de PDF sem dependências), `public/styles.css` (tokens de design), `public/sw.js`. Páginas: Hoje (fila de trabalho), Digitalizar, Documentos, Validação (mestre/detalhe com pré-visualização), Conferência, Recepção, Pedidos, Balancetes, Relatórios, Indicadores e prazos, Empresas, Entrega, Integrações, A minha conta.
 
 ## 5. Funcionalidades entregues (estado: em produção, versão 0.5.0)
@@ -60,6 +60,7 @@ Cliente: Lumarcont, gabinete de contabilidade em Faro (lumarcont.pt), fundado em
 - Canais: email (Microsoft 365 via Graph, webhook JSON/MIME, IMAP), WhatsApp Cloud API (assinatura validada, download de media, confirmação opcional), remetentes autorizados por empresa, alias `docs+<id>@`.
 - Arquivo OneDrive/SharePoint por Empresa (NIF)/Ano/Mês/Tipo, idempotente, com repetição e estado.
 - CentralGest: cliente contra contrato assumido, agora com o contrato real v5.1 analisado e plano de adaptação (`docs/centralgest-api.md`), simulador, teste de ligação, mapa de códigos, despacho idempotente; CSV Primavera como alternativa.
+- Fornecedores e centros de custo: centros por empresa desde a digitalização (web, telemóvel, WhatsApp com perguntas de tipo e centro), descoberta de fornecedor por NIF (VIES + pesquisa web por IA com probabilidades), registo com centros de custo e aplicação aos pendentes (`docs/fornecedores.md`).
 - GestObrig (sem API pública): importação de obrigações por ficheiro para Indicadores e prazos (gabinete e cliente), marcação manual, resumo na página Hoje; cofre de acessos às entidades por empresa com revelação auditada (`docs/gestobrig.md`).
 - Integrações em auto-serviço: definições cifradas, teste por grupo (Anthropic, email 365/IMAP, WhatsApp, Microsoft 365, CentralGest), domínio e TLS, estado do sistema (versão, commit, registo da actualização automática).
 - Apps nativas: Android (Trusted Web Activity, Bubblewrap) e iOS (SwiftUI + WKWebView com extensão de partilha, XcodeGen); ambas invólucros da web app.
@@ -101,6 +102,7 @@ CENTRALGEST_MOCK=1 npm run dev  # com o CentralGest simulado
 | Canais (email, WhatsApp) | `docs/canais.md`, `src/channels/*` |
 | Microsoft 365 (OneDrive, caixa de email, Entra ID) | `docs/microsoft365.md`, `src/integrations/microsoft365.ts`, `src/channels/graphMail.ts` |
 | CentralGest (contrato assumido, simulador) | `docs/centralgest-api.md`, `src/integrations/centralgest*.ts` |
+| Fornecedores, centros de custo, diálogo WhatsApp | `docs/fornecedores.md`, `src/integrations/supplierDiscovery.ts`, `src/channels/dialog.ts`, `src/ai/agents.ts` |
 | GestObrig, obrigações e cofre de acessos | `docs/gestobrig.md`, `src/integrations/gestobrig.ts`, `src/domain/credentials.ts` |
 | Análise de concorrência (Kangaroo Files, Flowzi, BizDocs) | `docs/analise-concorrencia.md` |
 | Fontes externas (BPstat, INE) | `docs/fontes-externas.md` |

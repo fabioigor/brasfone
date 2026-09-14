@@ -10,6 +10,10 @@ Portal digital para gabinetes de contabilidade, inspirado no Kangaroo Files: rec
 
 OneDrive (ou SharePoint) como arquivo de todos os documentos recebidos, em pastas por empresa, ano, mês e tipo, e caixa de email lida pela Graph API com a autenticação da aplicação Microsoft 365 (sem IMAP nem palavra-passe da caixa). Configuração em Integrações; guia do registo no Entra ID em `docs/microsoft365.md`.
 
+## Fornecedores por NIF, centros de custo e perguntas no WhatsApp
+
+Centros de custo por empresa escolhidos desde a digitalização (ecrã Digitalizar, formulário de Documentos, perguntas no WhatsApp) e aplicados às linhas do lançamento e à exportação; fornecedor desconhecido → pesquisa por NIF (VIES + pesquisa web por IA + nome no documento) com marcas e probabilidades, escolha humana, criação do fornecedor com centros de custo e aplicação aos lançamentos pendentes. Ver `docs/fornecedores.md`.
+
 ## GestObrig: prazos declarativos e acessos às entidades
 
 Importação da listagem de obrigações do GestObrig (CSV/Excel, sem API pública) para a vista Indicadores e prazos do gabinete e de cada cliente, com prazos em atraso e a vencer também na página Hoje; cofre cifrado de acessos aos portais oficiais (AT, Segurança Social Directa, IAPMEI, fundos de compensação...) por empresa, com revelação auditada e botão para abrir o portal. Ver `docs/gestobrig.md`.

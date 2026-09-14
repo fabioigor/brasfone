@@ -254,6 +254,243 @@ async function viewDashboard(main) {
   );
 }
 
+/* ---------- tipo de documento e centro de custo na recepcao ---------- */
+
+/** Selectores de tipo de documento e centro de custo usados ao digitalizar e ao carregar. */
+function intakeControls(companyIdFn) {
+  const typeSel = el("select", {}, [el("option", { value: "" }, "Detectar automaticamente")]);
+  const ccSel = el("select", {}, [el("option", { value: "" }, "Sem centro de custo")]);
+  const ccLabel = el("label", {}, [el("span", { class: "lbl" }, "Centro de custo"), ccSel]);
+  let loadedFor = null;
+  const load = async () => {
+    const cid = companyIdFn();
+    if (!cid || cid === loadedFor) return;
+    loadedFor = cid;
+    try {
+      const data = await api("/api/companies/" + cid + "/cost-centers");
+      if (typeSel.children.length === 1) for (const t of data.doc_types || []) typeSel.append(el("option", { value: t.key }, t.label));
+      ccSel.innerHTML = ""; ccSel.append(el("option", { value: "" }, "Sem centro de custo"));
+      for (const c of data.cost_centers || []) ccSel.append(el("option", { value: c.id }, c.name + " (" + c.code + ")"));
+      ccLabel.hidden = !(data.cost_centers || []).length;
+    } catch (e) { ccLabel.hidden = true; }
+  };
+  const append = (fd) => { if (typeSel.value) fd.append("doc_type", typeSel.value); if (ccSel.value) fd.append("cost_center_id", ccSel.value); };
+  return { typeSel, ccSel, typeLabel: el("label", {}, [el("span", { class: "lbl" }, "Tipo de documento"), typeSel]), ccLabel, load, append };
+}
+
+/* ---------- fornecedores: descoberta por NIF e registo ---------- */
+
+const CANDIDATE_KIND = { denominacao: "denominação social", marca: "marca", nome_comercial: "nome comercial" };
+const SOURCE_NAME = { vies: "VIES", ia_web: "pesquisa web (IA)", documento: "documento", nif: "NIF" };
+const pct = (p) => Math.round((p || 0) * 100) + "%";
+
+function supplierStatusBadge(sp) {
+  if (!sp) return el("span", { class: "badge muted" }, "sem terceiro");
+  if (sp.registered || sp.registered_at) return el("span", { class: "badge ok" }, "fornecedor registado");
+  if (sp.known) return el("span", { class: "badge info" }, "conta aprendida");
+  return el("span", { class: "badge warn" }, "fornecedor novo");
+}
+
+/** Cartao do fornecedor na validacao: estado, pesquisa por NIF, registo, tipo e centro de custo do documento. */
+function supplierCard(e) {
+  const sp = e.supplier;
+  const card = el("div", { class: "card flat" });
+  card.append(el("div", { style: "display:flex;gap:8px;align-items:center;flex-wrap:wrap" }, [el("h2", { style: "margin:0;flex:1" }, "Fornecedor / terceiro"), supplierStatusBadge(sp)]));
+  if (!sp) {
+    card.append(el("p", { class: "muted small" }, "O documento não tem um NIF de terceiro legível. Confirme no original."));
+  } else {
+    card.append(el("div", { class: "small" }, [el("strong", {}, sp.brand || sp.name || "Nome desconhecido"), sp.brand && sp.name && sp.brand !== sp.name ? el("span", { class: "muted" }, " · " + sp.name) : null, el("span", { class: "muted" }, " · NIF " + sp.nif), sp.doc_count ? el("span", { class: "muted" }, " · " + sp.doc_count + " documento(s)") : null]));
+    if (sp.cost_centers && sp.cost_centers.length) card.append(el("div", { class: "muted small" }, "Centros de custo: " + sp.cost_centers.map((c) => c.name + (c.id === sp.default_cost_center_id ? " (habitual)" : "")).join(", ")));
+    if (!sp.known) card.append(el("p", { class: "small", style: "margin:6px 0" }, "Este NIF ainda não está na lista de fornecedores. Pesquise na web as marcas associadas e registe o fornecedor com os centros de custo a que pertence."));
+    const actions = el("div", { class: "form-row" }, [
+      !sp.registered ? el("button", { class: "btn small primary", type: "button", onclick: () => discoverSupplierModal(e) }, "Pesquisar marcas por NIF") : null,
+      el("button", { class: "btn small", type: "button", onclick: () => supplierForm(e.company_id, { nif: sp.nif, name: sp.name || "", brand: sp.brand || "", expense_account: expenseAccountOf(e), cost_center_ids: (sp.cost_centers || []).map((c) => c.id), default_cost_center_id: sp.default_cost_center_id }, () => render()) }, sp.registered ? "Editar fornecedor" : "Registar manualmente"),
+    ]);
+    card.append(actions);
+  }
+  // Tipo e centro de custo do documento (respostas do cliente ou correccao do gabinete)
+  const typeSel = el("select", {}, Object.entries(DOC_TYPE_LABEL).filter(([k]) => k !== "por_classificar").map(([k, v]) => el("option", { value: k }, v)));
+  typeSel.value = e.client_doc_type || e.doc_type || "factura_compra";
+  const ccSel = el("select", {}, [el("option", { value: "" }, "Sem centro de custo")]);
+  for (const c of e.cost_centers || []) ccSel.append(el("option", { value: c.id }, c.name + " (" + c.code + ")"));
+  if (e.document_cost_center_id) ccSel.value = String(e.document_cost_center_id);
+  const applyBtn = el("button", { class: "btn small", type: "button" }, "Aplicar e re-propor");
+  applyBtn.addEventListener("click", async () => {
+    applyBtn.disabled = true;
+    try { await api("/api/documents/" + e.document_id + "/intake", { method: "POST", json: { doc_type: typeSel.value, cost_center_id: ccSel.value ? Number(ccSel.value) : null } }); toast("Documento actualizado e lançamento re-proposto."); render(); }
+    catch (err) { toast(err.message, true); applyBtn.disabled = false; }
+  });
+  card.append(el("div", { class: "eyebrow", style: "margin-top:10px" }, "Recepção" + (e.client_doc_type ? " · tipo indicado pelo cliente" : "")));
+  card.append(el("div", { class: "form-row" }, [el("label", {}, ["Tipo de documento", typeSel]), (e.cost_centers || []).length ? el("label", {}, ["Centro de custo", ccSel]) : null, applyBtn]));
+  return card;
+}
+
+const expenseAccountOf = (e) => { const l = (e.lines || []).find((x) => /^(3|6)/.test(x.account) && x.debit > 0); return l ? l.account : ""; };
+
+async function discoverSupplierModal(e) {
+  const sp = e.supplier;
+  const body = el("div", { class: "stack" }, [el("p", { class: "muted small" }, "A pesquisar o NIF " + sp.nif + " no VIES e na web...")]);
+  const close = openModal("Quem é o NIF " + sp.nif + "?", body, { wide: true });
+  const run = async (refresh) => {
+    body.innerHTML = ""; body.append(el("p", { class: "muted small" }, refresh ? "A pesquisar de novo, ignorando resultados anteriores..." : "A pesquisar o NIF " + sp.nif + " no VIES e na web..."));
+    let r;
+    try { r = await api("/api/suppliers/discover", { method: "POST", json: { nif: sp.nif, company_id: e.company_id, document_id: e.document_id, refresh: !!refresh } }); }
+    catch (err) { body.innerHTML = ""; body.append(el("p", { class: "error" }, err.message)); return; }
+    body.innerHTML = "";
+    body.append(el("div", { class: "small" }, [
+      r.validNif ? el("span", { class: "badge ok" }, "NIF válido") : el("span", { class: "badge bad" }, "dígito de controlo errado"),
+      " ", r.officialName ? el("span", {}, ["Denominação (VIES): ", el("strong", {}, r.officialName), r.address ? el("span", { class: "muted" }, " · " + r.address) : null]) : el("span", { class: "muted" }, "O VIES não devolveu a denominação."),
+      el("div", { class: "muted small", style: "margin-top:4px" }, "Fontes: " + (r.sources || []).map((x) => SOURCE_NAME[x] || x).join(", ") + (r.fromCache ? " · resultado guardado (até 30 dias)" : "") + " · " + new Date(r.searchedAt).toLocaleString("pt-PT")),
+    ]));
+    for (const n of r.notes || []) body.append(el("div", { class: "small muted" }, "· " + n));
+    const listEl = el("div", { class: "stack" });
+    let chosen = r.candidates[0] || null;
+    if (!r.candidates.length) listEl.append(el("div", { class: "empty" }, "Sem candidatos. Registe manualmente com o nome do documento."));
+    r.candidates.forEach((c, i) => {
+      const radio = el("input", { type: "radio", name: "cand", value: String(i) }); if (i === 0) radio.checked = true;
+      radio.addEventListener("change", () => { chosen = c; });
+      const bar = el("div", { class: "prob" }, el("div", { class: "prob-fill " + (c.probability >= 0.8 ? "hi" : c.probability >= 0.5 ? "mid" : "lo"), style: "width:" + pct(c.probability) }));
+      listEl.append(el("label", { class: "item cand" }, [
+        el("div", { style: "display:flex;gap:10px;align-items:flex-start" }, [radio, el("div", { style: "flex:1" }, [
+          el("div", { class: "title" }, [c.name, " ", el("span", { class: "badge " + (c.kind === "denominacao" ? "info" : "muted") }, CANDIDATE_KIND[c.kind] || c.kind)]),
+          el("div", { class: "meta" }, ["probabilidade " + pct(c.probability), "· " + (c.sources || []).map((x) => SOURCE_NAME[x] || x).join(" + "), c.activity ? "· " + c.activity : null, c.website ? el("a", { href: c.website, target: "_blank", rel: "noopener" }, c.website.replace(/^https?:\/\//, "")) : null, (c.aliases || []).length ? "· também " + c.aliases.join(", ") : null]),
+          bar,
+          (c.evidence || []).length ? el("div", { class: "small", style: "margin-top:4px" }, (c.evidence || []).slice(0, 4).map((ev, k) => el("span", {}, [k ? " · " : "", el("a", { href: ev.url, target: "_blank", rel: "noopener" }, ev.title.slice(0, 60))]))) : null,
+        ])]),
+      ]));
+    });
+    body.append(el("h3", {}, "Marcas e nomes identificados (" + r.candidates.length + ")"), listEl);
+    body.append(el("div", { class: "form-row", style: "margin-top:8px" }, [
+      el("button", { class: "btn primary", type: "button", disabled: r.candidates.length ? null : "", onclick: () => { if (!chosen) return; close(); const brandGuess = chosen.kind === "denominacao" ? ((chosen.aliases || []).filter((a) => a !== (r.officialName || chosen.name)).sort((a, b) => a.length - b.length)[0] || "") : chosen.name; supplierForm(e.company_id, { nif: sp.nif, name: r.officialName || chosen.name, brand: brandGuess, website: chosen.website || "", activity: chosen.activity || "", aliases: r.candidates.filter((c) => c !== chosen).map((c) => c.name).concat((chosen.aliases || []).filter((a) => a !== brandGuess && a !== (r.officialName || chosen.name))), expense_account: expenseAccountOf(e), candidate: { name: chosen.name, kind: chosen.kind, probability: chosen.probability, sources: chosen.sources } }, () => render()); } }, "Criar fornecedor com a marca escolhida"),
+      el("button", { class: "btn", type: "button", onclick: () => { close(); supplierForm(e.company_id, { nif: sp.nif, name: r.officialName || sp.name || "", expense_account: expenseAccountOf(e) }, () => render()); } }, "Registar manualmente"),
+      el("button", { class: "btn ghost", type: "button", onclick: () => run(true) }, "Pesquisar de novo"),
+    ]));
+  };
+  await run(false);
+}
+
+/** Formulario de criacao/edicao do fornecedor com escolha dos centros de custo. */
+async function supplierForm(companyId, prefill, onSaved) {
+  const data = await api("/api/companies/" + companyId + "/cost-centers?all=1").catch(() => ({ cost_centers: [] }));
+  const ccs = (data.cost_centers || []).filter((c) => c.active);
+  const nif = el("input", { value: prefill.nif || "", pattern: "\\d{9}", placeholder: "NIF (9 dígitos)", required: "" });
+  const name = el("input", { value: prefill.name || "", placeholder: "Denominação social", required: "" });
+  const brand = el("input", { value: prefill.brand || "", placeholder: "Marca / nome comercial (como aparece nas facturas)" });
+  const website = el("input", { value: prefill.website || "", placeholder: "https://..." });
+  const activity = el("input", { value: prefill.activity || "", placeholder: "Actividade (opcional)" });
+  const expense = el("input", { value: prefill.expense_account || "", placeholder: "ex.: 6221 (opcional)" });
+  const aliases = el("input", { value: (prefill.aliases || []).join(", "), placeholder: "Outras marcas, separadas por vírgula" });
+  const applyPending = el("input", { type: "checkbox" }); applyPending.checked = true;
+  const ccBox = el("div", { class: "cc-grid" });
+  const checks = [];
+  const renderCcs = () => {
+    ccBox.innerHTML = ""; checks.length = 0;
+    if (!ccs.length) { ccBox.append(el("div", { class: "muted small" }, "Esta empresa ainda não tem centros de custo. Crie um abaixo.")); return; }
+    for (const c of ccs) {
+      const cb = el("input", { type: "checkbox", value: String(c.id) }); cb.checked = (prefill.cost_center_ids || []).includes(c.id) || prefill.default_cost_center_id === c.id;
+      const rd = el("input", { type: "radio", name: "ccdef", value: String(c.id), title: "Centro habitual (aplicado por omissão)" }); rd.checked = prefill.default_cost_center_id === c.id;
+      rd.addEventListener("change", () => { cb.checked = true; });
+      checks.push({ c, cb, rd });
+      ccBox.append(el("div", { class: "cc-row" }, [el("label", {}, [cb, " ", c.name, el("span", { class: "muted small" }, " " + c.code)]), el("label", { class: "small muted" }, [rd, " habitual"])]));
+    }
+  };
+  renderCcs();
+  const newCode = el("input", { placeholder: "Código", style: "width:110px" }); const newName = el("input", { placeholder: "Nome do novo centro de custo" });
+  const newBtn = el("button", { class: "btn small", type: "button" }, "Criar centro de custo");
+  newBtn.addEventListener("click", async () => {
+    if (!newCode.value.trim() || !newName.value.trim()) { toast("Indique código e nome.", true); return; }
+    try { const r = await api("/api/companies/" + companyId + "/cost-centers", { method: "POST", json: { code: newCode.value.trim(), name: newName.value.trim() } }); ccs.push(r.cost_center); prefill.cost_center_ids = [...(prefill.cost_center_ids || []), r.cost_center.id]; if (!prefill.default_cost_center_id) prefill.default_cost_center_id = r.cost_center.id; renderCcs(); newCode.value = ""; newName.value = ""; toast("Centro de custo criado."); }
+    catch (err) { toast(err.message, true); }
+  });
+  const save = el("button", { class: "btn primary", type: "submit" }, "Guardar fornecedor");
+  const form = el("form", { class: "form-col wide" }, [
+    el("div", { class: "form-row" }, [el("label", {}, ["NIF", nif]), el("label", { style: "flex:2" }, ["Denominação social", name])]),
+    el("div", { class: "form-row" }, [el("label", { style: "flex:2" }, ["Marca / nome comercial", brand]), el("label", {}, ["Conta de gasto (SNC)", expense])]),
+    el("div", { class: "form-row" }, [el("label", {}, ["Site", website]), el("label", {}, ["Actividade", activity])]),
+    el("label", {}, ["Outras marcas associadas", aliases]),
+    el("div", {}, [el("div", { class: "eyebrow", style: "margin-bottom:6px" }, "Centros de custo a associar"), ccBox, el("div", { class: "form-row", style: "margin-top:8px" }, [newCode, el("span", { style: "flex:2" }, newName), newBtn])]),
+    el("label", { class: "small", style: "flex-direction:row;align-items:center;gap:8px" }, [applyPending, " Aplicar o centro habitual e a conta aos lançamentos pendentes deste fornecedor"]),
+    prefill.candidate ? el("div", { class: "muted small" }, "Origem: " + (CANDIDATE_KIND[prefill.candidate.kind] || prefill.candidate.kind) + " com probabilidade " + pct(prefill.candidate.probability) + " (" + (prefill.candidate.sources || []).map((x) => SOURCE_NAME[x] || x).join(" + ") + ")") : null,
+    el("div", { class: "form-row" }, [save]),
+  ]);
+  const close = openModal(prefill.candidate || !prefill.name ? "Criar fornecedor" : "Fornecedor " + (prefill.brand || prefill.name), form, { wide: true });
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault(); save.disabled = true;
+    const ids = checks.filter((x) => x.cb.checked).map((x) => x.c.id); const def = checks.find((x) => x.rd.checked);
+    try {
+      const r = await api("/api/companies/" + companyId + "/suppliers", { method: "POST", json: {
+        nif: nif.value.trim(), name: name.value.trim(), brand: brand.value.trim() || null, website: website.value.trim() || null, activity: activity.value.trim() || null,
+        expense_account: expense.value.trim() || null, aliases: aliases.value.split(",").map((x) => x.trim()).filter(Boolean),
+        cost_center_ids: ids, default_cost_center_id: def ? def.c.id : null, candidate: prefill.candidate || null, apply_to_pending: applyPending.checked,
+      } });
+      toast("Fornecedor guardado" + (r.applied_to_pending ? " e aplicado a " + r.applied_to_pending + " lançamento(s) pendente(s)." : "."));
+      close(); if (onSaved) onSaved(r.supplier);
+    } catch (err) { toast(err.message, true); save.disabled = false; }
+  });
+}
+
+/** Gestao dos centros de custo de uma empresa (Empresas). */
+async function manageCostCenters(c) {
+  const list = el("div", { class: "stack" });
+  const code = el("input", { placeholder: "Código (ex.: LOJA)", style: "width:140px" }); const name = el("input", { placeholder: "Nome (ex.: Loja do Centro)" });
+  const addBtn = el("button", { class: "btn primary", type: "submit" }, "Adicionar");
+  const form = el("form", { class: "form-row" }, [code, el("span", { style: "flex:2" }, name), addBtn]);
+  const load = async () => {
+    const data = await api("/api/companies/" + c.id + "/cost-centers?all=1");
+    list.innerHTML = "";
+    if (!data.cost_centers.length) list.append(el("div", { class: "empty" }, "Sem centros de custo. Os clientes escolhem-nos ao digitalizar e no WhatsApp; os fornecedores registados podem ter um centro habitual."));
+    for (const cc of data.cost_centers) {
+      list.append(el("div", { class: "item" }, [
+        el("div", {}, [el("div", { class: "title" }, [cc.name, " ", el("code", {}, cc.code), " ", cc.active ? null : el("span", { class: "badge muted" }, "inactivo")]), el("div", { class: "meta" }, [cc.documents + " documento(s)", cc.onedrive_path ? "· OneDrive: " + cc.onedrive_path : null])]),
+        el("div", { class: "actions" }, [
+          el("button", { class: "btn small", onclick: async () => { const n = prompt("Novo nome:", cc.name); if (!n) return; try { await api("/api/cost-centers/" + cc.id, { method: "PATCH", json: { name: n } }); await load(); } catch (e) { toast(e.message, true); } } }, "Renomear"),
+          el("button", { class: "btn small", onclick: async () => { try { await api("/api/cost-centers/" + cc.id, { method: "PATCH", json: { active: !cc.active } }); await load(); } catch (e) { toast(e.message, true); } } }, cc.active ? "Desactivar" : "Reactivar"),
+          el("button", { class: "btn small danger", onclick: async () => { if (!confirm("Apagar o centro de custo " + cc.code + "?")) return; try { const r = await api("/api/cost-centers/" + cc.id, { method: "DELETE" }); toast(r.note || "Centro de custo apagado."); await load(); } catch (e) { toast(e.message, true); } } }, "Apagar"),
+        ]),
+      ]));
+    }
+  };
+  form.addEventListener("submit", async (ev) => { ev.preventDefault(); try { await api("/api/companies/" + c.id + "/cost-centers", { method: "POST", json: { code: code.value.trim(), name: name.value.trim() } }); code.value = ""; name.value = ""; toast("Centro de custo criado."); await load(); } catch (e) { toast(e.message, true); } });
+  openModal("Centros de custo · " + c.name, el("div", { class: "stack" }, [el("p", { class: "muted small" }, "Os centros de custo aparecem ao cliente ao digitalizar e nas perguntas do WhatsApp, e nas linhas dos lançamentos. Um centro em uso não é apagado: fica inactivo."), form, list]), { wide: true });
+  await load();
+}
+
+/* ---------- vista fornecedores ---------- */
+
+async function viewSuppliers(main) {
+  main.append(el("h2", {}, "Fornecedores e terceiros"));
+  main.append(el("p", { class: "muted" }, "Terceiros vistos nos documentos de cada empresa. Um fornecedor novo (sem registo nem conta aprendida) pode ser pesquisado pelo NIF: o VIES dá a denominação e a IA pesquisa na web as marcas associadas, com probabilidade; escolhida a marca, cria-se o fornecedor com os centros de custo."));
+  const companySel = el("select"); companyOptions(companySel, true);
+  const statusSel = el("select", {}, [el("option", { value: "todos" }, "Todos"), el("option", { value: "desconhecidos" }, "Fornecedores novos"), el("option", { value: "registados" }, "Registados")]);
+  const tbody = el("tbody"); const info = el("p", { class: "muted small" });
+  const load = async () => {
+    const q = new URLSearchParams({ status: statusSel.value }); if (companySel.value) q.set("company_id", companySel.value);
+    const data = await api("/api/suppliers?" + q.toString());
+    info.textContent = data.suppliers.length + " terceiro(s) · fontes de pesquisa: " + (data.discovery_sources || []).map((x) => SOURCE_NAME[x] || x).join(", ");
+    tbody.innerHTML = "";
+    if (!data.suppliers.length) tbody.append(el("tr", {}, el("td", { colspan: "7", class: "muted" }, "Nada a mostrar.")));
+    for (const sp of data.suppliers) {
+      const fakeEntry = { supplier: { ...sp, registered: !!sp.registered_at }, company_id: sp.company_id, document_id: null, lines: [] };
+      tbody.append(el("tr", {}, [
+        el("td", { "data-l": "Empresa" }, sp.company_name), el("td", { "data-l": "NIF" }, sp.nif),
+        el("td", { "data-l": "Nome" }, [el("strong", {}, sp.brand || sp.name || "—"), sp.brand && sp.name && sp.brand !== sp.name ? el("div", { class: "muted small" }, sp.name) : null, (sp.aliases || []).length ? el("div", { class: "muted small" }, "Também: " + sp.aliases.join(", ")) : null]),
+        el("td", { "data-l": "Estado" }, supplierStatusBadge({ ...sp, registered: !!sp.registered_at })),
+        el("td", { "data-l": "Documentos" }, [String(sp.doc_count || 0), sp.pending_entries ? el("div", { class: "small warn-text" }, sp.pending_entries + " por validar") : null]),
+        el("td", { "data-l": "Centros de custo" }, (sp.cost_centers || []).map((c) => c.name + (c.id === sp.default_cost_center_id ? " (habitual)" : "")).join(", ") || "—"),
+        el("td", {}, el("div", { class: "actions" }, [
+          !sp.registered_at ? el("button", { class: "btn small primary", onclick: () => discoverSupplierModal(fakeEntry) }, "Pesquisar") : null,
+          el("button", { class: "btn small", onclick: () => supplierForm(sp.company_id, { nif: sp.nif, name: sp.name || "", brand: sp.brand || "", website: sp.website || "", activity: sp.activity || "", aliases: sp.aliases || [], expense_account: sp.expense_account || "", cost_center_ids: (sp.cost_centers || []).map((c) => c.id), default_cost_center_id: sp.default_cost_center_id }, () => load()) }, sp.registered_at ? "Editar" : "Registar"),
+        ])),
+      ]));
+    }
+  };
+  companySel.addEventListener("change", () => load().catch((e) => toast(e.message, true)));
+  statusSel.addEventListener("change", () => load().catch((e) => toast(e.message, true)));
+  main.append(el("div", { class: "card" }, [el("div", { class: "form-row" }, [el("label", {}, ["Empresa", companySel]), el("label", {}, ["Estado", statusSel])]), info,
+    el("div", { class: "table-wrap" }, el("table", { class: "docs" }, [el("thead", {}, el("tr", {}, [el("th", {}, "Empresa"), el("th", {}, "NIF"), el("th", {}, "Nome / marca"), el("th", {}, "Estado"), el("th", {}, "Documentos"), el("th", {}, "Centros de custo"), el("th", {}, "")])), tbody]))]));
+  await load();
+}
+
 /* ---------- obrigacoes declarativas (GestObrig) ---------- */
 
 const OBLIGATION_STATUS = { por_cumprir: ["Por cumprir", "warn"], cumprida: ["Cumprida", "ok"], fora_prazo: ["Fora de prazo", "bad"], justificada: ["Justificada", "info"] };
@@ -437,12 +674,16 @@ async function viewDocuments(main) {
   const fileInput = el("input", { type: "file", required: "true", accept: ".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.txt,.csv,.xml,application/pdf,image/*,text/*" });
   const companySelect = el("select");
   const uploadBtn = el("button", { class: "btn primary", type: "submit" }, "Carregar documento");
+  if (isStaff) companyOptions(companySelect, false);
+  const intake = intakeControls(() => (isStaff ? Number(companySelect.value) : (companies[0] || {}).id));
+  if (isStaff) companySelect.addEventListener("change", () => intake.load());
+  intake.load();
   const form = el("form", { class: "form-row" }, [
     el("label", {}, ["Ficheiro", fileInput]),
     isStaff ? el("label", {}, ["Empresa", companySelect]) : null,
+    el("label", {}, ["Tipo de documento", intake.typeSel]), intake.ccLabel,
     uploadBtn,
   ]);
-  if (isStaff) companyOptions(companySelect, false);
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     if (!fileInput.files[0]) return;
@@ -451,6 +692,7 @@ async function viewDocuments(main) {
       const fd = new FormData();
       fd.append("file", fileInput.files[0]);
       if (isStaff) fd.append("company_id", companySelect.value);
+      intake.append(fd);
       const out = await api("/api/documents", { method: "POST", body: fd });
       const ocrNote = out.ocr && out.ocr.method && !["texto", "duplicado"].includes(out.ocr.method) ? " · " + OCR_LABEL[out.ocr.method] + (out.ocr.confidence < 1 ? " (" + Math.round(out.ocr.confidence * 100) + "%)" : "") : "";
       toast(out.duplicate ? "Documento já existia (não duplicado)." : "Documento carregado e classificado: " + (DOC_TYPE_LABEL[out.docType] || out.docType) + ocrNote);
@@ -559,6 +801,7 @@ async function viewValidation(main) {
     const info = el("div", { class: "vinfo stack" }, [
       weak ? el("div", { class: "card flat", style: "border-left:4px solid var(--warn)" }, [el("strong", {}, "Leitura com confiança de " + Math.round(selected.ocr_confidence * 100) + "% (" + (OCR_LABEL[selected.ocr_method] || selected.ocr_method) + ")"), el("div", { class: "small muted" }, "Confirme os valores com o documento ao lado antes de aprovar. Pode corrigir as linhas do lançamento aqui.")]) : null,
       el("div", { class: "card flat" }, [el("h2", {}, "Dados extraídos"), readingQuality(selected.ocr_method, selected.ocr_confidence), facts]),
+      supplierCard(selected),
       docFindings.length ? el("div", {}, [el("div", { class: "eyebrow", style: "margin-bottom:6px" }, "Alertas deste documento"), alerts]) : null,
       entryCard(selected),
     ]);
@@ -581,13 +824,17 @@ async function viewValidation(main) {
 function entryCard(e) {
   const linesBody = el("tbody");
   const lineInputs = [];
+  const ccs = e.cost_centers || [];
   for (const l of e.lines) {
     const acc = el("input", { value: l.account });
     const desc = el("input", { value: l.description });
     const deb = el("input", { class: "num", value: l.debit.toFixed(2) });
     const cred = el("input", { class: "num", value: l.credit.toFixed(2) });
-    lineInputs.push({ acc, desc, deb, cred });
-    linesBody.append(el("tr", {}, [el("td", {}, acc), el("td", {}, desc), el("td", {}, deb), el("td", {}, cred)]));
+    const cc = el("select", {}, [el("option", { value: "" }, "—")]);
+    for (const c of ccs) cc.append(el("option", { value: c.code }, c.code));
+    cc.value = l.costCenter && ccs.some((c) => c.code === l.costCenter) ? l.costCenter : "";
+    lineInputs.push({ acc, desc, deb, cred, cc });
+    linesBody.append(el("tr", {}, [el("td", {}, acc), el("td", {}, desc), el("td", {}, deb), el("td", {}, cred), ccs.length ? el("td", {}, cc) : null]));
   }
 
   const reason = el("input", { placeholder: "Motivo da rejeição" });
@@ -603,6 +850,7 @@ function entryCard(e) {
           description: li.desc.value.trim(),
           debit: Number(li.deb.value.replace(",", ".")) || 0,
           credit: Number(li.cred.value.replace(",", ".")) || 0,
+          cost_center: li.cc.value || null,
         }));
       }
       await api("/api/entries/" + e.id + "/decision", { method: "POST", json: payload });
@@ -624,7 +872,7 @@ function entryCard(e) {
     ]),
     el("div", { class: "table-wrap" },
       el("table", { class: "entry-lines" }, [
-        el("thead", {}, el("tr", {}, [el("th", {}, "Conta SNC"), el("th", {}, "Descrição"), el("th", {}, "Débito"), el("th", {}, "Crédito")])),
+        el("thead", {}, el("tr", {}, [el("th", {}, "Conta SNC"), el("th", {}, "Descrição"), el("th", {}, "Débito"), el("th", {}, "Crédito"), ccs.length ? el("th", {}, "C. custo") : null])),
         linesBody,
       ])
     ),
@@ -767,7 +1015,7 @@ async function viewCompanies(main) {
       el("td", {}, c.vat_regime),
       el("td", {}, [caeInput, " ", terrSel]),
       el("td", {}, [cgInput, " ", cgBtn]),
-      el("td", {}, [userBtn, " ", el("button", { class: "btn small", onclick: () => manageContacts(c) }, "Remetentes")]),
+      el("td", {}, [userBtn, " ", el("button", { class: "btn small", onclick: () => manageContacts(c) }, "Remetentes"), " ", el("button", { class: "btn small", onclick: () => manageCostCenters(c) }, "Centros de custo")]),
     ]));
   }
   main.append(
@@ -1318,10 +1566,15 @@ async function viewScan(main) {
   const modeSel = el("select", {}, [el("option", { value: "cinza" }, "Melhorar (cinzentos)"), el("option", { value: "cor" }, "Cor com contraste"), el("option", { value: "pb" }, "Preto e branco"), el("option", { value: "original" }, "Original")]);
   const groupSel = el("select", {}, [el("option", { value: "um" }, "Um documento (todas as páginas num PDF)"), el("option", { value: "varios" }, "Cada página é um documento diferente")]);
   const companySelect = el("select"); if (isStaff) companyOptions(companySelect, false);
+  const intake = intakeControls(() => (isStaff ? Number(companySelect.value) : (companies[0] || {}).id));
+  if (isStaff) companySelect.addEventListener("change", () => intake.load());
+  intake.load();
   const sendBtn = el("button", { class: "btn primary", type: "button" }, "Enviar para o gabinete");
   const actions = el("div", { class: "scan-actions sticky" }, [
     el("label", {}, [el("span", { class: "lbl" }, "Tratamento"), modeSel]), el("label", {}, [el("span", { class: "lbl" }, "Agrupar"), groupSel]),
-    isStaff ? el("label", {}, [el("span", { class: "lbl" }, "Empresa"), companySelect]) : null, el("span", { class: "spacer" }), sendBtn,
+    isStaff ? el("label", {}, [el("span", { class: "lbl" }, "Empresa"), companySelect]) : null,
+    intake.typeLabel, intake.ccLabel,
+    el("span", { class: "spacer" }), sendBtn,
   ]);
   main.append(actions);
   const inst = installCard(); if (inst) main.append(inst);
@@ -1381,6 +1634,7 @@ async function viewScan(main) {
   const upload = async (blob, filename) => {
     const fd = new FormData(); fd.append("file", blob, filename);
     if (isStaff) fd.append("company_id", companySelect.value);
+    intake.append(fd);
     return api("/api/documents", { method: "POST", body: fd });
   };
   const stamp = () => { const d = new Date(); const z = (n) => String(n).padStart(2, "0"); return d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + "-" + z(d.getHours()) + z(d.getMinutes()); };
@@ -1763,6 +2017,7 @@ const ROUTES = {
   relatorios: { label: "Relatórios", ico: "◫", group: "Análise", view: viewReports, roles: ["staff", "client"] },
   painel: { label: "Indicadores e prazos", ico: "◷", group: "Análise", view: viewDashboard, roles: ["staff", "client"] },
   empresas: { label: "Empresas", ico: "⌂", group: "Configuração", view: viewCompanies, roles: ["staff"] },
+  fornecedores: { label: "Fornecedores", ico: "⊞", group: "Configuração", view: viewSuppliers, roles: ["staff"] },
   exportacao: { label: "Entrega", ico: "⇪", group: "Configuração", view: viewExport, roles: ["staff"] },
   integracoes: { label: "Integrações", ico: "⚙", group: "Configuração", view: viewIntegrations, roles: ["staff"] },
   conta: { label: "A minha conta", ico: "☺", group: "Configuração", view: viewAccount, roles: ["staff", "client"] },

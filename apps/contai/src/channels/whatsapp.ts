@@ -18,6 +18,8 @@ export interface WhatsAppConfig {
   phoneNumberId?: string;
   graphVersion?: string;
   reply?: boolean;
+  /** Ask the sender the document type and cost centre after reception (needs reply). */
+  ask?: boolean;
 }
 
 export function whatsappConfigFromEnv(): WhatsAppConfig | null {
@@ -32,6 +34,7 @@ export function whatsappConfigFromEnv(): WhatsAppConfig | null {
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
     graphVersion: process.env.WHATSAPP_GRAPH_VERSION || "v21.0",
     reply: process.env.WHATSAPP_REPLY === "1",
+    ask: process.env.WHATSAPP_REPLY === "1" && process.env.WHATSAPP_ASK !== "0",
   };
 }
 
@@ -78,7 +81,10 @@ export function parseWhatsAppPayload(payload: any): WaIncoming[] {
           messageId: m.id,
           from: String(m.from ?? "").replace(/\D/g, ""),
           timestamp: m.timestamp ?? "",
-          text: m.type === "text" ? m.text?.body ?? null : media[0]?.caption ?? null,
+          text: m.type === "text" ? m.text?.body ?? null
+            : m.type === "interactive" ? (m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? null)
+            : m.type === "button" ? (m.button?.text ?? null)
+            : media[0]?.caption ?? null,
           media,
           phoneNumberId,
         });

@@ -34,6 +34,7 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: "WHATSAPP_ACCESS_TOKEN", label: "Access token (Cloud API)", group: "whatsapp", secret: true },
   { key: "WHATSAPP_PHONE_NUMBER_ID", label: "Phone number ID", group: "whatsapp", secret: false },
   { key: "WHATSAPP_REPLY", label: "Confirmar recepção ao remetente (1/0)", group: "whatsapp", secret: false, placeholder: "1" },
+  { key: "WHATSAPP_ASK", label: "Perguntar tipo de documento e centro de custo (1/0)", group: "whatsapp", secret: false, placeholder: "1", hint: "Depois de receber um documento, a app pergunta ao cliente o tipo (factura de compra, despesa...) e, se a empresa tiver centros de custo, a qual pertence. As respostas afinam o lançamento proposto; o gabinete continua a validar." },
   { key: "CENTRALGEST_BASE_URL", label: "URL base da API CentralGest", group: "centralgest", secret: false, placeholder: "https://api.centralgestcloud.com", hint: "Fornecido pela CentralGest após o Pedido de Adesão à API. Sem barra final." },
   { key: "CENTRALGEST_API_KEY", label: "Chave da API CentralGest", group: "centralgest", secret: true, hint: "Chave atribuída na adesão. Usada para obter o token Bearer (POST /api/v1/auth/token)." },
   { key: "MS365_TENANT_ID", label: "Tenant ID (Entra ID)", group: "microsoft365", secret: false, placeholder: "00000000-0000-0000-0000-000000000000", hint: "Portal Azure > Microsoft Entra ID > Visão geral > ID do inquilino." },

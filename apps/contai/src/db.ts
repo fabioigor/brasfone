@@ -296,6 +296,58 @@ function migrate(db: Db): void {
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS idx_credentials_company ON company_credentials(company_id)");
+  // Centros de custo por empresa; fornecedores registados (marcas, site, centro de custo por omissao); descoberta por NIF em cache; dialogos de recepcao.
+  db.exec(`CREATE TABLE IF NOT EXISTS cost_centers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (company_id, code)
+  )`);
+  const supplierCols = (db.prepare("PRAGMA table_info(supplier_profiles)").all() as any[]).map((c) => c.name);
+  if (!supplierCols.includes("brand")) {
+    db.exec("ALTER TABLE supplier_profiles ADD COLUMN brand TEXT");
+    db.exec("ALTER TABLE supplier_profiles ADD COLUMN aliases_json TEXT");
+    db.exec("ALTER TABLE supplier_profiles ADD COLUMN website TEXT");
+    db.exec("ALTER TABLE supplier_profiles ADD COLUMN activity TEXT");
+    db.exec("ALTER TABLE supplier_profiles ADD COLUMN registered_at TEXT");
+    db.exec("ALTER TABLE supplier_profiles ADD COLUMN registered_by INTEGER");
+    db.exec("ALTER TABLE supplier_profiles ADD COLUMN default_cost_center_id INTEGER");
+    db.exec("ALTER TABLE supplier_profiles ADD COLUMN discovery_json TEXT");
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS supplier_cost_centers (
+    supplier_id INTEGER NOT NULL REFERENCES supplier_profiles(id) ON DELETE CASCADE,
+    cost_center_id INTEGER NOT NULL REFERENCES cost_centers(id) ON DELETE CASCADE,
+    PRIMARY KEY (supplier_id, cost_center_id)
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS supplier_discoveries (
+    nif TEXT PRIMARY KEY,
+    result_json TEXT NOT NULL,
+    sources TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  const docCols2 = (db.prepare("PRAGMA table_info(documents)").all() as any[]).map((c) => c.name);
+  if (!docCols2.includes("cost_center_id")) {
+    db.exec("ALTER TABLE documents ADD COLUMN cost_center_id INTEGER REFERENCES cost_centers(id)");
+    db.exec("ALTER TABLE documents ADD COLUMN client_doc_type TEXT");
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS channel_dialogs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    document_ids TEXT NOT NULL,
+    step TEXT NOT NULL,
+    detected_type TEXT,
+    answers_json TEXT NOT NULL DEFAULT '{}',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL,
+    UNIQUE (channel, sender)
+  )`);
   db.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value_enc TEXT NOT NULL,

@@ -17,6 +17,10 @@ export function seedDemo(db: Db): void {
   const c1 = Number(insertCompany.run("Padaria Central Lda", "506284417", "trimestral", "Padaria e pastelaria", "10711").lastInsertRowid);
   const c2 = Number(insertCompany.run("TecnoNorte Unipessoal Lda", "509442013", "mensal", "Consultoria informatica", "62020").lastInsertRowid);
 
+  const insertCc = db.prepare("INSERT INTO cost_centers (company_id, code, name) VALUES (?, ?, ?)");
+  for (const [code, name] of [["LOJA", "Loja"], ["FABRICO", "Fabrico"], ["ADMIN", "Administracao"]]) insertCc.run(c1, code, name);
+  for (const [code, name] of [["PROJ", "Projectos"], ["ADMIN", "Administracao"]]) insertCc.run(c2, code, name);
+
   const insertUser = db.prepare(
     "INSERT INTO users (email, name, password_hash, role, company_id) VALUES (?, ?, ?, ?, ?)"
   );

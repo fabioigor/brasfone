@@ -13,6 +13,7 @@ import { Db, audit } from "./db.js";
 import { AiProvider } from "./ai/provider.js";
 import { archivePath, DocType } from "./domain/classification.js";
 import { proposeEntry } from "./domain/entries.js";
+import { ExtractedData } from "./domain/extraction.js";
 import { auditDocument, buildAuditContext, persistDocumentFindings, Finding } from "./domain/vatAudit.js";
 import { OcrEngine, OcrResult } from "./ocr/engine.js";
 import { analyseDocument, DocumentAnalysis } from "./extraction/analyse.js";
@@ -27,6 +28,10 @@ export interface IngestInput {
   buffer: Buffer;
   channel?: "portal" | "email" | "whatsapp";
   requestId?: number | null;
+  /** Cost centre chosen by the client at upload/scan time (validated against the company). */
+  costCenterId?: number | null;
+  /** Document type declared by the client at upload/scan time; wins over the automatic classification. */
+  clientDocType?: DocType | null;
 }
 
 export interface IngestOutcome {
@@ -104,13 +109,18 @@ function proposeAndAudit(
   documentId: number,
   a: DocumentAnalysis,
   opts: { replacePending: boolean }
-): { entryId: number | null; status: string; findings: Finding[] } {
+): { entryId: number | null; status: string; findings: Finding[]; docType: string } {
   const otherNif = counterpartyNif(a.extracted, company.nif);
   const counterparty = a.extracted.issuerName && otherNif && a.extracted.issuerNif === otherNif
     ? `${a.extracted.issuerName} (NIF ${otherNif})`
     : otherNif ? `NIF ${otherNif}` : "Terceiro por identificar";
   const profile = getProfile(db, company.id, otherNif);
   touchProfile(db, company.id, otherNif, a.extracted.issuerNif === otherNif ? a.extracted.issuerName : null);
+  // Cost centre: the client's answer on the document wins; otherwise the supplier's default.
+  const docRow = db.prepare("SELECT cost_center_id, client_doc_type FROM documents WHERE id = ?").get(documentId) as any;
+  const costCenterId: number | null = docRow?.cost_center_id ?? profile?.defaultCostCenterId ?? null;
+  const costCenter = costCenterId ? ((db.prepare("SELECT code FROM cost_centers WHERE id = ? AND company_id = ?").get(costCenterId, company.id) as any)?.code ?? null) : null;
+  const docType = (docRow?.client_doc_type as DocType | null) || a.classification.docType;
 
   let entryId: number | null = null;
   let status = "classificado";
@@ -120,9 +130,10 @@ function proposeAndAudit(
     if (pending && opts.replacePending) db.prepare("DELETE FROM entries WHERE id = ?").run(pending.id);
     const proposal = a.extracted.docStatus === "A"
       ? null
-      : proposeEntry(a.classification.docType, a.extracted, a.classification.confidence, counterparty, {
+      : proposeEntry(docType, a.extracted, docRow?.client_doc_type ? Math.max(a.classification.confidence, 0.9) : a.classification.confidence, counterparty, {
           preferredExpenseAccount: profile?.expenseAccount ?? null,
           preferredRevenueAccount: profile?.revenueAccount ?? null,
+          costCenter,
         });
     if (proposal) {
       const e = db
@@ -133,7 +144,7 @@ function proposeAndAudit(
         .run(documentId, company.id, proposal.entryDate, proposal.journal, proposal.description, JSON.stringify(proposal.lines), proposal.confidence);
       entryId = Number(e.lastInsertRowid);
       status = "proposto";
-      audit(db, null, "propose", "entry", entryId, `confianca ${proposal.confidence}${profile?.expenseAccount ? " conta aprendida " + profile.expenseAccount : ""}`);
+      audit(db, null, "propose", "entry", entryId, `confianca ${proposal.confidence}${profile?.expenseAccount ? " conta aprendida " + profile.expenseAccount : ""}${costCenter ? " centro " + costCenter : ""}${docRow?.client_doc_type ? " tipo indicado pelo cliente" : ""}`);
     }
     db.prepare("UPDATE documents SET status = ? WHERE id = ?").run(status, documentId);
   } else {
@@ -143,15 +154,15 @@ function proposeAndAudit(
   const auditCtx = buildAuditContext(db, company.id, a.extracted, documentId);
   auditCtx.divergences = a.divergences;
   auditCtx.qrCount = a.qrCount;
-  const findings = [...ocrFindings(a.ocr, a.qr !== null), ...auditDocument(a.classification.docType as DocType, a.extracted, auditCtx)];
+  const findings = [...ocrFindings(a.ocr, a.qr !== null), ...auditDocument(docType as DocType, a.extracted, auditCtx)];
   persistDocumentFindings(db, company.id, documentId, findings);
-  return { entryId, status, findings };
+  return { entryId, status, findings, docType };
 }
 
-const outcomeOf = (documentId: number, a: DocumentAnalysis, r: { entryId: number | null; status: string; findings: Finding[] }): IngestOutcome => ({
+const outcomeOf = (documentId: number, a: DocumentAnalysis, r: { entryId: number | null; status: string; findings: Finding[]; docType?: string }): IngestOutcome => ({
   documentId,
   duplicate: false,
-  docType: a.classification.docType,
+  docType: (r.docType as DocType | undefined) ?? a.classification.docType,
   status: r.status,
   entryId: r.entryId,
   findings: r.findings.map((f) => ({ code: f.code, severity: f.severity, message: f.message })),
@@ -204,15 +215,16 @@ export async function ingestDocument(
       `INSERT INTO documents
          (company_id, uploader_id, original_name, stored_path, mime_type, size_bytes, sha256,
           channel, doc_type, doc_date, period, classification_confidence, classification_source,
-          extracted_json, ocr_text, ocr_method, ocr_confidence, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'classificado')`
+          extracted_json, ocr_text, ocr_method, ocr_confidence, status, cost_center_id, client_doc_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'classificado', ?, ?)`
     )
     .run(
       input.companyId, input.uploaderId, input.originalName, relPath, input.mimeType, input.buffer.length, sha256,
-      input.channel ?? "portal", a.classification.docType, a.extracted.docDate,
+      input.channel ?? "portal", input.clientDocType ?? a.classification.docType, a.extracted.docDate,
       a.extracted.docDate ? a.extracted.docDate.slice(0, 7) : null,
-      a.classification.confidence, a.classification.source, JSON.stringify(a.extracted),
-      a.ocr.method === "texto" ? null : a.text || null, a.ocr.method, a.ocr.confidence
+      a.classification.confidence, input.clientDocType ? "cliente" : a.classification.source, JSON.stringify(a.extracted),
+      a.ocr.method === "texto" ? null : a.text || null, a.ocr.method, a.ocr.confidence,
+      input.costCenterId ?? null, input.clientDocType ?? null
     );
   const documentId = Number(result.lastInsertRowid);
   audit(db, input.uploaderId, "upload", "document", documentId, `${input.originalName} via ${input.channel ?? "portal"}`);
@@ -263,4 +275,38 @@ export async function reprocessDocument(
   const r = proposeAndAudit(db, company, documentId, a, { replacePending: true });
   audit(db, null, "reprocess", "document", documentId, `${a.ocr.method} conf=${a.ocr.confidence.toFixed(2)} fontes=${a.extracted.sources.join("+")}`);
   return outcomeOf(documentId, a, r);
+}
+
+/**
+ * Applies answers given by the client after reception (document type and/or cost centre)
+ * without re-running OCR: the stored extraction is reused, the pending proposal is replaced
+ * (a decided entry is never touched) and the document keeps a record of what the client said.
+ */
+export function applyIntakeAnswers(
+  db: Db,
+  documentId: number,
+  answers: { docType?: DocType | null; costCenterId?: number | null },
+  userId: number | null = null
+): { documentId: number; docType: string; costCenter: string | null; entryId: number | null; status: string } {
+  const doc = db.prepare("SELECT * FROM documents WHERE id = ?").get(documentId) as any;
+  if (!doc) throw new Error("Documento inexistente");
+  const company = db.prepare("SELECT id, nif, name, territory FROM companies WHERE id = ?").get(doc.company_id) as CompanyRow;
+  const sets: string[] = []; const params: any[] = [];
+  if (answers.docType !== undefined && answers.docType) { sets.push("client_doc_type = ?", "doc_type = ?", "classification_source = 'cliente'"); params.push(answers.docType, answers.docType); }
+  if (answers.costCenterId !== undefined) {
+    if (answers.costCenterId !== null && !db.prepare("SELECT id FROM cost_centers WHERE id = ? AND company_id = ?").get(answers.costCenterId, company.id)) throw new Error("Centro de custo inexistente nesta empresa");
+    sets.push("cost_center_id = ?"); params.push(answers.costCenterId);
+  }
+  if (sets.length) db.prepare(`UPDATE documents SET ${sets.join(", ")} WHERE id = ?`).run(...params, documentId);
+  const extracted: ExtractedData = JSON.parse(doc.extracted_json || "null") ?? { nifs: [], items: [], issuerNif: null, docNumber: null, docDate: null, totalAmount: null, vatAmount: null, vatRate: null, netAmount: null, currency: "EUR", sources: [] };
+  const a: DocumentAnalysis = {
+    text: doc.ocr_text || "", ocr: { method: doc.ocr_method || "texto", confidence: doc.ocr_confidence ?? 1, pages: 0, warnings: [] } as any,
+    qr: null, qrCount: 0, structured: null, extracted,
+    classification: { docType: (answers.docType || doc.doc_type) as DocType, confidence: doc.classification_confidence ?? 0.7, source: (doc.classification_source === "cliente" || answers.docType ? "heuristica" : doc.classification_source || "heuristica") as any },
+    divergences: [],
+  };
+  const r = proposeAndAudit(db, company, documentId, a, { replacePending: true });
+  const cc = doc.cost_center_id || answers.costCenterId ? (db.prepare("SELECT code FROM cost_centers WHERE id = ?").get(answers.costCenterId ?? doc.cost_center_id) as any)?.code ?? null : null;
+  audit(db, userId, "intake_answers", "document", documentId, JSON.stringify({ docType: answers.docType ?? null, costCenterId: answers.costCenterId ?? null }));
+  return { documentId, docType: answers.docType || doc.doc_type, costCenter: cc, entryId: r.entryId, status: r.status };
 }

@@ -11,6 +11,8 @@ export interface EntryLine {
   description: string;
   debit: number;
   credit: number;
+  /** Cost centre code (company's cost_centers.code) for analytical accounting; optional. */
+  costCenter?: string | null;
 }
 
 export interface EntryProposal {
@@ -52,6 +54,13 @@ export interface ProposalOptions {
   preferredExpenseAccount?: string | null;
   /** Revenue account learned for this customer. */
   preferredRevenueAccount?: string | null;
+  /** Cost centre code applied to the expense/revenue lines (from the client's answer or the supplier's default). */
+  costCenter?: string | null;
+}
+
+/** Applies a cost centre to the analytical lines (classes 3, 6 and 7); counterparty, VAT and bank lines stay without. */
+export function applyCostCenter(lines: EntryLine[], costCenter: string | null | undefined): EntryLine[] {
+  return lines.map((l) => (/^(3|6|7)/.test(l.account) ? { ...l, costCenter: costCenter || null } : { ...l, costCenter: l.costCenter ?? null }));
 }
 
 /** VAT lines: one per rate when a breakdown is known, otherwise a single line. */
@@ -141,6 +150,7 @@ export function proposeEntry(
   }
 
   if (!isBalanced(lines)) return null;
+  if (options.costCenter) lines = applyCostCenter(lines, options.costCenter);
 
   // Provenance: machine-issued QR data or a learned account raise confidence.
   if (extracted.sources?.includes("qr")) confidence = Math.max(confidence, 0.95);

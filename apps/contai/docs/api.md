@@ -26,6 +26,15 @@ Autenticação: `Authorization: Bearer <JWT>` obtido em `POST /api/auth/login`. 
 | GET | `/api/companies/:id/contacts` | gabinete |
 | POST | `/api/companies/:id/contacts` | gabinete |
 | POST | `/api/companies/:id/users` | gabinete |
+| GET | `/api/companies/:id/cost-centers` | autenticado |
+| POST | `/api/companies/:id/cost-centers` | gabinete |
+| PATCH | `/api/cost-centers/:id` | gabinete |
+| DELETE | `/api/cost-centers/:id` | gabinete |
+| POST | `/api/documents/:id/intake` | gabinete |
+| GET | `/api/suppliers` | gabinete |
+| POST | `/api/suppliers/discover` | gabinete |
+| POST | `/api/companies/:id/suppliers` | gabinete |
+| PATCH | `/api/suppliers/:id` | gabinete |
 | GET | `/api/companies/:id/credentials` | autenticado |
 | POST | `/api/companies/:id/credentials` | autenticado |
 | POST | `/api/companies/:id/credentials/:credId/reveal` | autenticado |

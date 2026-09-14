@@ -2,6 +2,14 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-14 — Centros de custo desde a recepção, fornecedores por NIF com IA, perguntas no WhatsApp
+
+- **Decisão:** centros de custo por empresa (tabela `cost_centers`) escolhidos no momento da digitalização/carregamento e nas perguntas do WhatsApp; guardados no documento e aplicados às linhas de gasto/rendimento do lançamento (campo `costCenter`, coluna `CentroCusto` na exportação Primavera). O tipo de documento indicado pelo cliente prevalece sobre a classificação automática, mas o lançamento continua a exigir validação humana.
+- **Fornecedor desconhecido:** descoberta por NIF em camadas (dígito de controlo, VIES da Comissão Europeia, pesquisa web com a ferramenta `web_search` da Anthropic dentro do ai-gateway, nome no documento), com candidatos fundidos e probabilidade; a IA só propõe, a escolha e a criação do fornecedor (com centros de custo e centro habitual) são humanas e determinísticas. Resultados em cache 30 dias e auditados.
+- **WhatsApp:** depois da recepção a app faz perguntas numeradas (tipo, centro de custo), em texto simples para não depender de templates aprovados pela Meta; respostas aplicam-se sem novo OCR. Nota: o princípio "a IA nunca conversa" do `CLAUDE.md` refere-se ao produto WhatsApp→Pipedrive; no Cont.ai as perguntas são determinísticas (sem IA) e dirigidas ao cliente do gabinete, com `WHATSAPP_ASK=0` para desligar.
+- **Contexto:** pedidos do product owner (fornecedor não lançado → pesquisa por NIF com marcas e probabilidades; perguntas certas no WhatsApp; centros de custo desde a digitalização).
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-14 — GestObrig por ficheiro, prazos na área do cliente e cofre de acessos
 
 - **Decisão:** integrar o GestObrig sem API (não existe API pública; contacto técnico gestobrigweb@gmail.com) através da importação da listagem de obrigações exportada (CSV/Excel), reconhecendo empresas pelo NIF, com reimportação idempotente. Os prazos passam a alimentar Análise > Indicadores e prazos e a página Hoje, do gabinete e de cada cliente. A interface `ObligationsSource` fica definida para um futuro conector por API.

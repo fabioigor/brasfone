@@ -21,6 +21,14 @@ const SYSTEM_VAT =
   "Responde APENAS com JSON {\"concorda\": true|false, \"justificacao\": \"frase curta em português europeu\", \"confianca\": 0..1}. " +
   "Se a lei em vigor depender de detalhes que não constam do documento, diz que não é possível concluir (concorda=false, confianca baixa).";
 
+const SYSTEM_SUPPLIER =
+  "És um assistente de um gabinete de contabilidade português. Recebes um NIF (número de identificação fiscal / NIPC) de uma empresa portuguesa e, opcionalmente, o nome impresso num documento. " +
+  "Usa a pesquisa web para identificar a denominação social e TODAS as marcas ou nomes comerciais associados a esse NIF (lojas, insígnias, sites, nomes de fantasia). " +
+  "Pesquisa pelo NIF entre aspas, por 'NIF <número>', 'NIPC <número>' e pelos sites de informação empresarial (racius.com, einforma.pt, nif.pt, portugalio.com, publicacoes.mj.pt). " +
+  "Responde APENAS com JSON válido, sem texto à volta, no formato " +
+  "{\"candidatos\":[{\"nome\":\"string\",\"tipo\":\"denominacao|marca|nome_comercial\",\"probabilidade\":0.0,\"website\":\"string|null\",\"actividade\":\"string|null\",\"fontes\":[\"url\"]}],\"morada\":\"string|null\"}. " +
+  "A probabilidade é a tua confiança de que o nome pertence a esse NIF (0 a 1). Inclui candidatos com probabilidade baixa quando a associação é incerta, em vez de os omitir. Nunca inventes nomes sem os teres visto numa página; se não encontrares nada, devolve candidatos vazios.";
+
 export class AgentGateway {
   private client: Anthropic | null;
 
@@ -62,6 +70,58 @@ export class AgentGateway {
     const text = await this.complete(SYSTEM_REPORT, paragraphs.join("\n\n"), 2000);
     if (!text) return null;
     return text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  }
+
+  /**
+   * Web search for the brands behind a NIF (server-side web_search tool). Returns candidates with
+   * probabilities and the pages visited; null when disabled or on failure. Never decides anything.
+   */
+  async discoverSupplier(nif: string, hints: { nameOnDocument?: string | null; companyName?: string | null; officialName?: string | null }): Promise<{ candidates: { name: string; kind: "denominacao" | "marca" | "nome_comercial"; probability: number; sources: string[]; evidence: { title: string; url: string }[]; website: string | null; activity: string | null }[]; sources: string[] } | null> {
+    if (!this.client) return null;
+    const user = [
+      `NIF: ${nif}`,
+      hints.officialName ? `Denominação social segundo o VIES: ${hints.officialName}` : "Denominação social desconhecida.",
+      hints.nameOnDocument ? `Nome impresso no documento: ${hints.nameOnDocument}` : null,
+      hints.companyName ? `Cliente do gabinete que recebeu o documento: ${hints.companyName}` : null,
+      "Identifica a denominação e as marcas/nomes comerciais associados a este NIF.",
+    ].filter(Boolean).join("\n");
+    try {
+      const res: any = await this.client.messages.create({
+        model: MODEL,
+        max_tokens: 1500,
+        system: [{ type: "text", text: SYSTEM_SUPPLIER, cache_control: { type: "ephemeral" } }],
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 6, user_location: { type: "approximate", country: "PT", timezone: "Europe/Lisbon" } } as any],
+        messages: [{ role: "user", content: user }],
+      } as any);
+      if (res.stop_reason === "refusal") return null;
+      const visited: { title: string; url: string }[] = [];
+      for (const b of res.content ?? []) {
+        if (b.type === "web_search_tool_result" && Array.isArray(b.content)) for (const r of b.content) if (r.type === "web_search_result" && r.url) visited.push({ title: r.title || r.url, url: r.url });
+      }
+      const text = (res.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
+      const start = text.indexOf("{"); const end = text.lastIndexOf("}");
+      if (start < 0 || end < 0) return { candidates: [], sources: visited.map((v) => v.url) };
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      const kinds = new Set(["denominacao", "marca", "nome_comercial"]);
+      const candidates = (Array.isArray(parsed.candidatos) ? parsed.candidatos : [])
+        .filter((c: any) => c && typeof c.nome === "string" && c.nome.trim().length >= 2)
+        .map((c: any) => {
+          const urls: string[] = Array.isArray(c.fontes) ? c.fontes.filter((u: any) => typeof u === "string" && /^https?:\/\//.test(u)) : [];
+          const evidence = urls.map((u) => visited.find((v) => v.url === u) ?? { title: u.replace(/^https?:\/\//, "").split("/")[0]!, url: u });
+          return {
+            name: String(c.nome).trim().slice(0, 160),
+            kind: (kinds.has(c.tipo) ? c.tipo : "marca") as "denominacao" | "marca" | "nome_comercial",
+            probability: Math.max(0, Math.min(0.99, Number(c.probabilidade) || 0.3)),
+            sources: ["ia_web"],
+            evidence,
+            website: typeof c.website === "string" && /^https?:\/\//.test(c.website) ? c.website : null,
+            activity: typeof c.actividade === "string" && c.actividade.trim() ? c.actividade.trim().slice(0, 160) : null,
+          };
+        });
+      return { candidates, sources: visited.map((v) => v.url) };
+    } catch {
+      return null;
+    }
   }
 
   /** Second opinion on a VAT finding. */

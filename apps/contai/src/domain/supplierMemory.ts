@@ -11,11 +11,21 @@ import { ExtractedData } from "./extraction.js";
 import { DocType } from "./classification.js";
 
 export interface SupplierProfile {
+  id: number;
   nif: string;
   name: string | null;
+  brand: string | null;
   expenseAccount: string | null;
   revenueAccount: string | null;
   docCount: number;
+  /** Set when the accountant registered the supplier (manually or after a discovery). */
+  registeredAt: string | null;
+  defaultCostCenterId: number | null;
+}
+
+/** A supplier is "known" when it was registered or when an account was learned from an approval. */
+export function isKnownSupplier(p: SupplierProfile | null): boolean {
+  return !!p && (!!p.registeredAt || !!p.expenseAccount || !!p.revenueAccount);
 }
 
 export function counterpartyNif(extracted: ExtractedData, companyNif: string): string | null {
@@ -24,8 +34,8 @@ export function counterpartyNif(extracted: ExtractedData, companyNif: string): s
 
 export function getProfile(db: Db, companyId: number, nif: string | null): SupplierProfile | null {
   if (!nif) return null;
-  const r = db.prepare("SELECT nif, name, expense_account, revenue_account, doc_count FROM supplier_profiles WHERE company_id = ? AND nif = ?").get(companyId, nif) as any;
-  return r ? { nif: r.nif, name: r.name, expenseAccount: r.expense_account, revenueAccount: r.revenue_account, docCount: r.doc_count } : null;
+  const r = db.prepare("SELECT id, nif, name, brand, expense_account, revenue_account, doc_count, registered_at, default_cost_center_id FROM supplier_profiles WHERE company_id = ? AND nif = ?").get(companyId, nif) as any;
+  return r ? { id: r.id, nif: r.nif, name: r.name, brand: r.brand, expenseAccount: r.expense_account, revenueAccount: r.revenue_account, docCount: r.doc_count, registeredAt: r.registered_at, defaultCostCenterId: r.default_cost_center_id } : null;
 }
 
 /** Registers a sighting (name, count) without learning accounts. */
