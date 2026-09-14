@@ -9,7 +9,7 @@ import { Db, audit } from "./db.js";
 export interface SettingDef {
   key: string;
   label: string;
-  group: "ia" | "email" | "whatsapp" | "centralgest" | "android";
+  group: "ia" | "email" | "whatsapp" | "microsoft365" | "centralgest" | "android";
   secret: boolean;
   hint?: string;
   placeholder?: string;
@@ -19,8 +19,11 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: "ANTHROPIC_API_KEY", label: "Chave da API Anthropic", group: "ia", secret: true, hint: "Activa o OCR por visão, a extracção estruturada e os agentes. Sem chave, a app usa o Tesseract local e o QR da AT." },
   { key: "CONTAI_OCR_MODEL", label: "Modelo de visão (OCR)", group: "ia", secret: false, placeholder: "claude-opus-5" },
   { key: "CONTAI_AGENT_MODEL", label: "Modelo dos agentes", group: "ia", secret: false, placeholder: "claude-opus-5" },
+  { key: "MS365_MAIL_USER", label: "Caixa de correio Microsoft 365 (recomendado)", group: "email", secret: false, placeholder: "documentos@lumarcont.pt", hint: "Lida pela Graph API com a autenticação da aplicação Microsoft 365 configurada abaixo (permissão Mail.ReadWrite). Sem palavra-passe da caixa; as mensagens ficam marcadas como lidas e com a categoria Cont.ai." },
+  { key: "MS365_MAIL_FOLDER", label: "Pasta a vigiar", group: "email", secret: false, placeholder: "inbox" },
+  { key: "MS365_MAIL_POLL_SECONDS", label: "Intervalo de leitura Microsoft 365 (segundos)", group: "email", secret: false, placeholder: "120" },
   { key: "INBOUND_EMAIL_SECRET", label: "Segredo do webhook de email", group: "email", secret: true, hint: "Cabeçalho x-contai-secret enviado pelo serviço de email (Postmark, Mailgun, n8n...)." },
-  { key: "IMAP_HOST", label: "Servidor IMAP", group: "email", secret: false, placeholder: "imap.exemplo.pt" },
+  { key: "IMAP_HOST", label: "Servidor IMAP (alternativa a Microsoft 365)", group: "email", secret: false, placeholder: "imap.exemplo.pt", hint: "Só para caixas fora do Microsoft 365. Ignorado quando a caixa Microsoft 365 acima está definida." },
   { key: "IMAP_PORT", label: "Porta IMAP", group: "email", secret: false, placeholder: "993" },
   { key: "IMAP_USER", label: "Utilizador IMAP", group: "email", secret: false, placeholder: "documentos@gabinete.pt" },
   { key: "IMAP_PASSWORD", label: "Palavra-passe IMAP", group: "email", secret: true },
@@ -33,6 +36,12 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: "WHATSAPP_REPLY", label: "Confirmar recepção ao remetente (1/0)", group: "whatsapp", secret: false, placeholder: "1" },
   { key: "CENTRALGEST_BASE_URL", label: "URL base da API CentralGest", group: "centralgest", secret: false, placeholder: "https://api.centralgestcloud.com", hint: "Fornecido pela CentralGest após o Pedido de Adesão à API. Sem barra final." },
   { key: "CENTRALGEST_API_KEY", label: "Chave da API CentralGest", group: "centralgest", secret: true, hint: "Chave atribuída na adesão. Usada para obter o token Bearer (POST /api/v1/auth/token)." },
+  { key: "MS365_TENANT_ID", label: "Tenant ID (Entra ID)", group: "microsoft365", secret: false, placeholder: "00000000-0000-0000-0000-000000000000", hint: "Portal Azure > Microsoft Entra ID > Visão geral > ID do inquilino." },
+  { key: "MS365_CLIENT_ID", label: "Application (client) ID", group: "microsoft365", secret: false, hint: "Registo de aplicação criado para o Cont.ai (Entra ID > Registos de aplicações)." },
+  { key: "MS365_CLIENT_SECRET", label: "Client secret", group: "microsoft365", secret: true, hint: "Certificados e segredos > Novo segredo do cliente. Anote a data de expiração." },
+  { key: "MS365_DRIVE_USER", label: "OneDrive do utilizador (email)", group: "microsoft365", secret: false, placeholder: "documentos@lumarcont.pt", hint: "Conta do Microsoft 365 cujo OneDrive recebe os documentos. Em alternativa indique um site SharePoint abaixo." },
+  { key: "MS365_SITE_ID", label: "Site SharePoint (ID) em alternativa", group: "microsoft365", secret: false, hint: "Deixe vazio para usar o OneDrive do utilizador." },
+  { key: "MS365_ROOT_FOLDER", label: "Pasta raiz", group: "microsoft365", secret: false, placeholder: "Cont.ai", hint: "Dentro dela: Empresa (NIF) / Ano / Mês / Tipo de documento." },
   { key: "ANDROID_PACKAGE", label: "Identificador da app Android", group: "android", secret: false, placeholder: "pt.lumarcont.contai", hint: "Package name da Trusted Web Activity publicada na Play Store." },
   { key: "ANDROID_SHA256_FINGERPRINTS", label: "Impressões SHA-256 da chave de assinatura", group: "android", secret: false, hint: "Uma ou várias, separadas por vírgula (Play Console > Integridade da app > Assinatura). Publicadas em /.well-known/assetlinks.json para a app abrir sem barra de endereço." },
   { key: "CENTRALGEST_MOCK", label: "Simulador local (1/0)", group: "centralgest", secret: false, placeholder: "0", hint: "1 arranca um CentralGest simulado dentro da app para testar o fluxo de lançamento sem credenciais. Ignorado quando URL e chave estão preenchidos." },

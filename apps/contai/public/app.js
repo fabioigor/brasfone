@@ -298,7 +298,7 @@ async function viewDocuments(main) {
         el("td", { "data-l": "Data" }, d.doc_date || ""),
         el("td", { "data-l": "Confiança" }, fmtConf(d.classification_confidence)),
         el("td", { "data-l": "Extracção" }, [ocrBadge(d), " ", sourcesBadges(d)]),
-        el("td", { "data-l": "Estado" }, badge(d.status)),
+        el("td", { "data-l": "Estado" }, [badge(d.status), d.onedrive_url ? el("a", { class: "badge info", href: d.onedrive_url, target: "_blank", rel: "noopener", style: "margin-left:4px;text-decoration:none", title: d.onedrive_path || "" }, "OneDrive") : d.onedrive_error ? el("span", { class: "badge warn", title: d.onedrive_error, style: "margin-left:4px" }, "OneDrive: erro") : null]),
         el("td", { class: "acts" }, [
           el("button", { class: "btn small primary", onclick: () => openDocModal(d.id, d.original_name) }, "Ver"),
           el("button", { class: "btn small", onclick: () => showDocumentText(d.id, d.original_name) }, "Texto"),
@@ -1232,9 +1232,10 @@ async function viewScan(main) {
 
 const SETTING_GROUPS = {
   ia: { title: "Inteligência artificial (Anthropic)", intro: "A chave fica cifrada na base de dados e nunca volta a ser mostrada. Sem chave, o OCR usa só o Tesseract local e o QR da AT." },
-  email: { title: "Recepção por email", intro: "Webhook (o serviço de email envia cada mensagem para a app) ou leitura periódica de uma caixa IMAP. Os remetentes autorizados definem-se em Empresas." },
+  email: { title: "Recepção por email", intro: "Recomendado: uma caixa do Microsoft 365 (ex.: documentos@lumarcont.pt) lida com a autenticação da aplicação Microsoft 365, sem guardar palavras-passe. Alternativas: webhook (o serviço de email envia cada mensagem para a app) ou IMAP para caixas fora do 365. Os remetentes autorizados definem-se em Empresas." },
   whatsapp: { title: "WhatsApp Cloud API (Meta)", intro: "Dados da app Meta e do número. Registe o webhook abaixo na Meta com o token de verificação." },
   android: { title: "Aplicação Android (Play Store)", intro: "A app Android é uma Trusted Web Activity desta web app (projecto em apps/contai-android). Depois de publicada, indique aqui o identificador e as impressões SHA-256 da chave de assinatura para a app abrir em ecrã inteiro. Sem Play Store, os clientes instalam directamente pelo Chrome (Adicionar ao ecrã principal)." },
+  microsoft365: { title: "Microsoft 365 (OneDrive como arquivo)", intro: "Cada documento recebido é copiado para o OneDrive (ou SharePoint) da Lumarcont, em pastas por empresa, ano, mês e tipo, com o número do documento no nome do ficheiro. Registo de aplicação no Entra ID com permissão de aplicação Files.ReadWrite.All e consentimento do administrador; o teste abaixo confirma o acesso à drive." },
   centralgest: { title: "CentralGest (API)", intro: "Lançamento directo dos lançamentos aprovados no CentralGest Cloud, com idempotência (idExterno contai-entry-<id>). Peça a adesão à API à CentralGest (suporte@centralgest.com); enquanto não houver credenciais pode usar o simulador local para ensaiar o fluxo. Sem API, a entrega faz-se por CSV Primavera." },
 };
 
@@ -1265,8 +1266,9 @@ async function viewIntegrations(main) {
   st.append(el("ul", { class: "small" }, [
     el("li", {}, "OCR: " + status.ocr.join(" > ") + (status.ai_extraction ? " + extracção estruturada por IA" : "")),
     el("li", {}, "Webhook de email: " + (status.email_webhook ? "activo" : "inactivo") + " · URL " + origin + "/api/inbound/email"),
-    el("li", {}, "IMAP: " + (status.imap ? "activo" : "inactivo")),
+    el("li", {}, "Caixa de email: " + (status.graph_mail ? "Microsoft 365 activa" : status.imap ? "IMAP activo" : "inactiva")),
     el("li", {}, "WhatsApp: " + (status.whatsapp ? "activo" : "inactivo") + " · URL do webhook " + origin + "/webhooks/whatsapp"),
+    el("li", {}, "Arquivo OneDrive: " + (status.onedrive ? "activo" : "inactivo")),
   ]));
   main.append(st);
 
@@ -1291,7 +1293,8 @@ async function viewIntegrations(main) {
     }
     card.append(col);
     if (g === "centralgest") await centralGestPanel(card, inputs);
-    if (["ia", "email", "whatsapp"].includes(g)) {
+    if (g === "microsoft365") await oneDrivePanel(card);
+    if (["ia", "email", "whatsapp", "microsoft365"].includes(g)) {
       const tBtn = el("button", { class: "btn", type: "button" }, "Testar com os valores acima");
       const tOut = el("p", { class: "small muted" });
       tBtn.addEventListener("click", async () => {
@@ -1385,6 +1388,26 @@ async function domainCard(main) {
     body.append(el("div", { class: "form-row" }, [el("label", {}, ["Domínio da app", input]), save, check, s.domain ? clear : null]));
   };
   await draw();
+}
+
+/** Estado do arquivo OneDrive: contagens e sincronizacao manual. */
+async function oneDrivePanel(card) {
+  const s = await api("/api/onedrive/status");
+  const line = el("p", { class: "small" });
+  const render = (st) => {
+    line.innerHTML = "";
+    if (!st.configured) { line.append(el("span", { class: "badge muted" }, "não configurado"), " Preencha os campos e guarde; a sincronização arranca sozinha."); return; }
+    line.append(el("span", { class: "badge ok" }, "activo"), " " + st.target + " / " + st.root + " · ", el("strong", {}, st.synced + " sincronizado(s)"), ", " + st.pending + " por enviar" + (st.failed ? ", " : ""), st.failed ? el("span", { class: "badge warn" }, st.failed + " com erro") : null);
+  };
+  render(s);
+  card.append(el("h3", {}, "Estado do arquivo"), line);
+  if (s.configured) {
+    const btn = el("button", { class: "btn", type: "button" }, "Sincronizar agora");
+    const retry = el("button", { class: "btn ghost small", type: "button" }, "Repetir os com erro");
+    const run = async (retryFailed) => { btn.disabled = retry.disabled = true; try { const r = await api("/api/onedrive/sync", { method: "POST", json: { retry_failed: retryFailed } }); toast(r.outcomes.filter((o) => o.status === "sincronizado").length + " documento(s) enviados para o OneDrive."); render(r); } catch (e) { toast(e.message, true); } finally { btn.disabled = retry.disabled = false; } };
+    btn.addEventListener("click", () => run(false)); retry.addEventListener("click", () => run(true));
+    card.append(el("div", { class: "form-row" }, [btn, s.failed ? retry : null]));
+  }
 }
 
 /** Estado da ligacao CentralGest, teste sem guardar e mapa de codigos de empresa. */

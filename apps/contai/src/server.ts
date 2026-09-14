@@ -8,6 +8,8 @@ import { Db, audit } from "./db.js";
 import { listSettings, saveSettings } from "./settings.js";
 import { domainStatus, normaliseDomain, writeDomain, configDirPending } from "./domainSetup.js";
 import Anthropic from "@anthropic-ai/sdk";
+import { Microsoft365Client, OneDriveSync } from "./integrations/microsoft365.js";
+import { GraphMailPoller } from "./channels/graphMail.js";
 
 /** Version from package.json, exposed in /health to confirm which build is running after an update. */
 const APP_VERSION: string = (() => {
@@ -78,6 +80,8 @@ export interface ServerOptions {
   demo?: boolean;
   /** Called after integration settings are saved; production restarts the process so every component reloads. */
   onSettingsSaved?: (() => void) | null;
+  /** OneDrive archive worker (null when Microsoft 365 is not configured). */
+  onedrive?: OneDriveSync | null;
 }
 
 const upload = multer({
@@ -93,6 +97,7 @@ export function createServer({
   whatsappFetch = fetch,
   demo = false,
   onSettingsSaved = null,
+  onedrive = null,
 }: ServerOptions): express.Express {
   const app = express();
   // Raw body is needed to validate the Meta signature; keep it for webhooks only.
@@ -249,6 +254,7 @@ export function createServer({
       channel: "portal",
       requestId,
     }, ocr, structured);
+    if (onedrive && !outcome.duplicate) setTimeout(() => { onedrive.syncPending().catch(() => {}); }, 500);
     return res.status(outcome.duplicate ? 200 : 201).json(outcome);
   });
 
@@ -918,8 +924,17 @@ export function createServer({
         return done(true, `Chave válida. ${ids.length} modelo(s) disponíveis${missing.length ? `; atenção: ${missing.join(", ")} não consta da lista` : ""}.`, { models: ids });
       }
       if (req.params.group === "email") {
+        const mailbox = v("MS365_MAIL_USER");
+        if (mailbox) {
+          const tenantId = v("MS365_TENANT_ID"), clientId = v("MS365_CLIENT_ID"), clientSecret = v("MS365_CLIENT_SECRET");
+          if (!tenantId || !clientId || !clientSecret) return res.status(400).json({ error: "A caixa Microsoft 365 usa a aplicação configurada no grupo Microsoft 365: preencha tenant, client ID e client secret (podem já estar guardados)." });
+          const client = new Microsoft365Client({ tenantId, clientId, clientSecret, driveUser: mailbox }, whatsappFetch);
+          const poller = new GraphMailPoller(db, { provider, ocr, structured, storageRoot, systemUserId: systemUserId() }, client, { mailbox, folder: v("MS365_MAIL_FOLDER") || "inbox", intervalMs: 0, markRead: false }, () => {});
+          const info = await poller.folderInfo();
+          return done(true, `Caixa ${mailbox} acessível pela Graph API: pasta ${info.displayName} com ${info.total} mensagem(ns), ${info.unread} por ler.`);
+        }
         const host = v("IMAP_HOST"), user = v("IMAP_USER"), pass = v("IMAP_PASSWORD");
-        if (!host || !user || !pass) return res.status(400).json({ error: "Indique servidor, utilizador e palavra-passe IMAP (o webhook não precisa de teste)." });
+        if (!host || !user || !pass) return res.status(400).json({ error: "Indique a caixa Microsoft 365, ou servidor, utilizador e palavra-passe IMAP (o webhook não precisa de teste)." });
         const { ImapFlow } = await import("imapflow");
         const client = new ImapFlow({ host, port: Number(v("IMAP_PORT") || 993), secure: v("IMAP_SECURE") !== "0", auth: { user, pass }, logger: false, connectionTimeout: 8000 } as any);
         await client.connect();
@@ -927,6 +942,13 @@ export function createServer({
           const box = await client.mailboxOpen(v("IMAP_MAILBOX") || "INBOX", { readOnly: true });
           return done(true, `Ligação IMAP OK a ${host}: pasta ${box.path} com ${box.exists} mensagem(ns).`);
         } finally { await client.logout().catch(() => {}); }
+      }
+      if (req.params.group === "microsoft365") {
+        const tenantId = v("MS365_TENANT_ID"), clientId = v("MS365_CLIENT_ID"), clientSecret = v("MS365_CLIENT_SECRET"), driveUser = v("MS365_DRIVE_USER"), siteId = v("MS365_SITE_ID");
+        if (!tenantId || !clientId || !clientSecret || (!driveUser && !siteId)) return res.status(400).json({ error: "Indique tenant, client ID, client secret e o OneDrive (email) ou o site SharePoint." });
+        const client = new Microsoft365Client({ tenantId, clientId, clientSecret, driveUser: driveUser || null, siteId: siteId || null }, whatsappFetch);
+        const info = await client.driveInfo();
+        return done(true, `Ligação OK: ${info.name} de ${info.owner}${info.totalGb ? ` (${info.usedGb} de ${info.totalGb} GB usados)` : ""}. Os documentos vão para a pasta "${v("MS365_ROOT_FOLDER") || "Cont.ai"}".`, { webUrl: info.webUrl });
       }
       if (req.params.group === "whatsapp") {
         const token = v("WHATSAPP_ACCESS_TOKEN"), phone = v("WHATSAPP_PHONE_NUMBER_ID");
@@ -959,10 +981,23 @@ export function createServer({
     }
   });
 
+  app.get("/api/onedrive/status", auth, requireStaff, (_req, res) => {
+    if (!onedrive) return res.json({ configured: false });
+    return res.json({ configured: true, ...onedrive.counts(), root: process.env.MS365_ROOT_FOLDER || "Cont.ai", target: process.env.MS365_SITE_ID ? "SharePoint " + process.env.MS365_SITE_ID : "OneDrive de " + (process.env.MS365_DRIVE_USER || "") });
+  });
+  app.post("/api/onedrive/sync", auth, requireStaff, async (req, res) => {
+    if (!onedrive) return res.status(409).json({ error: "Microsoft 365 não configurado (Integrações > Microsoft 365)." });
+    if (req.body?.retry_failed) onedrive.retryFailed();
+    const outcomes = await onedrive.syncPending(50, req.user!.id);
+    return res.json({ outcomes, ...onedrive.counts() });
+  });
+
   app.get("/api/channels/status", auth, requireStaff, (_req, res) => {
     return res.json({
+      onedrive: !!onedrive,
       email_webhook: !!inboundEmailSecret,
-      imap: !!process.env.IMAP_HOST,
+      graph_mail: !!(process.env.MS365_MAIL_USER && process.env.MS365_TENANT_ID),
+      imap: !!process.env.IMAP_HOST && !process.env.MS365_MAIL_USER,
       whatsapp: !!whatsapp,
       whatsapp_reply: !!whatsapp?.reply,
       ai_extraction: !!structured,

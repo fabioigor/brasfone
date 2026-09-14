@@ -2,6 +2,12 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-14 — Microsoft 365: OneDrive como repositório dos documentos e email com autenticação da aplicação
+
+- **Decisão:** integrar o Microsoft 365 pela Graph API com autenticação de aplicação (client credentials) e uma só aplicação registada no Entra ID: (1) arquivo de todos os documentos recebidos no OneDrive (ou SharePoint) da Lumarcont em pastas Empresa (NIF)/Ano/Mês/Tipo, sincronização idempotente em segundo plano com registo de erros e repetição; (2) leitura da caixa de recepção (ex.: documentos@lumarcont.pt) pela Graph, sem palavra-passe da caixa, substituindo o IMAP quando configurada (IMAP mantém-se para caixas fora do 365). Pedido do product owner: o OneDrive é o repositório oficial dos digitalizados e o email tem de usar a autenticação do Microsoft 365.
+- **Princípios mantidos:** a app é a fonte e o OneDrive o arquivo (sem leitura inversa nem apagamentos); segredos cifrados; audit log por upload; recomendação de Application Access Policy para limitar a permissão de correio a uma caixa. Envio de email pela app (`Mail.Send`) fica para depois.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-14 — Domínio, TLS e testes de credenciais em auto-serviço; fase de testes com o cliente
 
 - **Decisão:** o domínio define-se na própria app (Integrações > Domínio e TLS) e é aplicado pelo servidor sem SSH, através de uma pasta de configuração partilhada entre o contentor e o host lida pelo temporizador de actualização. Cada grupo de credenciais tem um teste que não guarda nada (Anthropic, IMAP, WhatsApp, CentralGest). Objectivo: o product owner completa a configuração sozinho e sem passar segredos pela conversa com o assistente.

@@ -258,6 +258,14 @@ function migrate(db: Db): void {
     db.exec("ALTER TABLE documents ADD COLUMN ocr_method TEXT");
     db.exec("ALTER TABLE documents ADD COLUMN ocr_confidence REAL");
   }
+  if (!docCols.some((c) => c.name === "onedrive_item_id")) {
+    db.exec("ALTER TABLE documents ADD COLUMN onedrive_item_id TEXT");
+    db.exec("ALTER TABLE documents ADD COLUMN onedrive_url TEXT");
+    db.exec("ALTER TABLE documents ADD COLUMN onedrive_path TEXT");
+    db.exec("ALTER TABLE documents ADD COLUMN onedrive_synced_at TEXT");
+    db.exec("ALTER TABLE documents ADD COLUMN onedrive_error TEXT");
+    db.exec("ALTER TABLE documents ADD COLUMN onedrive_attempts INTEGER NOT NULL DEFAULT 0");
+  }
   db.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value_enc TEXT NOT NULL,

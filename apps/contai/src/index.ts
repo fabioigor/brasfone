@@ -11,6 +11,8 @@ import { buildStructuredExtractor } from "./extraction/analyse.js";
 import { imapConfigFromEnv, EmailPoller } from "./channels/email.js";
 import { whatsappConfigFromEnv } from "./channels/whatsapp.js";
 import { applyStoredSettings } from "./settings.js";
+import { microsoft365ConfigFromEnv, Microsoft365Client, OneDriveSync } from "./integrations/microsoft365.js";
+import { graphMailConfigFromEnv, GraphMailPoller } from "./channels/graphMail.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const DB_PATH = process.env.DB_PATH || path.join("data", "contai.db");
@@ -42,20 +44,31 @@ async function main(): Promise<void> {
   const ocr = DocumentOcr.fromEnv();
   const provider = buildProvider();
   const structured = buildStructuredExtractor();
+  const ms365 = microsoft365ConfigFromEnv();
+  const ms365Client = ms365 ? new Microsoft365Client(ms365) : null;
+  const onedrive = ms365 && ms365Client ? new OneDriveSync(db, STORAGE_ROOT, ms365Client, ms365.rootFolder) : null;
+  if (onedrive) onedrive.start(60_000);
+
   const app = createServer({
-    db, provider, storageRoot: STORAGE_ROOT, centralgest, ocr, structured, demo,
+    db, provider, storageRoot: STORAGE_ROOT, centralgest, ocr, structured, demo, onedrive,
     // Em producao o contentor reinicia (restart: unless-stopped) e recarrega tudo com as novas definicoes.
     onSettingsSaved: process.env.NODE_ENV === "production" ? () => { console.log("Definições alteradas: a reiniciar."); process.exit(0); } : null,
   });
 
-  const imap = imapConfigFromEnv();
-  if (imap) {
-    const sys = (): number => {
-      const row = db.prepare("SELECT id FROM users WHERE email = 'canais@contai.local'").get() as any;
-      if (row) return row.id;
-      return Number(db.prepare("INSERT INTO users (email, name, password_hash, role) VALUES ('canais@contai.local', 'Recepção automática', 'x', 'staff')").run().lastInsertRowid);
-    };
+  const sys = (): number => {
+    const row = db.prepare("SELECT id FROM users WHERE email = 'canais@contai.local'").get() as any;
+    if (row) return row.id;
+    return Number(db.prepare("INSERT INTO users (email, name, password_hash, role) VALUES ('canais@contai.local', 'Recepção automática', 'x', 'staff')").run().lastInsertRowid);
+  };
+  const graphMail = ms365Client ? graphMailConfigFromEnv() : null;
+  const imap = graphMail ? null : imapConfigFromEnv();
+  let mailLabel = "inactivo";
+  if (graphMail && ms365Client) {
+    new GraphMailPoller(db, { provider, ocr, structured, storageRoot: STORAGE_ROOT, systemUserId: sys() }, ms365Client, graphMail).start();
+    mailLabel = `Microsoft 365 (${graphMail.mailbox}, pasta ${graphMail.folder})`;
+  } else if (imap) {
     new EmailPoller(db, { provider, ocr, structured, storageRoot: STORAGE_ROOT, systemUserId: sys() }, imap).start();
+    mailLabel = `IMAP ${imap.host}`;
   }
 
   app.listen(PORT, () => {
@@ -65,7 +78,8 @@ async function main(): Promise<void> {
     console.log(`Fornecedor de IA: ${process.env.ANTHROPIC_API_KEY ? "Anthropic (claude-haiku-4-5)" : "heurístico local"}`);
     console.log(`CentralGest: ${centralgestLabel}`);
     console.log(`OCR: ${ocr.engines.join(" > ")}${structured ? " + extracção estruturada IA" : ""} + QR AT`);
-    console.log(`Canais: email webhook ${process.env.INBOUND_EMAIL_SECRET ? "activo" : "inactivo"}, IMAP ${imap ? imap.host : "inactivo"}, WhatsApp ${whatsappConfigFromEnv() ? "activo" : "inactivo"}`);
+    console.log(`Arquivo OneDrive: ${ms365 ? (ms365.siteId ? "SharePoint " + ms365.siteId : "OneDrive de " + ms365.driveUser) + " / " + ms365.rootFolder : "não configurado"}`);
+    console.log(`Canais: email webhook ${process.env.INBOUND_EMAIL_SECRET ? "activo" : "inactivo"}, caixa de email ${mailLabel}, WhatsApp ${whatsappConfigFromEnv() ? "activo" : "inactivo"}`);
   });
 }
 

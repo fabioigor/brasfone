@@ -2,6 +2,10 @@
 
 Portal digital para gabinetes de contabilidade, inspirado no Kangaroo Files: recepção de documentos dos clientes, classificação automática, arquivo digital organizado (Decreto-Lei 28/2019), geração de lançamentos contabilísticos com validação humana obrigatória, lançamento directo no CentralGest por API (com servidor MCP para agentes de IA) e exportação para Cegid Primavera.
 
+## Microsoft 365
+
+OneDrive (ou SharePoint) como arquivo de todos os documentos recebidos, em pastas por empresa, ano, mês e tipo, e caixa de email lida pela Graph API com a autenticação da aplicação Microsoft 365 (sem IMAP nem palavra-passe da caixa). Configuração em Integrações; guia do registo no Entra ID em `docs/microsoft365.md`.
+
 ## Digitalizar pelo telemóvel, app Android e app iOS
 
 Os clientes fotografam facturas e recibos em **Digitalizar** (câmara ou galeria, várias páginas, tratamento de imagem e PDF gerado no browser) e enviam ao gabinete; no Android e no iOS também por **Partilhar com Cont.ai**. A web app instala-se pelo Chrome ou Safari ("Adicionar ao ecrã principal"); para as lojas existem o projecto Trusted Web Activity em `apps/contai-android/` (Play Store) e o projecto SwiftUI + WKWebView com extensão de partilha em `apps/contai-ios/` (App Store). Detalhes em `docs/android.md` e `docs/ios.md`.

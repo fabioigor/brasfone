@@ -26,3 +26,8 @@ Cada anexo suportado (PDF, PNG, JPG, WebP, TIFF, TXT, CSV, XML) segue o mesmo pi
 - O webhook de email exige segredo partilhado; o de WhatsApp exige assinatura válida.
 - Conteúdo dos emails (corpo) só é guardado como excerto de 300 caracteres; anexos vão para o arquivo da empresa.
 - Todas as recepções ficam em `inbound_messages` e no audit log.
+
+
+## Caixa de email Microsoft 365 (Graph)
+
+Quando `MS365_MAIL_USER` está definido (Integrações > Recepção por email), a caixa é lida pela Graph API com a autenticação da aplicação Microsoft 365 em vez de IMAP: mensagens por ler com anexos, anexos inline ignorados, mensagem marcada como lida com a categoria "Cont.ai". Ver `docs/microsoft365.md`.
