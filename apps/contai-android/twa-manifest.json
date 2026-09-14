@@ -18,7 +18,7 @@
   "maskableIconUrl": "https://app.lumarcont.pt/icon-maskable-512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": { "path": "./android.keystore", "alias": "contai" },
-  "appVersionName": "0.3.0",
+  "appVersionName": "0.5.0",
   "appVersionCode": 1,
   "shortcuts": [
     { "name": "Digitalizar documento", "shortName": "Digitalizar", "url": "/#digitalizar", "chosenIconUrl": "https://app.lumarcont.pt/icon-192.png" }
