@@ -120,6 +120,28 @@ const ocrBadge = (d) => {
   return el("span", { class: "badge " + cls, title: "Método de extracção de texto" }, (OCR_LABEL[d.ocr_method] || d.ocr_method) + conf);
 };
 
+/** Painel modal (funciona em telemovel, sem janelas novas). Fecha com Esc, com o botao ou tocando fora. */
+function openModal(title, content, opts = {}) {
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (ev) => { if (ev.key === "Escape") close(); };
+  const card = el("div", { class: "modal-card" + (opts.wide ? " wide" : "") }, [
+    el("div", { class: "modal-head" }, [el("strong", {}, title), el("span", { class: "spacer" }), el("button", { class: "btn small", type: "button", onclick: close }, "Fechar")]),
+    el("div", { class: "modal-body" }, content),
+  ]);
+  const overlay = el("div", { class: "modal", onclick: (ev) => { if (ev.target === overlay) close(); } }, card);
+  document.body.append(overlay);
+  document.addEventListener("keydown", onKey);
+  return close;
+}
+
+/** Abre o documento original (imagem, PDF ou texto) num painel, para confirmar os dados lidos. */
+async function openDocModal(docId, name) {
+  const holder = el("div", { class: "muted small" }, "A carregar o documento...");
+  openModal(name || "Documento", holder, { wide: true });
+  const pane = await previewPane(docId);
+  holder.replaceWith(pane);
+}
+
 /** Inline document preview (PDF via visualizador do browser, imagem, ou texto). */
 async function previewPane(docId) {
   const pane = el("div", { class: "preview" });
@@ -146,14 +168,21 @@ async function previewPane(docId) {
 async function showDocumentText(docId, name) {
   try {
     const out = await api("/api/documents/" + docId + "/text");
-    const w = window.open("", "_blank");
-    if (!w) return toast("Permita janelas pop-up para ver o texto.", true);
-    const esc = (t) => String(t == null ? "" : t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-    w.document.write("<title>" + esc(name) + "</title><body style='font:14px/1.4 monospace;padding:20px;white-space:pre-wrap'>" +
-      "<b>Método:</b> " + esc(out.method) + (out.confidence != null ? " · confiança " + Math.round(out.confidence * 100) + "%" : "") +
-      "\n\n<b>Dados extraídos:</b>\n" + esc(JSON.stringify(out.extracted, null, 2)) + "\n\n<b>Texto:</b>\n" + esc(out.text || "(documento de texto: ver ficheiro original)") + "</body>");
-    w.document.close();
+    const meta = "Método: " + (OCR_LABEL[out.method] || out.method || "n/d") + (out.confidence != null ? " · confiança " + Math.round(out.confidence * 100) + "%" : "");
+    openModal("Texto extraído · " + (name || ""), el("div", { class: "stack" }, [
+      el("p", { class: "small muted" }, meta),
+      el("h3", {}, "Dados extraídos"), el("pre", { class: "small pre" }, JSON.stringify(out.extracted, null, 2)),
+      el("h3", {}, "Texto lido"), el("pre", { class: "small pre" }, out.text || "(documento de texto: ver ficheiro original)"),
+    ]), { wide: true });
   } catch (e) { toast(e.message, true); }
+}
+
+/** Badge de qualidade da leitura para um lancamento/documento; avisa quando o humano deve confirmar com o original. */
+function readingQuality(ocrMethod, ocrConfidence) {
+  if (!ocrMethod || ["texto", "pdf_texto", "duplicado"].includes(ocrMethod)) return null;
+  const pct = ocrConfidence != null ? Math.round(ocrConfidence * 100) : null;
+  const low = pct != null && pct < 85;
+  return el("span", { class: "badge " + (low ? "warn" : "info"), title: "Qualidade da leitura (OCR/IA)" }, (OCR_LABEL[ocrMethod] || ocrMethod) + (pct != null ? " " + pct + "%" : "") + (low ? " · confirme com o documento" : ""));
 }
 const money = (n) => Number(n).toFixed(2).replace(".", ",") + " €";
 const fmtConf = (c) => (c == null ? "" : Math.round(c * 100) + "%");
@@ -265,13 +294,13 @@ async function viewDocuments(main) {
           el("a", { href: "/api/documents/" + d.id + "/file", onclick: (ev) => downloadDoc(ev, d.id, d.original_name) }, d.original_name),
           el("div", { class: "muted small" }, d.company_name),
         ]),
-        el("td", {}, DOC_TYPE_LABEL[d.doc_type] || d.doc_type),
-        el("td", {}, d.doc_date || ""),
-        el("td", {}, fmtConf(d.classification_confidence)),
-        el("td", {}, [ocrBadge(d), " ", sourcesBadges(d)]),
-        el("td", {}, badge(d.status)),
-        el("td", {}, [
-          el("button", { class: "btn small", onclick: async () => { const info = await api("/api/documents/" + d.id + "/preview-url"); window.open(info.url, "_blank", "noopener"); } }, "Ver"),
+        el("td", { "data-l": "Tipo" }, DOC_TYPE_LABEL[d.doc_type] || d.doc_type),
+        el("td", { "data-l": "Data" }, d.doc_date || ""),
+        el("td", { "data-l": "Confiança" }, fmtConf(d.classification_confidence)),
+        el("td", { "data-l": "Extracção" }, [ocrBadge(d), " ", sourcesBadges(d)]),
+        el("td", { "data-l": "Estado" }, badge(d.status)),
+        el("td", { class: "acts" }, [
+          el("button", { class: "btn small primary", onclick: () => openDocModal(d.id, d.original_name) }, "Ver"),
           el("button", { class: "btn small", onclick: () => showDocumentText(d.id, d.original_name) }, "Texto"),
           isStaff ? " " : null,
           isStaff ? el("button", { class: "btn small", onclick: async () => { try { const o = await api("/api/documents/" + d.id + "/reprocess", { method: "POST" }); toast("Reprocessado: " + (OCR_LABEL[o.ocr.method] || o.ocr.method) + ", " + o.findings.length + " alerta(s)."); render(); } catch (e) { toast(e.message, true); } } }, "Reprocessar") : null,
@@ -281,7 +310,7 @@ async function viewDocuments(main) {
   }
   main.append(
     el("div", { class: "card table-wrap" },
-      el("table", {}, [
+      el("table", { class: "docs" }, [
         el("thead", {}, el("tr", {}, [el("th", {}, "Documento"), el("th", {}, "Tipo"), el("th", {}, "Data"), el("th", {}, "Confiança"), el("th", {}, "Extracção"), el("th", {}, "Estado"), el("th", {}, "")])),
         docs.length ? tbody : el("tbody", {}, el("tr", {}, el("td", { colspan: "7", class: "muted" }, "Sem documentos."))),
       ])
@@ -348,8 +377,10 @@ async function viewValidation(main) {
     ]);
     const alerts = el("div", { class: "stack" });
     for (const f of docFindings) alerts.append(el("div", { class: "item alert " + f.severity, style: "padding:10px 12px" }, [el("div", {}, [el("div", { class: "title small" }, findingLabel(f.code)), el("div", { class: "small muted" }, f.message)])]));
+    const weak = selected.ocr_method && !["texto", "pdf_texto", "duplicado"].includes(selected.ocr_method) && selected.ocr_confidence != null && selected.ocr_confidence < 0.85;
     const info = el("div", { class: "vinfo stack" }, [
-      el("div", { class: "card flat" }, [el("h2", {}, "Dados extraídos"), facts]),
+      weak ? el("div", { class: "card flat", style: "border-left:4px solid var(--warn)" }, [el("strong", {}, "Leitura com confiança de " + Math.round(selected.ocr_confidence * 100) + "% (" + (OCR_LABEL[selected.ocr_method] || selected.ocr_method) + ")"), el("div", { class: "small muted" }, "Confirme os valores com o documento ao lado antes de aprovar. Pode corrigir as linhas do lançamento aqui.")]) : null,
+      el("div", { class: "card flat" }, [el("h2", {}, "Dados extraídos"), readingQuality(selected.ocr_method, selected.ocr_confidence), facts]),
       docFindings.length ? el("div", {}, [el("div", { class: "eyebrow", style: "margin-bottom:6px" }, "Alertas deste documento"), alerts]) : null,
       entryCard(selected),
     ]);
@@ -1015,7 +1046,8 @@ async function viewToday(main) {
     left.append(el("div", { class: "eyebrow" }, "Últimos documentos"));
     if (!docs.length) left.append(el("div", { class: "empty" }, "Ainda não enviou documentos. Use a vista Documentos, o email ou o WhatsApp do gabinete."));
     for (const d of docs) left.append(el("div", { class: "item" }, [
-      el("div", {}, [el("div", { class: "title" }, d.original_name), el("div", { class: "meta" }, [DOC_TYPE_LABEL[d.doc_type] || d.doc_type, d.doc_date || "", badge(d.status)])]),
+      el("div", {}, [el("div", { class: "title" }, d.original_name), el("div", { class: "meta" }, [DOC_TYPE_LABEL[d.doc_type] || d.doc_type, d.doc_date || "", badge(d.status), readingQuality(d.ocr_method, d.ocr_confidence)])]),
+      el("div", { class: "actions" }, [el("button", { class: "btn small", onclick: () => openDocModal(d.id, d.original_name) }, "Ver")]),
     ]));
     left.append(el("a", { href: "#documentos", class: "btn primary" }, "Enviar documento"));
   }
@@ -1042,9 +1074,10 @@ function triageEntry(e) {
   return el("div", { class: "item" }, [
     el("div", {}, [
       el("div", { class: "title" }, e.description),
-      el("div", { class: "meta" }, [e.company_name, "· " + e.original_name, "· " + e.entry_date, el("span", { class: "badge " + (low ? "warn" : "ok") + " conf" }, "confiança " + fmtConf(e.confidence))]),
+      el("div", { class: "meta" }, [e.company_name, "· " + e.original_name, "· " + e.entry_date, el("span", { class: "badge " + (low ? "warn" : "ok") + " conf" }, "confiança " + fmtConf(e.confidence)), readingQuality(e.ocr_method, e.ocr_confidence)]),
     ]),
     el("div", { class: "actions" }, [
+      el("button", { class: "btn small", title: "Ver o documento original", onclick: () => openDocModal(e.document_id, e.original_name) }, "Ver documento"),
       el("button", { class: "btn small primary", onclick: () => decide("aprovar") }, "Aprovar"),
       el("a", { class: "btn small", href: "#validacao?id=" + e.id }, "Rever"),
       el("button", { class: "btn small danger", onclick: () => decide("rejeitar") }, "Rejeitar"),
@@ -1182,7 +1215,10 @@ async function viewScan(main) {
         }
       }
       results.innerHTML = "";
-      results.append(el("div", { class: "card" }, [el("h2", {}, "Enviado"), el("ul", { class: "small" }, outcomes.map((o) => el("li", {}, o.duplicate ? "Já existia (não duplicado)." : "Recebido e classificado como " + (DOC_TYPE_LABEL[o.docType] || o.docType) + (o.ocr && o.ocr.method ? " · " + (OCR_LABEL[o.ocr.method] || o.ocr.method) : "") + ".")))]));
+      results.append(el("div", { class: "card" }, [el("h2", {}, "Enviado"), el("div", { class: "stack" }, outcomes.map((o) => el("div", { class: "item" }, [
+        el("div", {}, [el("div", { class: "title" }, o.duplicate ? "Já existia (não duplicado)" : "Recebido e classificado como " + (DOC_TYPE_LABEL[o.docType] || o.docType)), el("div", { class: "meta" }, [readingQuality(o.ocr && o.ocr.method, o.ocr && o.ocr.confidence), (o.findings || []).length ? badge("aviso") : null, (o.findings || []).length ? (o.findings.length + " alerta(s) para o gabinete") : "sem alertas"])]),
+        o.documentId ? el("div", { class: "actions" }, [el("button", { class: "btn small", onclick: () => openDocModal(o.documentId, "Documento enviado") }, "Ver")]) : null,
+      ])))]));
       toast(outcomes.length + " documento(s) enviado(s) ao gabinete.");
       pages.splice(0, pages.length); refresh();
     } catch (e) {

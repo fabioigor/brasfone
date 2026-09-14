@@ -330,7 +330,7 @@ export function createServer({
     const status = typeof req.query.status === "string" ? req.query.status : "pendente";
     const rows = db
       .prepare(
-        `SELECT e.*, d.original_name, d.doc_type, d.extracted_json, c.name AS company_name
+        `SELECT e.*, d.original_name, d.doc_type, d.extracted_json, d.ocr_method, d.ocr_confidence, c.name AS company_name
          FROM entries e
          JOIN documents d ON d.id = e.document_id
          JOIN companies c ON c.id = e.company_id
