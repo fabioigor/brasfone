@@ -272,7 +272,7 @@ const dmy = (d: string | null) => (d ? d.split("-").reverse().join("/") : "");
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 
 /** Email to the client: what is validated and what is still missing (purchases only). */
-export function buildNotification(db: Db, companyId: number, opts: { period?: string | null; firmName?: string; appUrl?: string | null; message?: string | null } = {}): NotificationDraft {
+export function buildNotification(db: Db, companyId: number, opts: { period?: string | null; firmName?: string; appUrl?: string | null; message?: string | null; includeValidated?: boolean } = {}): NotificationDraft {
   const company = db.prepare("SELECT name, nif FROM companies WHERE id = ?").get(companyId) as any;
   if (!company) throw new Error("Empresa inexistente");
   const where = opts.period ? " AND substr(doc_date, 1, 7) = ?" : ""; const params: any[] = opts.period ? [companyId, opts.period] : [companyId];
@@ -284,7 +284,8 @@ export function buildNotification(db: Db, companyId: number, opts: { period?: st
   ].filter((e, i, a) => e && a.indexOf(e) === i);
   const firm = opts.firmName || "Lumarcont";
   const periodLabel = opts.period ? ` de ${opts.period.split("-").reverse().join("/")}` : "";
-  const subject = `${firm}: documentos${periodLabel} validados e em falta (${missing.length} em falta)`;
+  const withValidated = opts.includeValidated === true;
+  const subject = withValidated ? `${firm}: documentos${periodLabel} validados e em falta (${missing.length} em falta)` : `${firm}: documentos${periodLabel} em falta (${missing.length})`;
   const rowHtml = (r: any) => `<tr><td>${esc(dmy(r.doc_date))}</td><td>${esc(r.issuer_name || "")}<br><small>NIF ${esc(r.issuer_nif || "")}</small></td><td>${esc(r.doc_type || "")} ${esc(r.doc_number || r.atcud || "")}</td><td style="text-align:right">${esc(eur(r.total))}</td></tr>`;
   const table = (list: any[]) => `<table cellpadding="6" style="border-collapse:collapse;font-size:14px"><tr style="background:#F7F4EF"><th align="left">Data</th><th align="left">Emitente</th><th align="left">Documento</th><th align="right">Total</th></tr>${list.map(rowHtml).join("")}</table>`;
   const missingTotal = missing.reduce((s, r) => s + (r.total || 0), 0);
@@ -292,13 +293,12 @@ export function buildNotification(db: Db, companyId: number, opts: { period?: st
 <p>Bom dia,</p>
 <p>Cruzámos os documentos comunicados ao e-Fatura pelos seus fornecedores${periodLabel} com os documentos que nos enviou (${esc(company.name)}, NIF ${esc(company.nif)}).</p>
 ${opts.message ? `<p>${esc(opts.message)}</p>` : ""}
-<h3 style="color:#0F5A44">Validados (${validated.length})</h3>
-${validated.length ? table(validated) : "<p>Ainda sem documentos validados neste período.</p>"}
+${withValidated ? `<h3 style="color:#0F5A44">Validados (${validated.length})</h3>${validated.length ? table(validated) : "<p>Ainda sem documentos validados neste período.</p>"}` : `<p>Já recebemos e validámos ${validated.length} documento(s)${periodLabel}.</p>`}
 <h3 style="color:#b3261e">Em falta (${missing.length}${missing.length ? ", " + eur(missingTotal) : ""})</h3>
 ${missing.length ? table(missing) + `<p>Pedimos que nos envie estes documentos${opts.appUrl ? ` pela app Cont.ai (<a href="${esc(opts.appUrl)}">${esc(opts.appUrl)}</a>), pelo WhatsApp ou por email` : " pela app Cont.ai, pelo WhatsApp ou por email"}. Cada um já consta em "Pedidos" na sua área.</p>` : "<p>Não há documentos em falta. Obrigado.</p>"}
 <p>Com os melhores cumprimentos,<br>${esc(firm)}</p>
 </div>`;
   const line = (r: any) => `- ${dmy(r.doc_date)} · ${r.issuer_name || "NIF " + (r.issuer_nif || "")} · ${r.doc_type || ""} ${r.doc_number || r.atcud || ""} · ${eur(r.total)}`;
-  const text = `Bom dia,\n\nCruzámos os documentos comunicados ao e-Fatura${periodLabel} com os documentos que nos enviou (${company.name}, NIF ${company.nif}).\n${opts.message ? "\n" + opts.message + "\n" : ""}\nVALIDADOS (${validated.length})\n${validated.map(line).join("\n") || "(nenhum)"}\n\nEM FALTA (${missing.length}${missing.length ? ", " + eur(missingTotal) : ""})\n${missing.map(line).join("\n") || "(nenhum)"}\n\n${missing.length ? "Pedimos que nos envie estes documentos pela app Cont.ai, pelo WhatsApp ou por email. Cada um já consta em Pedidos na sua área.\n\n" : ""}Com os melhores cumprimentos,\n${firm}\n`;
+  const text = `Bom dia,\n\nCruzámos os documentos comunicados ao e-Fatura${periodLabel} com os documentos que nos enviou (${company.name}, NIF ${company.nif}).\n${opts.message ? "\n" + opts.message + "\n" : ""}\n${withValidated ? `VALIDADOS (${validated.length})\n${validated.map(line).join("\n") || "(nenhum)"}` : `Já recebemos e validámos ${validated.length} documento(s).`}\n\nEM FALTA (${missing.length}${missing.length ? ", " + eur(missingTotal) : ""})\n${missing.map(line).join("\n") || "(nenhum)"}\n\n${missing.length ? "Pedimos que nos envie estes documentos pela app Cont.ai, pelo WhatsApp ou por email. Cada um já consta em Pedidos na sua área.\n\n" : ""}Com os melhores cumprimentos,\n${firm}\n`;
   return { to, subject, html, text, validated, missing };
 }

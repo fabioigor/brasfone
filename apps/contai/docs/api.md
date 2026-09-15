@@ -42,6 +42,14 @@ Autenticação: `Authorization: Bearer <JWT>` obtido em `POST /api/auth/login`. 
 | POST | `/api/companies/:id/efatura/notify` | gabinete |
 | PATCH | `/api/efatura/:id` | gabinete |
 | GET | `/api/companies/:id/credentials` | autenticado |
+| POST | `/api/findings/:id/transition` | gabinete |
+| GET | `/api/findings/metrics` | gabinete |
+| GET | `/api/findings/reasons` | gabinete |
+| PUT | `/api/findings/reasons` | gabinete |
+| GET | `/api/exceptions` | gabinete |
+| DELETE | `/api/exceptions/:id` | gabinete |
+| GET | `/api/parameters` | gabinete |
+| POST | `/api/parameters` | gabinete |
 | GET | `/api/users` | gabinete |
 | POST | `/api/users` | gabinete |
 | DELETE | `/api/users/:id` | gabinete |

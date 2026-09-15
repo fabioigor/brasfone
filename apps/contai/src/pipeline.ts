@@ -156,7 +156,7 @@ function proposeAndAudit(
   auditCtx.divergences = a.divergences;
   auditCtx.qrCount = a.qrCount;
   const findings = [...ocrFindings(a.ocr, a.qr !== null), ...auditDocument(docType as DocType, a.extracted, auditCtx)];
-  persistDocumentFindings(db, company.id, documentId, findings);
+  persistDocumentFindings(db, company.id, documentId, findings, otherNif, auditCtx.tolerances?.versions ?? null);
   return { entryId, status, findings, docType };
 }
 

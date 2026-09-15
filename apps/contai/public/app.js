@@ -71,6 +71,11 @@ const STATUS_BADGE = {
   aviso: "warn",
   info: "info",
   aberto: "warn",
+  em_analise: "info",
+  reaberto: "bad",
+  corrigido: "ok",
+  falso_positivo: "",
+  aceite: "info",
   resolvido: "ok",
   ignorado: "",
   activo: "ok",
@@ -89,7 +94,9 @@ const DOC_TYPE_LABEL = {
   por_classificar: "Por classificar",
 };
 
-const badge = (s) => el("span", { class: "badge " + (STATUS_BADGE[s] || "") }, s);
+const badge = (s) => el("span", { class: "badge " + (STATUS_BADGE[s] || "") }, BADGE_LABEL[s] || s);
+const BADGE_LABEL = { erro: "Bloqueante", aviso: "Alerta", info: "Informativo", em_analise: "Em análise", corrigido: "Corrigido", falso_positivo: "Falso positivo", aceite: "Aceite", reaberto: "Reaberto", aberto: "Aberto" };
+const FINDING_STATUS_LABEL = { aberto: "Abertos", em_analise: "Em análise", reaberto: "Reabertos", corrigido: "Corrigidos", falso_positivo: "Falsos positivos", aceite: "Aceites" };
 
 const OCR_LABEL = { texto: "texto", pdf_texto: "PDF com texto", tesseract: "OCR local", claude_visao: "OCR Claude", indisponivel: "sem texto" };
 const SOURCE_LABEL = { qr: "QR AT", ia: "IA", heuristica: "regras" };
@@ -989,7 +996,15 @@ function entryCard(e) {
           cost_center: li.cc.value || null,
         }));
       }
-      await api("/api/entries/" + e.id + "/decision", { method: "POST", json: payload });
+      try {
+        await api("/api/entries/" + e.id + "/decision", { method: "POST", json: payload });
+      } catch (err) {
+        if (action === "aprovar" && /bloqueantes/.test(err.message)) {
+          const why = prompt("Este documento tem alertas bloqueantes abertos. Para aprovar mesmo assim, indique a justificação (fica registada e os alertas passam a 'aceite'). Deixe vazio para cancelar e corrigir na Conferência.");
+          if (!why) return;
+          await api("/api/entries/" + e.id + "/decision", { method: "POST", json: { ...payload, override_reason: why } });
+        } else throw err;
+      }
       toast(action === "aprovar" ? "Lançamento aprovado." : "Lançamento rejeitado.");
       render();
     } catch (err) {
@@ -1294,7 +1309,9 @@ async function viewExport(main) {
 
 async function viewAudit(main) {
   const isStaff = user.role === "staff";
+  const profile = user.profile || "toc";
   main.append(el("h2", {}, isStaff ? "Conferência de lançamentos e balancetes" : "Alertas sobre os meus documentos"));
+  if (isStaff) main.append(el("p", { class: "muted" }, "Cada alerta é uma excepção com estado: aberta, em análise, corrigida, falso positivo (com motivo de lista fixa), aceite (desvio justificado, reutilizável) ou reaberta. Bloqueante impede aprovar sem justificação; alerta exige decisão; informativo fica registado."));
 
   if (isStaff) {
     const companySelect = el("select");
@@ -1313,35 +1330,125 @@ async function viewAudit(main) {
 
   const params = new URLSearchParams(location.hash.split("?")[1] || "");
   const status = params.get("estado") || "aberto";
-  main.append(el("div", { class: "form-row" }, ["aberto", "resolvido", "ignorado"].map((s) =>
-    el("a", { href: "#conferencia?estado=" + s, class: "btn small" + (s === status ? " primary" : "") }, s.charAt(0).toUpperCase() + s.slice(1) + "s")
-  )));
+  const states = isStaff ? ["aberto", "em_analise", "reaberto", "corrigido", "falso_positivo", "aceite"] : ["aberto", "corrigido"];
+  main.append(el("div", { class: "form-row" }, states.map((st) =>
+    el("a", { href: "#conferencia?estado=" + st, class: "btn small" + (st === status ? " primary" : "") }, FINDING_STATUS_LABEL[st] || st)
+  ).concat(isStaff ? [el("a", { href: "#conferencia?estado=" + status + "&motor=1", class: "btn small ghost" }, "Indicadores do motor")] : [])));
 
+  let reasons = [];
+  if (isStaff) { try { reasons = (await api("/api/findings/reasons")).reasons.filter((r) => r.active); } catch (e) { reasons = []; } }
   const findings = (await api("/api/findings?status=" + status)).findings;
-  if (!findings.length) { main.append(el("div", { class: "card muted" }, "Sem alertas " + status + "s.")); return; }
+  if (!findings.length) main.append(el("div", { class: "card muted" }, "Sem alertas neste estado."));
 
   const tbody = el("tbody");
   for (const f of findings) {
     const actions = el("td");
-    if (isStaff && f.status === "aberto") {
-      const note = el("input", { placeholder: "Nota (opcional)", style: "width:150px;font-size:12px" });
-      const resolve = async (st) => {
-        try { await api("/api/findings/" + f.id + "/resolve", { method: "POST", json: { status: st, note: note.value || undefined } }); toast("Alerta " + st + "."); render(); }
-        catch (e) { toast(e.message, true); }
-      };
-      actions.append(note, " ", el("button", { class: "btn small primary", onclick: () => resolve("resolvido") }, "Resolvido"), " ", el("button", { class: "btn small", onclick: () => resolve("ignorado") }, "Ignorar"));
+    const isOpen = ["aberto", "em_analise", "reaberto"].includes(f.status);
+    if (isStaff && isOpen) {
+      const canClose = !(f.status === "reaberto" && profile !== "toc");
+      const transition = async (payload) => { try { await api("/api/findings/" + f.id + "/transition", { method: "POST", json: payload }); toast("Alerta actualizado."); render(); } catch (e) { toast(e.message, true); } };
+      const acts = el("div", { class: "actions", style: "flex-wrap:wrap" });
+      if (f.status === "aberto") acts.append(el("button", { class: "btn small", onclick: () => transition({ status: "em_analise" }) }, "Assumir"));
+      if (canClose) {
+        acts.append(el("button", { class: "btn small primary", onclick: () => { const note = prompt("O que foi corrigido? (opcional)"); if (note === null) return; transition({ status: "corrigido", note: note || null }); } }, "Corrigido"));
+        acts.append(el("button", { class: "btn small", onclick: () => fpModal(f, reasons, transition) }, "Falso positivo"));
+        acts.append(el("button", { class: "btn small", onclick: () => acceptModal(f, transition) }, "Aceitar"));
+      } else acts.append(el("span", { class: "muted small" }, "Reaberto: só o TOC responsável fecha."));
+      actions.append(acts);
+    } else if (isStaff && !isOpen) {
+      actions.append(el("button", { class: "btn small ghost", onclick: async () => { try { await api("/api/findings/" + f.id + "/transition", { method: "POST", json: { status: "reaberto" } }); toast("Alerta reaberto."); render(); } catch (e) { toast(e.message, true); } } }, "Reabrir"));
     }
     tbody.append(el("tr", {}, [
-      el("td", {}, badge(f.severity)),
-      el("td", {}, [el("strong", {}, findingLabel(f.code)), el("div", { class: "muted small" }, f.code), el("div", { class: "small" }, f.message)]),
-      el("td", {}, [f.scope === "documento" ? (f.original_name || "documento #" + f.document_id) : "Balancete " + (f.period || ""), el("div", { class: "muted small" }, f.company_name)]),
+      el("td", {}, [badge(f.severity), f.learning ? el("div", {}, el("span", { class: "badge muted", title: "Empresa em período de aprendizagem: não entra na checklist de fecho" }, "aprendizagem")) : null, f.status !== "aberto" ? el("div", {}, badge(f.status)) : null]),
+      el("td", {}, [el("strong", {}, findingLabel(f.code)), el("div", { class: "muted small" }, f.code + (f.reopened_count ? " · reaberto " + f.reopened_count + "x" : "")), el("div", { class: "small" }, f.message),
+        f.assigned_name ? el("div", { class: "muted small" }, "Em análise por " + f.assigned_name) : null,
+        f.fp_reason ? el("div", { class: "muted small" }, "Motivo: " + ((reasons.find((r) => r.code === f.fp_reason) || {}).label || f.fp_reason)) : null,
+        f.resolution_note ? el("div", { class: "muted small" }, "Nota: " + f.resolution_note) : null]),
+      el("td", {}, [f.scope === "documento" ? (f.original_name || "documento #" + f.document_id) : "Balancete " + (f.period || ""), el("div", { class: "muted small" }, f.company_name), f.document_id ? el("button", { class: "btn small ghost", onclick: () => openDocModal(f.document_id, f.original_name) }, "Ver documento") : null]),
       actions,
     ]));
   }
-  main.append(el("div", { class: "card table-wrap" }, el("table", {}, [
+  if (findings.length) main.append(el("div", { class: "card table-wrap" }, el("table", {}, [
     el("thead", {}, el("tr", {}, [el("th", {}, "Gravidade"), el("th", {}, "Alerta"), el("th", {}, "Origem"), el("th", {}, "")])),
     tbody,
   ])));
+
+  if (isStaff && params.get("motor") === "1") await engineCards(main, profile);
+}
+
+function fpModal(f, reasons, transition) {
+  const sel = el("select", {}, reasons.map((r) => el("option", { value: r.code }, r.label)));
+  const note = el("textarea", { rows: "2", placeholder: "Contexto (opcional)" });
+  const btn = el("button", { class: "btn primary", type: "button" }, "Fechar como falso positivo");
+  const close = openModal("Falso positivo · " + findingLabel(f.code), el("div", { class: "stack" }, [
+    el("p", { class: "small muted" }, "O motivo alimenta o ajuste de limiares e excepções; escolha o mais próximo. Texto livre só para contexto."),
+    el("label", {}, ["Motivo", sel]), el("label", {}, ["Contexto", note]), el("div", { class: "form-row" }, [btn]),
+  ]));
+  btn.addEventListener("click", async () => { await transition({ status: "falso_positivo", reason: sel.value, note: note.value || null }); close(); });
+}
+
+function acceptModal(f, transition) {
+  const note = el("textarea", { rows: "3", placeholder: "Justificação (obrigatória): porque é que este desvio é real e aceitável" });
+  const reuse = el("input", { type: "checkbox" });
+  const until = el("input", { type: "date" });
+  const btn = el("button", { class: "btn primary", type: "button" }, "Aceitar");
+  const scopeText = f.scope === "documento" ? "este fornecedor e este tipo de alerta" : "esta regra nesta empresa";
+  const close = openModal("Aceitar desvio · " + findingLabel(f.code), el("div", { class: "stack" }, [
+    el("label", {}, ["Justificação", note]),
+    el("label", { class: "small", style: "flex-direction:row;align-items:center;gap:8px" }, [reuse, " Criar excepção reutilizável: alertas iguais para " + scopeText + " ficam aceites automaticamente"]),
+    el("label", {}, ["Válida até (opcional)", until]),
+    el("div", { class: "form-row" }, [btn]),
+  ]));
+  btn.addEventListener("click", async () => { if (!note.value.trim()) { toast("Indique a justificação.", true); return; } await transition({ status: "aceite", note: note.value, create_exception: reuse.checked, exception_valid_until: until.value || null }); close(); });
+}
+
+/** Indicadores do motor, motivos de falso positivo, excepções e parâmetros versionados. */
+async function engineCards(main, profile) {
+  const m = await api("/api/findings/metrics");
+  const t = m.totals; const tg = m.targets;
+  const kpi = (label, v, target, better) => el("div", { class: "card stat flat" + (v !== null && target !== undefined && (better === "high" ? v < target : v > target) ? " warn" : "") }, [el("div", { class: "n" }, v === null ? "—" : String(v) + (label.includes("dias") ? "" : "%")), el("div", { class: "l" }, label + (target !== undefined ? " · objectivo " + (better === "high" ? "≥ " : "≤ ") + target : ""))]);
+  main.append(el("div", { class: "card" }, [
+    el("h2", {}, "Indicadores do motor"),
+    el("p", { class: "muted small" }, "Precisão = corrigidas / fechadas; falsos positivos / fechadas; tempo médio da detecção ao fecho. Objectivos aos 6 meses: precisão ≥ 85%, falsos positivos ≤ 10%, fecho ≤ 3 dias úteis."),
+    el("div", { class: "grid cols-4" }, [kpi("Precisão", t.precision, tg.precision, "high"), kpi("Falsos positivos", t.fpRate, tg.fpRate, "low"), el("div", { class: "card stat flat" }, [el("div", { class: "n" }, t.avgDays === null ? "—" : t.avgDays + " dias"), el("div", { class: "l" }, "Tempo médio de fecho · objectivo ≤ 3")]), el("div", { class: "card stat flat" }, [el("div", { class: "n" }, String(t.open)), el("div", { class: "l" }, "Abertos" + (t.learning ? " · " + t.learning + " em aprendizagem" : ""))])]),
+    el("div", { class: "table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Regra"), el("th", {}, "Abertos"), el("th", {}, "Corrigidos"), el("th", {}, "Falsos positivos"), el("th", {}, "Aceites"), el("th", {}, "Precisão"), el("th", {}, "FP"), el("th", {}, "Dias"), el("th", {}, "Reaberturas")])),
+      el("tbody", {}, m.rules.map((r) => el("tr", {}, [el("td", {}, findingLabel(r.code)), el("td", {}, String(r.open)), el("td", {}, String(r.corrigido)), el("td", {}, String(r.falso_positivo)), el("td", {}, String(r.aceite)), el("td", {}, r.precision === null ? "—" : r.precision + "%"), el("td", {}, r.fpRate === null ? "—" : r.fpRate + "%"), el("td", {}, r.avgDays === null ? "—" : String(r.avgDays)), el("td", {}, String(r.reopened))])))])),
+  ]));
+
+  const ex = (await api("/api/exceptions")).exceptions;
+  main.append(el("div", { class: "card" }, [el("h2", {}, "Excepções reutilizáveis (" + ex.length + ")"), el("p", { class: "muted small" }, "Criadas ao aceitar um desvio com a opção de reutilização; alertas iguais ficam aceites automaticamente."),
+    ex.length ? el("div", { class: "table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Empresa"), el("th", {}, "Regra"), el("th", {}, "Âmbito"), el("th", {}, "Justificação"), el("th", {}, "Reutilizada"), el("th", {}, "")])),
+      el("tbody", {}, ex.map((e) => el("tr", {}, [el("td", {}, e.company_name || "Global"), el("td", {}, findingLabel(e.code)), el("td", {}, e.scope_key), el("td", {}, [e.justification, el("div", { class: "muted small" }, (e.created_name || "") + (e.valid_until ? " · até " + e.valid_until : ""))]), el("td", {}, String(e.reuse_count)), el("td", {}, el("button", { class: "btn small danger", onclick: async () => { if (!confirm("Apagar a excepção?")) return; await api("/api/exceptions/" + e.id, { method: "DELETE" }); render(); } }, "Apagar"))])))])) : el("div", { class: "muted small" }, "Ainda sem excepções.")]));
+
+  if (["toc", "coordenador"].includes(profile)) {
+    const rs = (await api("/api/findings/reasons")).reasons;
+    const rows = rs.map((r) => ({ r, label: el("input", { value: r.label, style: "width:100%" }), active: Object.assign(el("input", { type: "checkbox" }), { checked: r.active }) }));
+    const newCode = el("input", { placeholder: "codigo_novo", style: "width:160px" }); const newLabel = el("input", { placeholder: "Rótulo do novo motivo" });
+    const save = el("button", { class: "btn primary", type: "button" }, "Guardar motivos");
+    save.addEventListener("click", async () => {
+      const reasons = rows.map((x) => ({ code: x.r.code, label: x.label.value, active: x.active.checked }));
+      if (newCode.value.trim() && newLabel.value.trim()) reasons.push({ code: newCode.value.trim(), label: newLabel.value.trim(), active: true });
+      try { await api("/api/findings/reasons", { method: "PUT", json: { reasons } }); toast("Motivos guardados."); render(); } catch (e) { toast(e.message, true); }
+    });
+    main.append(el("div", { class: "card" }, [el("h2", {}, "Motivos de falso positivo (lista fixa)"), el("p", { class: "muted small" }, "Proposta da INUBIA com 8 motivos; a Lumarcont corrige. É o motivo, e não texto livre, que alimenta o ajuste de limiares."),
+      el("div", { class: "stack" }, rows.map((x) => el("div", { class: "form-row" }, [el("code", { style: "min-width:220px" }, x.r.code), el("span", { style: "flex:2" }, x.label), el("label", { class: "small" }, [x.active, " activo"])]))),
+      el("div", { class: "form-row", style: "margin-top:8px" }, [newCode, el("span", { style: "flex:2" }, newLabel), save])]));
+  }
+
+  const pr = await api("/api/parameters");
+  const byKey = {}; for (const v of pr.versions) (byKey[v.key] = byKey[v.key] || []).push(v);
+  const today = new Date().toISOString().slice(0, 10);
+  const pbody = el("tbody");
+  for (const d of pr.definitions) {
+    const versions = byKey[d.key] || []; const cur = versions.find((v) => v.validFrom <= today && (!v.validTo || v.validTo >= today)) || versions[0];
+    const actions = el("td");
+    if (profile === "toc") {
+      const val = el("input", { style: "width:90px", placeholder: "novo valor" }); const from = el("input", { type: "date", value: today }); const note = el("input", { placeholder: "nota", style: "width:140px" });
+      actions.append(el("div", { class: "form-row" }, [val, from, note, el("button", { class: "btn small", onclick: async () => { if (val.value === "") return; try { await api("/api/parameters", { method: "POST", json: { key: d.key, value: isNaN(Number(val.value)) ? val.value : Number(val.value), valid_from: from.value, note: note.value || null } }); toast("Nova versão do parâmetro."); render(); } catch (e) { toast(e.message, true); } } }, "Nova versão")]));
+    }
+    pbody.append(el("tr", {}, [el("td", {}, [el("strong", {}, d.label), el("div", { class: "muted small" }, d.description)]), el("td", {}, cur ? String(cur.value) + " " + d.unit : "—"), el("td", {}, cur ? "desde " + cur.validFrom + (versions.length > 1 ? " · " + versions.length + " versões" : "") : ""), actions]));
+  }
+  main.append(el("div", { class: "card" }, [el("h2", {}, "Parâmetros versionados"), el("p", { class: "muted small" }, "Tolerâncias e limiares vivem em tabela com data de eficácia, nunca em código. Cada conferência regista a versão usada; reprocessar um período antigo dá o mesmo resultado. Só o TOC responsável cria versões."), el("div", { class: "table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Parâmetro"), el("th", {}, "Valor em vigor"), el("th", {}, "Eficácia"), el("th", {}, "")])), pbody]))]));
 }
 
 /* ---------- Balancetes e padrões ---------- */
@@ -1608,7 +1715,7 @@ async function viewToday(main) {
         el("div", { class: "small", style: "margin-top:6px" }, f.message),
       ]),
       isStaff ? el("div", { class: "actions" }, [
-        el("button", { class: "btn small", onclick: async () => { await api("/api/findings/" + f.id + "/resolve", { method: "POST", json: { status: "resolvido" } }); render(); } }, "Resolvido"),
+        el("button", { class: "btn small", onclick: async () => { try { await api("/api/findings/" + f.id + "/transition", { method: "POST", json: { status: "corrigido" } }); render(); } catch (e) { toast(e.message, true); } } }, "Corrigido"),
       ]) : null,
     ]));
   }

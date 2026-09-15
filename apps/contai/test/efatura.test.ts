@@ -96,7 +96,10 @@ describe("e-Fatura: conciliacao, pedidos automaticos e email", () => {
   it("prepara e envia o email com validados e em falta pela Graph", async () => {
     importEFatura(db, 1, [{ issuerNif: "509442013", issuerName: "TECNONORTE UNIPESSOAL LDA", acquirerNif: null, docType: "Fatura", docNumber: "FT 2026/78", atcud: null, docDate: "2026-07-28", total: 61.5, vat: 11.5, base: 50, portalStatus: "Registada", sector: null }], 1);
     reconcileEFatura(db, 1, 1);
-    const draft = buildNotification(db, 1, { period: "2026-07" });
+    const onlyMissing = buildNotification(db, 1, { period: "2026-07" });
+    expect(onlyMissing.subject).toMatch(/documentos de 07\/2026 em falta \(1\)/);
+    expect(onlyMissing.html).not.toContain("<h3 style=\"color:#0F5A44\">Validados"); expect(onlyMissing.html).toContain("validámos 3 documento(s)");
+    const draft = buildNotification(db, 1, { period: "2026-07", includeValidated: true });
     expect(draft.to).toEqual(["padaria@demo.pt"]);
     expect(draft.subject).toMatch(/documentos de 07\/2026 validados e em falta \(1 em falta\)/);
     expect(draft.validated).toHaveLength(3); expect(draft.missing).toHaveLength(1);

@@ -32,6 +32,7 @@ import {
 } from "../integrations/centralgest.js";
 import { startCentralGestMock } from "../integrations/centralgest-mock.js";
 import { auditStoredDocument } from "../domain/vatAudit.js";
+import { transitionFinding } from "../domain/exceptions.js";
 import { parseBalanceCsv, deriveBalanceFromEntries, saveTrialBalance, loadTrialBalance, previousPeriod, computeFinancials } from "../domain/trialBalance.js";
 import { listRules, evaluateRules, persistBalanceFindings } from "../domain/balanceRules.js";
 import { buildReportData } from "../domain/financialReport.js";
@@ -61,6 +62,12 @@ const fail = (message: string) => ({
 });
 
 export function buildMcpServer(ctx: McpContext): McpServer {
+  /** Service account under which MCP tool decisions are audited (created lazily). */
+  const systemUser = (): number => {
+    const row = db.prepare("SELECT id FROM users WHERE email = 'mcp@contai.local'").get() as any;
+    if (row) return row.id;
+    return Number(db.prepare("INSERT INTO users (email, name, password_hash, role, company_id, profile) VALUES ('mcp@contai.local', 'Agente MCP', 'x', 'staff', NULL, 'contabilista')").run().lastInsertRowid);
+  };
   const server = new McpServer({ name: "contai", version: "0.3.0" });
   const { db, storageRoot } = ctx;
   const provider = buildProvider();
@@ -439,19 +446,20 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     {
       title: "Listar alertas de conferencia",
       description:
-        "Lista alertas abertos (ou resolvidos/ignorados) de documentos e balancetes, ordenados por gravidade (erro > aviso > info).",
+        "Lista alertas (excepcoes com estado) de documentos e balancetes, ordenados por gravidade (erro=bloqueante > aviso=alerta > info). Estados: aberto (inclui em_analise e reaberto), em_analise, reaberto, corrigido, falso_positivo, aceite, fechado (todos os fechados).",
       inputSchema: {
         company_id: z.number().int().positive().optional(),
         scope: z.enum(["documento", "balancete"]).optional(),
-        status: z.enum(["aberto", "resolvido", "ignorado"]).default("aberto"),
+        status: z.enum(["aberto", "em_analise", "reaberto", "corrigido", "falso_positivo", "aceite", "fechado", "resolvido", "ignorado"]).default("aberto"),
         limit: z.number().int().min(1).max(200).default(50),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ company_id, scope, status, limit }) => {
-      let sql = `SELECT f.id, f.company_id, c.name AS empresa, f.scope, f.document_id, d.original_name AS documento, f.period, f.code, f.severity, f.message, f.detail_json, f.created_at
-        FROM findings f JOIN companies c ON c.id = f.company_id LEFT JOIN documents d ON d.id = f.document_id WHERE f.status = ?`;
-      const params: any[] = [status];
+      const set = status === "aberto" ? ["aberto", "em_analise", "reaberto"] : status === "fechado" ? ["corrigido", "falso_positivo", "aceite"] : status === "resolvido" ? ["corrigido"] : status === "ignorado" ? ["falso_positivo"] : [status];
+      let sql = `SELECT f.id, f.company_id, c.name AS empresa, f.scope, f.document_id, d.original_name AS documento, f.period, f.code, f.severity, f.status, f.learning, f.message, f.detail_json, f.created_at
+        FROM findings f JOIN companies c ON c.id = f.company_id LEFT JOIN documents d ON d.id = f.document_id WHERE f.status IN (${set.map(() => "?").join(",")})`;
+      const params: any[] = [...set];
       if (company_id) { sql += " AND f.company_id = ?"; params.push(company_id); }
       if (scope) { sql += " AND f.scope = ?"; params.push(scope); }
       sql += " ORDER BY CASE f.severity WHEN 'erro' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END, f.created_at DESC LIMIT ?";
@@ -464,21 +472,23 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   server.registerTool(
     "contai_resolver_alerta",
     {
-      title: "Resolver ou ignorar um alerta",
-      description: "Fecha um alerta aberto como 'resolvido' (corrigido) ou 'ignorado' (falso positivo), com nota opcional.",
+      title: "Fechar um alerta (corrigido, falso positivo ou aceite)",
+      description: "Fecha um alerta aberto: 'corrigido' (erro real corrigido), 'falso_positivo' (exige motivo da lista fixa: arredondamento_software, isencao_ou_regime_especial, espaco_fiscal, sazonalidade_prevista, corrigido_noutro_periodo, regra_mal_calibrada, dados_extraidos_incorrectos, outro_motivo) ou 'aceite' (desvio real justificado; note obrigatoria). 'resolvido' e 'ignorado' sao aceites por compatibilidade. Nunca fecha alertas reabertos (reservado ao TOC).",
       inputSchema: {
         finding_id: z.number().int().positive(),
-        status: z.enum(["resolvido", "ignorado"]),
+        status: z.enum(["corrigido", "falso_positivo", "aceite", "resolvido", "ignorado"]),
         note: z.string().optional(),
+        reason: z.string().optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ finding_id, status, note }) => {
-      const r = db
-        .prepare("UPDATE findings SET status = ?, resolved_at = datetime('now'), resolution_note = ? WHERE id = ? AND status = 'aberto'")
-        .run(status, note ?? null, finding_id);
-      if (r.changes === 0) return fail(`Alerta ${finding_id} inexistente ou ja fechado.`);
-      return ok({ finding_id, status });
+    async ({ finding_id, status, note, reason }) => {
+      const map: Record<string, string> = { resolvido: "corrigido", ignorado: "falso_positivo" };
+      const target = (map[status] ?? status) as any;
+      try {
+        const f = transitionFinding(db, finding_id, { id: systemUser(), profile: "contabilista" }, { status: target, note: note ?? (target === "aceite" ? "Aceite via MCP" : null), reason: reason ?? (target === "falso_positivo" ? "outro_motivo" : null) });
+        return ok({ finding_id, status: f.status });
+      } catch (e: any) { return fail(e.message); }
     }
   );
 

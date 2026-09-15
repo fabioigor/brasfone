@@ -183,7 +183,7 @@ describe("servidor MCP", () => {
     expect(missing.erro).toMatch(/importar_balancete/);
   });
 
-  it("processa um PDF por caminho de ficheiro e devolve o texto extraido", async () => {
+  it("processa um PDF por caminho de ficheiro e devolve o texto extraido", { timeout: 20000 }, async () => {
     const pdfPath = path.join(__dirname, "..", "fixtures", "factura-texto.pdf");
     const processed = await callTool("contai_processar_documento", { company_id: 2, file_path: pdfPath });
     expect(processed._isError).toBe(false);

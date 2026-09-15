@@ -39,6 +39,8 @@ import { Microsoft365Files } from "./integrations/microsoft365.js";
 import { IntakeDialog, DOC_TYPE_OPTIONS } from "./channels/dialog.js";
 import { getProfile, isKnownSupplier, counterpartyNif } from "./domain/supplierMemory.js";
 import { applyCostCenter } from "./domain/entries.js";
+import { transitionFinding, findingMetrics, listFpReasons, blockingFindings, SEVERITY_LABEL } from "./domain/exceptions.js";
+import { listParameters, addParameterVersion, PARAMETER_DEFS } from "./domain/parameters.js";
 import { DocType } from "./domain/classification.js";
 import { OcrEngine, DocumentOcr } from "./ocr/engine.js";
 import { ClaudeStructuredExtractor } from "./extraction/structured.js";
@@ -173,7 +175,7 @@ export function createServer({
     const body = z.object({ email: z.string().email(), password: z.string().min(1) }).safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Credenciais em falta." });
     const row = db
-      .prepare("SELECT id, email, name, password_hash, role, company_id FROM users WHERE email = ?")
+      .prepare("SELECT id, email, name, password_hash, role, company_id, profile FROM users WHERE email = ?")
       .get(body.data.email.toLowerCase()) as any;
     if (!row || !verifyPassword(body.data.password, row.password_hash)) {
       return res.status(401).json({ error: "Email ou palavra-passe incorrectos." });
@@ -184,6 +186,7 @@ export function createServer({
       name: row.name,
       role: row.role,
       companyId: row.company_id,
+      profile: row.profile ?? (row.role === "staff" ? "toc" : null),
     };
     audit(db, row.id, "login", "user", row.id);
     return res.json({ token: issueToken(user), user });
@@ -261,15 +264,17 @@ export function createServer({
 
   // ---------- Equipa do gabinete (contas staff) ----------
   app.get("/api/users", auth, requireStaff, (_req, res) => {
-    const rows = db.prepare("SELECT id, email, name, role, company_id, created_at FROM users WHERE email != 'canais@contai.local' ORDER BY role, name").all();
+    const rows = db.prepare("SELECT id, email, name, role, company_id, profile, created_at FROM users WHERE email NOT IN ('canais@contai.local', 'mcp@contai.local') ORDER BY role, name").all();
     return res.json({ users: rows });
   });
 
   app.post("/api/users", auth, requireStaff, (req, res) => {
-    const body = z.object({ name: z.string().trim().min(2), email: z.string().email(), password: z.string().min(8) }).safeParse(req.body);
+    const body = z.object({ name: z.string().trim().min(2), email: z.string().email(), password: z.string().min(8), profile: z.enum(["contabilista", "coordenador", "toc"]).default("contabilista"), company_ids: z.array(z.number().int()).optional() }).safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Dados inválidos (nome, email e palavra-passe com 8 ou mais caracteres)." });
+    if ((req.user!.profile ?? "toc") === "contabilista") return res.status(403).json({ error: "Só o coordenador ou o TOC responsável criam contas do gabinete." });
     try {
-      const r = db.prepare("INSERT INTO users (email, name, password_hash, role, company_id) VALUES (?, ?, ?, 'staff', NULL)").run(body.data.email.toLowerCase(), body.data.name, hashPassword(body.data.password));
+      const r = db.prepare("INSERT INTO users (email, name, password_hash, role, company_id, profile) VALUES (?, ?, ?, 'staff', NULL, ?)").run(body.data.email.toLowerCase(), body.data.name, hashPassword(body.data.password), body.data.profile);
+      for (const cid of body.data.company_ids ?? []) db.prepare("INSERT OR IGNORE INTO company_assignments (user_id, company_id) VALUES (?, ?)").run(Number(r.lastInsertRowid), cid);
       audit(db, req.user!.id, "create_staff", "user", Number(r.lastInsertRowid), body.data.email.toLowerCase());
       return res.status(201).json({ id: Number(r.lastInsertRowid), email: body.data.email.toLowerCase(), role: "staff" });
     } catch (e: any) {
@@ -447,6 +452,7 @@ export function createServer({
       .optional(),
     entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     description: z.string().optional(),
+    override_reason: z.string().max(500).optional(),
   });
 
   app.post("/api/entries/:id/decision", auth, requireStaff, (req, res) => {
@@ -470,6 +476,13 @@ export function createServer({
       return res.json({ status: "rejeitado" });
     }
 
+    // Aprovar: alertas bloqueantes abertos exigem justificação (ficam 'aceite' com a nota do revisor).
+    const blocking = blockingFindings(db, entry.document_id);
+    if (blocking.length) {
+      const justification = (body.data.override_reason ?? "").trim();
+      if (!justification) return res.status(409).json({ error: "O documento tem alertas bloqueantes abertos. Corrija-os na Conferência ou indique uma justificação para aprovar mesmo assim.", blocking });
+      for (const b of blocking) transitionFinding(db, b.id, { id: req.user!.id, profile: req.user!.profile ?? null }, { status: "aceite", note: `Aprovação com justificação: ${justification}` });
+    }
     // Aprovar, com edicao opcional das linhas.
     let lines: EntryLine[] = JSON.parse(entry.lines_json);
     if (body.data.lines) {
@@ -666,26 +679,85 @@ export function createServer({
     const companyId = scopedCompanyId(req, req.query.company_id ? Number(req.query.company_id) : null);
     const status = typeof req.query.status === "string" ? req.query.status : "aberto";
     const scope = typeof req.query.scope === "string" ? req.query.scope : null;
-    let sql = `SELECT f.*, c.name AS company_name, d.original_name
-      FROM findings f JOIN companies c ON c.id = f.company_id LEFT JOIN documents d ON d.id = f.document_id WHERE f.status = ?`;
-    const params: any[] = [status];
+    // "aberto" lists every open state (aberto, em_analise, reaberto); "fechado" every closed one.
+    const statusSet = status === "aberto" ? ["aberto", "em_analise", "reaberto"] : status === "fechado" ? ["corrigido", "falso_positivo", "aceite"] : status === "resolvido" ? ["corrigido"] : status === "ignorado" ? ["falso_positivo"] : [status];
+    let sql = `SELECT f.*, c.name AS company_name, d.original_name, u.name AS assigned_name
+      FROM findings f JOIN companies c ON c.id = f.company_id LEFT JOIN documents d ON d.id = f.document_id LEFT JOIN users u ON u.id = f.assigned_to WHERE f.status IN (${statusSet.map(() => "?").join(",")})`;
+    const params: any[] = [...statusSet];
     if (companyId !== null) { sql += " AND f.company_id = ?"; params.push(companyId); }
     if (scope) { sql += " AND f.scope = ?"; params.push(scope); }
     // Clientes só vêem alertas que lhes dizem respeito (documentos), nunca os de balancete.
     if (req.user!.role === "client") sql += " AND f.scope = 'documento' AND f.severity != 'info'";
-    sql += " ORDER BY CASE f.severity WHEN 'erro' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END, f.created_at DESC LIMIT 300";
-    return res.json({ findings: db.prepare(sql).all(...params) });
+    if (String(req.query.learning ?? "") === "0") sql += " AND f.learning = 0";
+    sql += " ORDER BY CASE f.status WHEN 'reaberto' THEN 0 ELSE 1 END, CASE f.severity WHEN 'erro' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END, f.created_at DESC LIMIT 300";
+    return res.json({ findings: db.prepare(sql).all(...params), severity_labels: SEVERITY_LABEL });
   });
 
+  // Compatibilidade: resolvido → corrigido, ignorado → falso positivo (motivo 'outro_motivo').
   app.post("/api/findings/:id/resolve", auth, requireStaff, (req, res) => {
-    const body = z.object({ status: z.enum(["resolvido", "ignorado"]), note: z.string().optional() }).safeParse(req.body);
+    const body = z.object({ status: z.enum(["resolvido", "ignorado", "corrigido", "falso_positivo", "aceite"]), note: z.string().optional(), reason: z.string().optional() }).safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
-    const r = db
-      .prepare("UPDATE findings SET status = ?, resolved_by = ?, resolved_at = datetime('now'), resolution_note = ? WHERE id = ? AND status = 'aberto'")
-      .run(body.data.status, req.user!.id, body.data.note ?? null, Number(req.params.id));
-    if (r.changes === 0) return res.status(404).json({ error: "Alerta inexistente ou já fechado." });
-    audit(db, req.user!.id, "resolve_finding", "finding", Number(req.params.id), body.data.status);
-    return res.json({ status: body.data.status });
+    const map: Record<string, string> = { resolvido: "corrigido", ignorado: "falso_positivo" };
+    const status = (map[body.data.status] ?? body.data.status) as any;
+    try {
+      const f = transitionFinding(db, Number(req.params.id), { id: req.user!.id, profile: req.user!.profile ?? null }, { status, note: body.data.note ?? (status === "aceite" ? "Aceite pelo gabinete" : null), reason: body.data.reason ?? (status === "falso_positivo" ? "outro_motivo" : null) });
+      return res.json({ status: f.status });
+    } catch (e: any) { return res.status(/inexistente|já fechado/.test(e.message) ? 404 : 409).json({ error: e.message }); }
+  });
+
+  // Ciclo de vida completo: em_analise (atribuir), corrigido, falso_positivo (motivo), aceite (justificação, excepção reutilizável), reaberto.
+  app.post("/api/findings/:id/transition", auth, requireStaff, (req, res) => {
+    const body = z.object({
+      status: z.enum(["em_analise", "corrigido", "falso_positivo", "aceite", "reaberto"]),
+      note: z.string().max(2000).nullable().optional(), reason: z.string().max(60).nullable().optional(),
+      assignee_id: z.number().int().nullable().optional(), create_exception: z.boolean().optional(), exception_valid_until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
+    try {
+      const f = transitionFinding(db, Number(req.params.id), { id: req.user!.id, profile: req.user!.profile ?? null }, { status: body.data.status, note: body.data.note ?? null, reason: body.data.reason ?? null, assigneeId: body.data.assignee_id ?? null, createException: body.data.create_exception, exceptionValidUntil: body.data.exception_valid_until ?? null });
+      return res.json({ finding: f });
+    } catch (e: any) { return res.status(/inexistente/.test(e.message) ? 404 : 400).json({ error: e.message }); }
+  });
+
+  app.get("/api/findings/metrics", auth, requireStaff, (req, res) => {
+    const companyId = req.query.company_id ? Number(req.query.company_id) : null;
+    const from = typeof req.query.from === "string" && req.query.from ? req.query.from : null;
+    return res.json({ ...findingMetrics(db, companyId, from), targets: { precision: 85, fpRate: 10, avgDays: 3 } });
+  });
+
+  app.get("/api/findings/reasons", auth, requireStaff, (_req, res) => res.json({ reasons: listFpReasons(db, false) }));
+  app.put("/api/findings/reasons", auth, requireStaff, (req, res) => {
+    if (!["toc", "coordenador"].includes(req.user!.profile ?? "toc")) return res.status(403).json({ error: "Só o coordenador ou o TOC responsável alteram a lista de motivos." });
+    const body = z.object({ reasons: z.array(z.object({ code: z.string().regex(/^[a-z0-9_]{3,40}$/), label: z.string().min(3).max(160), active: z.boolean() })).min(1).max(20) }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos (código em minúsculas com sublinhados, rótulo, activo)." });
+    const tx = db.transaction(() => {
+      body.data.reasons.forEach((r, i) => db.prepare("INSERT INTO fp_reasons (code, label, active, sort_order) VALUES (?, ?, ?, ?) ON CONFLICT(code) DO UPDATE SET label = excluded.label, active = excluded.active, sort_order = excluded.sort_order").run(r.code, r.label, r.active ? 1 : 0, i));
+    });
+    tx();
+    audit(db, req.user!.id, "fp_reasons_update", "fp_reasons", null, JSON.stringify(body.data.reasons.map((r) => r.code)));
+    return res.json({ reasons: listFpReasons(db, false) });
+  });
+
+  app.get("/api/exceptions", auth, requireStaff, (req, res) => {
+    const companyId = req.query.company_id ? Number(req.query.company_id) : null;
+    const rows = db.prepare(`SELECT e.*, c.name AS company_name, u.name AS created_name FROM finding_exceptions e LEFT JOIN companies c ON c.id = e.company_id LEFT JOIN users u ON u.id = e.created_by ${companyId ? "WHERE e.company_id = ? OR e.company_id IS NULL" : ""} ORDER BY e.created_at DESC LIMIT 300`).all(...(companyId ? [companyId] : []));
+    return res.json({ exceptions: rows });
+  });
+  app.delete("/api/exceptions/:id", auth, requireStaff, (req, res) => {
+    const r = db.prepare("DELETE FROM finding_exceptions WHERE id = ?").run(Number(req.params.id));
+    if (!r.changes) return res.status(404).json({ error: "Excepção inexistente." });
+    audit(db, req.user!.id, "exception_delete", "finding_exception", Number(req.params.id));
+    return res.json({ ok: true });
+  });
+
+  // Parâmetros versionados (tolerâncias, limiares): só o TOC responsável cria versões novas.
+  app.get("/api/parameters", auth, requireStaff, (_req, res) => res.json({ definitions: PARAMETER_DEFS, versions: listParameters(db) }));
+  app.post("/api/parameters", auth, requireStaff, (req, res) => {
+    if ((req.user!.profile ?? "toc") !== "toc") return res.status(403).json({ error: "Só o TOC responsável altera parâmetros." });
+    const body = z.object({ key: z.string(), value: z.union([z.number(), z.string(), z.boolean()]), valid_from: z.string(), note: z.string().max(300).nullable().optional() }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
+    try { return res.status(201).json({ version: addParameterVersion(db, req.user!.id, body.data.key, body.data.value, body.data.valid_from, body.data.note ?? null) }); }
+    catch (e: any) { return res.status(400).json({ error: e.message }); }
   });
 
   app.post("/api/audit/documents/:id", auth, requireStaff, (req, res) => {
@@ -1331,16 +1403,16 @@ export function createServer({
 
   app.get("/api/companies/:id/efatura/notify", auth, requireStaff, (req, res) => {
     const companyId = companyScoped(req, res); if (companyId === null) return;
-    const draft = buildNotification(db, companyId, { period: typeof req.query.period === "string" && req.query.period ? req.query.period : null, appUrl: process.env.CONTAI_PUBLIC_URL || null });
+    const draft = buildNotification(db, companyId, { period: typeof req.query.period === "string" && req.query.period ? req.query.period : null, appUrl: process.env.CONTAI_PUBLIC_URL || null, includeValidated: String(req.query.include_validated ?? "") === "1" });
     const history = db.prepare("SELECT * FROM efatura_notifications WHERE company_id = ? ORDER BY id DESC LIMIT 10").all(companyId);
     return res.json({ ...draft, mail: { configured: !!(mailSender && mailSenderFrom()), from: mailSenderFrom() }, history });
   });
 
   app.post("/api/companies/:id/efatura/notify", auth, requireStaff, async (req, res) => {
     const companyId = companyScoped(req, res); if (companyId === null) return;
-    const parsed = z.object({ to: z.array(z.string().email()).max(20).optional(), cc: z.array(z.string().email()).max(10).optional(), period: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(), message: z.string().max(2000).nullable().optional() }).safeParse(req.body);
+    const parsed = z.object({ to: z.array(z.string().email()).max(20).optional(), cc: z.array(z.string().email()).max(10).optional(), period: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(), message: z.string().max(2000).nullable().optional(), include_validated: z.boolean().optional() }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Dados inválidos (destinatários têm de ser emails)." });
-    const draft = buildNotification(db, companyId, { period: parsed.data.period ?? null, message: parsed.data.message ?? null, appUrl: process.env.CONTAI_PUBLIC_URL || null });
+    const draft = buildNotification(db, companyId, { period: parsed.data.period ?? null, message: parsed.data.message ?? null, appUrl: process.env.CONTAI_PUBLIC_URL || null, includeValidated: parsed.data.include_validated === true });
     const to = parsed.data.to && parsed.data.to.length ? parsed.data.to : draft.to;
     if (!to.length) return res.status(400).json({ error: "A empresa não tem emails de cliente nem remetentes de email registados. Indique os destinatários." });
     const from = mailSenderFrom();

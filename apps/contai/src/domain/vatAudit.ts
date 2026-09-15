@@ -8,6 +8,8 @@ import { Db } from "../db.js";
 import { ExtractedData } from "./extraction.js";
 import { DocType } from "./classification.js";
 import { loadVatRules, ratesOn, Territory, VatBand, VatCategory } from "../knowledge/index.js";
+import { numberAt } from "./parameters.js";
+import { persistFindings } from "./exceptions.js";
 
 export type Severity = "info" | "aviso" | "erro";
 
@@ -52,6 +54,26 @@ export interface AuditContext {
   divergences?: string[];
   /** Number of distinct AT QR codes found in the file (>1 = several invoices in one PDF). */
   qrCount?: number;
+  /** Versioned tolerances (from the parameters table at the document date). */
+  tolerances?: { lineEur: number; documentEur: number; versions: string };
+}
+
+const DEFAULT_TOLERANCES = { lineEur: 0.01, documentEur: 0.01, versions: "defaults" };
+
+/**
+ * A1.01: the declared VAT matches base × rate within tolerance, accepting either rounding by
+ * document (round(base × rate)) or rounding by line (sum of round(line × rate)) because invoicing
+ * software differs. Lines are used only when their totals add up to the base.
+ */
+export function vatWithinTolerance(declared: number, base: number, rate: number, x: ExtractedData, tolerance: number): boolean {
+  const byDocument = round2((base * rate) / 100);
+  if (Math.abs(byDocument - declared) <= tolerance + 0.0001) return true;
+  const lines = (x.items ?? []).map((i) => (typeof i.lineTotal === "number" ? i.lineTotal : (typeof i.quantity === "number" && typeof i.unitPrice === "number" ? i.quantity * i.unitPrice : null))).filter((v): v is number => v !== null && isFinite(v));
+  if (lines.length && Math.abs(lines.reduce((a, b) => a + b, 0) - base) <= 0.05) {
+    const byLine = round2(lines.reduce((a, l) => a + round2((l * rate) / 100), 0));
+    if (Math.abs(byLine - declared) <= tolerance + 0.0001) return true;
+  }
+  return false;
 }
 
 /**
@@ -63,6 +85,7 @@ export function auditDocument(docType: DocType, x: ExtractedData, ctx: AuditCont
   if (!["factura_compra", "factura_venda", "nota_credito", "despesa", "recibo"].includes(docType)) return findings;
 
   const date = x.docDate ?? new Date().toISOString().slice(0, 10);
+  const tol = ctx.tolerances ?? DEFAULT_TOLERANCES;
   const rates = ratesOn(ctx.territory, date);
   const validRates = [rates.normal, rates.intermedia, rates.reduzida, 0];
 
@@ -116,7 +139,7 @@ export function auditDocument(docType: DocType, x: ExtractedData, ctx: AuditCont
   // 3. Coerência aritmética base + IVA = total
   if (x.netAmount !== null && x.vatAmount !== null && x.totalAmount !== null) {
     const diff = round2(x.netAmount + x.vatAmount - x.totalAmount);
-    if (Math.abs(diff) > 0.02) {
+    if (Math.abs(diff) > tol.documentEur + 0.0001) {
       findings.push({
         code: "TOTAL_INCOERENTE",
         severity: "erro",
@@ -136,7 +159,7 @@ export function auditDocument(docType: DocType, x: ExtractedData, ctx: AuditCont
       }
       if (b.rate > 0 && b.base > 0) {
         const expected = round2((b.base * b.rate) / 100);
-        if (Math.abs(expected - b.vat) > Math.max(0.02, b.base * 0.005)) {
+        if (!vatWithinTolerance(b.vat, b.base, b.rate, x, tol.lineEur)) {
           findings.push({
             code: "IVA_CALCULO",
             severity: "erro",
@@ -148,7 +171,7 @@ export function auditDocument(docType: DocType, x: ExtractedData, ctx: AuditCont
     }
     const sumBase = round2(breakdown.reduce((a, b) => a + b.base, 0));
     const sumVat = round2(breakdown.reduce((a, b) => a + b.vat, 0));
-    if (x.totalAmount !== null && Math.abs(sumBase + sumVat - x.totalAmount) > 0.02) {
+    if (x.totalAmount !== null && Math.abs(sumBase + sumVat - x.totalAmount) > tol.documentEur + 0.0001) {
       findings.push({
         code: "QR_INCOERENTE",
         severity: "erro",
@@ -169,8 +192,7 @@ export function auditDocument(docType: DocType, x: ExtractedData, ctx: AuditCont
   // 5. Valor do IVA vs taxa declarada
   if (x.vatRate !== null && x.netAmount !== null && x.vatAmount !== null && x.netAmount > 0) {
     const expected = round2((x.netAmount * x.vatRate) / 100);
-    const tolerance = Math.max(0.02, x.netAmount * 0.005);
-    if (Math.abs(expected - x.vatAmount) > tolerance) {
+    if (!vatWithinTolerance(x.vatAmount, x.netAmount, x.vatRate, x, tol.lineEur)) {
       findings.push({
         code: "IVA_CALCULO",
         severity: "erro",
@@ -249,16 +271,9 @@ export function auditDocument(docType: DocType, x: ExtractedData, ctx: AuditCont
   return findings;
 }
 
-/** Persists findings for a document, replacing previous open ones of the same run. */
-export function persistDocumentFindings(db: Db, companyId: number, documentId: number, findings: Finding[]): void {
-  const tx = db.transaction(() => {
-    db.prepare("DELETE FROM findings WHERE document_id = ? AND status = 'aberto'").run(documentId);
-    const ins = db.prepare(
-      "INSERT INTO findings (company_id, scope, document_id, code, severity, message, detail_json) VALUES (?, 'documento', ?, ?, ?, ?, ?)"
-    );
-    for (const f of findings) ins.run(companyId, documentId, f.code, f.severity, f.message, f.detail ? JSON.stringify(f.detail) : null);
-  });
-  tx();
+/** Persists findings for a document through the exception lifecycle (exceptions, reopen, learning). */
+export function persistDocumentFindings(db: Db, companyId: number, documentId: number, findings: Finding[], counterpartyNif: string | null = null, parametersVersion: string | null = null): void {
+  persistFindings(db, { companyId, scope: "documento", documentId, findings, counterpartyNif, parametersVersion });
 }
 
 /** Builds the audit context from what the company already has archived. */
@@ -279,7 +294,11 @@ export function buildAuditContext(db: Db, companyId: number, x: ExtractedData, e
     if (e.atcud) atcuds.add(e.atcud);
     if (other && e.nifs?.includes(other) && e.vatRate !== null && e.vatRate !== undefined) history.push(e.vatRate);
   }
-  return { territory, companyNif: company?.nif ?? "", counterpartyHistory: history, existingDocNumbers: existing, existingAtcuds: atcuds };
+  const date = x.docDate ?? new Date().toISOString().slice(0, 10);
+  const line = numberAt(db, "tolerancia_iva_linha_eur", date, 0.01);
+  const doc = numberAt(db, "tolerancia_total_documento_eur", date, 0.01);
+  const tolerances = { lineEur: line.value, documentEur: doc.value, versions: `tolerancia_iva_linha_eur#${line.versionId ?? "def"},tolerancia_total_documento_eur#${doc.versionId ?? "def"}` };
+  return { territory, companyNif: company?.nif ?? "", counterpartyHistory: history, existingDocNumbers: existing, existingAtcuds: atcuds, tolerances };
 }
 
 /** Runs the audit on one stored document and persists the findings. */
@@ -290,6 +309,6 @@ export function auditStoredDocument(db: Db, documentId: number): Finding[] {
   if (!x.items) x.items = [];
   const ctx = buildAuditContext(db, doc.company_id, x, documentId);
   const findings = auditDocument(doc.doc_type, x, ctx);
-  persistDocumentFindings(db, doc.company_id, documentId, findings);
+  persistDocumentFindings(db, doc.company_id, documentId, findings, x.nifs.find((n) => n !== ctx.companyNif) ?? null, ctx.tolerances?.versions ?? null);
   return findings;
 }

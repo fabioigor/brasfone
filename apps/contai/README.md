@@ -14,6 +14,10 @@ OneDrive (ou SharePoint) como arquivo de todos os documentos recebidos, em pasta
 
 Centros de custo por empresa escolhidos desde a digitalização (ecrã Digitalizar, formulário de Documentos, perguntas no WhatsApp) e aplicados às linhas do lançamento e à exportação; fornecedor desconhecido → pesquisa por NIF (VIES + pesquisa web por IA + nome no documento) com marcas e probabilidades, escolha humana, criação do fornecedor com centros de custo e aplicação aos lançamentos pendentes. Ver `docs/fornecedores.md`.
 
+## Conferência com ciclo de vida das excepções
+
+Alertas como excepções com estado (aberta, em análise, corrigida, falso positivo com motivo de lista fixa, aceite com excepção reutilizável, reaberta), severidades bloqueante/alerta/informativo, aprovação bloqueada sem justificação, indicadores do motor (precisão, falsos positivos, tempo de fecho) e parâmetros versionados com data de eficácia. Perfis contabilista/coordenador/TOC. Ver `docs/conferencia.md`.
+
 ## e-Fatura: conciliação e documentos em falta
 
 Importação da exportação do e-Fatura por empresa, conciliação automática com os documentos recebidos (ATCUD, número, data+total), pedidos automáticos ao cliente para os documentos em falta (cumpridos sozinhos quando o documento chega) e email ao cliente com validados e em falta pela Microsoft Graph. Ver `docs/efatura.md`.

@@ -12,6 +12,8 @@ export interface AuthUser {
   name: string;
   role: "staff" | "client";
   companyId: number | null;
+  /** Firm profile: contabilista | coordenador | toc (null for clients). */
+  profile?: string | null;
 }
 
 declare global {
@@ -70,7 +72,7 @@ export function authenticate(db: Db) {
     }
     try {
       const payload = jwt.verify(header.slice(7), JWT_SECRET) as any;
-      const row = db.prepare("SELECT id, email, name, role, company_id FROM users WHERE id = ?").get(payload.sub) as any;
+      const row = db.prepare("SELECT id, email, name, role, company_id, profile FROM users WHERE id = ?").get(payload.sub) as any;
       if (!row) return res.status(401).json({ error: "Utilizador desconhecido." });
       req.user = {
         id: row.id,
@@ -78,6 +80,7 @@ export function authenticate(db: Db) {
         name: row.name,
         role: row.role,
         companyId: row.company_id,
+        profile: row.profile ?? (row.role === "staff" ? "toc" : null),
       };
       next();
     } catch {

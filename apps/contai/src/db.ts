@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import { seedParameters } from "./domain/parameters.js";
+import { seedFpReasons } from "./domain/exceptions.js";
 
 export type Db = Database.Database;
 
@@ -237,6 +239,8 @@ export function openDb(dbPath: string): Db {
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
   migrate(db);
+  seedParameters(db);
+  seedFpReasons(db);
   return db;
 }
 
@@ -409,6 +413,83 @@ function migrate(db: Db): void {
     error TEXT,
     sent_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
+  // Ciclo de vida das excepções: estados, motivos fixos de falso positivo, excepções reutilizáveis, parâmetros versionados.
+  db.exec(`CREATE TABLE IF NOT EXISTS fp_reasons (code TEXT PRIMARY KEY, label TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS finding_exceptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER REFERENCES companies(id),
+    code TEXT NOT NULL,
+    scope_key TEXT NOT NULL,
+    justification TEXT NOT NULL,
+    valid_until TEXT,
+    created_by INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    reuse_count INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS parameters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    value_json TEXT NOT NULL,
+    valid_from TEXT NOT NULL,
+    valid_to TEXT,
+    note TEXT,
+    created_by INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_parameters_key ON parameters(key, valid_from)");
+  const findingCols = (db.prepare("PRAGMA table_info(findings)").all() as any[]).map((c) => c.name);
+  if (!findingCols.includes("fingerprint")) {
+    db.exec(`CREATE TABLE findings_v2 (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id INTEGER NOT NULL REFERENCES companies(id),
+      scope TEXT NOT NULL CHECK (scope IN ('documento', 'balancete', 'conhecimento')),
+      document_id INTEGER REFERENCES documents(id),
+      period TEXT,
+      code TEXT NOT NULL,
+      severity TEXT NOT NULL CHECK (severity IN ('info', 'aviso', 'erro')),
+      message TEXT NOT NULL,
+      detail_json TEXT,
+      status TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto', 'em_analise', 'corrigido', 'falso_positivo', 'aceite', 'reaberto')),
+      assigned_to INTEGER REFERENCES users(id),
+      assigned_at TEXT,
+      resolved_by INTEGER REFERENCES users(id),
+      resolved_at TEXT,
+      resolution_note TEXT,
+      fp_reason TEXT,
+      exception_id INTEGER,
+      fingerprint TEXT,
+      scope_key TEXT,
+      learning INTEGER NOT NULL DEFAULT 0,
+      reopened_count INTEGER NOT NULL DEFAULT 0,
+      parameters_version TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT
+    )`);
+    db.exec(`INSERT INTO findings_v2 (id, company_id, scope, document_id, period, code, severity, message, detail_json, status, resolved_by, resolved_at, resolution_note, fp_reason, fingerprint, created_at)
+             SELECT id, company_id, scope, document_id, period, code, severity, message, detail_json,
+                    CASE status WHEN 'resolvido' THEN 'corrigido' WHEN 'ignorado' THEN 'falso_positivo' ELSE status END,
+                    resolved_by, resolved_at, resolution_note, CASE status WHEN 'ignorado' THEN 'outro_motivo' ELSE NULL END,
+                    company_id || '|' || scope || '|' || code || '|' || COALESCE(document_id, '') || '|' || COALESCE(period, '') || '|', created_at
+             FROM findings`);
+    db.exec("DROP TABLE findings");
+    db.exec("ALTER TABLE findings_v2 RENAME TO findings");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_findings_company ON findings(company_id, status)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_findings_fingerprint ON findings(fingerprint)");
+  }
+  // Perfis de acesso do gabinete (contabilista, coordenador, toc) e carteira de empresas por contabilista.
+  const userCols = (db.prepare("PRAGMA table_info(users)").all() as any[]).map((c) => c.name);
+  if (!userCols.includes("profile")) {
+    db.exec("ALTER TABLE users ADD COLUMN profile TEXT");
+    db.exec("UPDATE users SET profile = 'toc' WHERE role = 'staff' AND email != 'canais@contai.local'");
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS company_assignments (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, company_id)
+  )`);
+  const compCols = (db.prepare("PRAGMA table_info(companies)").all() as any[]).map((c) => c.name);
+  if (!compCols.includes("learning_until")) db.exec("ALTER TABLE companies ADD COLUMN learning_until TEXT");
   db.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value_enc TEXT NOT NULL,

@@ -2,6 +2,13 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-15 — Excepções com estado, severidades, parâmetros versionados e perfis (reunião com a Lumarcont de 14/09)
+
+- **Decisão:** os alertas da conferência passam a excepções com ciclo de vida (aberta → em análise → corrigida | falso positivo | aceite; reaberta quando recorre), conforme a especificação de desenvolvimento acordada. Falso positivo exige motivo de uma lista fixa (8 propostos pela INUBIA, corrigíveis pela Lumarcont); aceite grava justificação reutilizável que aceita automaticamente alertas iguais. Severidades: bloqueante (aprovar exige justificação), alerta, informativo. Período de aprendizagem de 6 meses por cliente novo. Tolerâncias e limiares saem do código para a tabela `parameters` com data de eficácia, e cada conferência regista a versão usada. Perfis do gabinete: contabilista, coordenador, TOC responsável.
+- **Regra A1.01:** IVA por linha comparado com arredondamento por linha e por documento (±0,01 €), porque o software de facturação arredonda de formas diferentes; a tolerância anterior (0,02 € ou 0,5%) foi substituída.
+- **Email e-Fatura:** por decisão do Diogo na reunião, o email ao cliente lista só os documentos em falta por omissão; os validados são opcionais.
+- **Reversível por:** Fábio (product owner); motivos, limiares e perfis pela Lumarcont na app.
+
 ## 2026-09-14 — e-Fatura por ficheiro, conciliação automática, pedidos e email ao cliente
 
 - **Decisão:** integrar o e-Fatura pela exportação que o gabinete descarrega do Portal das Finanças (não há API pública da AT para listar documentos comunicados a um adquirente; não se faz scraping com credenciais do cliente). A conciliação com os documentos recebidos é determinística (ATCUD, NIF+número normalizado, NIF+data+total) e corre também sempre que chega um documento novo. Documentos em falta geram pedidos ao cliente automaticamente e cumprem-se sozinhos; o gabinete pode ignorar um comunicado. O email ao cliente (validados e em falta) sai pela Microsoft Graph com `Mail.Send` a partir da caixa do gabinete; sem 365, a app dá o texto para copiar.

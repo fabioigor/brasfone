@@ -7,6 +7,8 @@
 import { Db } from "../db.js";
 import { BalanceLine, sumPrefix, computeFinancials } from "./trialBalance.js";
 import { Finding } from "./vatAudit.js";
+import { persistFindings } from "./exceptions.js";
+import { numberAt } from "./parameters.js";
 
 export type RuleType = "saldo_sinal" | "variacao_percentual" | "variacao_absoluta" | "saldo_maximo" | "saldo_minimo" | "racio";
 
@@ -138,13 +140,21 @@ export function evaluateRules(rules: BalanceRule[], current: BalanceLine[], prev
   return out;
 }
 
+const VARIATION_CODES = new Set(["VARIACAO_ANOMALA", "RACIO_FORA_DO_PADRAO", "SALDO_FORA_DO_PADRAO", "EBITDA_NEGATIVO"]);
+
+/** True while the company is in its learning period (default 6 months after creation; overridable per company). */
+export function inLearningPeriod(db: Db, companyId: number, period: string): boolean {
+  const c = db.prepare("SELECT created_at, learning_until FROM companies WHERE id = ?").get(companyId) as any;
+  if (!c) return false;
+  const date = period.length === 7 ? period + "-28" : period + "-12-31";
+  if (c.learning_until) return date <= c.learning_until;
+  const months = numberAt(db, "periodo_aprendizagem_meses", date, 6).value;
+  const start = new Date(String(c.created_at).replace(" ", "T") + "Z");
+  const until = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + months, start.getUTCDate())).toISOString().slice(0, 10);
+  return date <= until;
+}
+
 export function persistBalanceFindings(db: Db, companyId: number, period: string, findings: Finding[]): void {
-  const tx = db.transaction(() => {
-    db.prepare("DELETE FROM findings WHERE company_id = ? AND scope = 'balancete' AND period = ? AND status = 'aberto'").run(companyId, period);
-    const ins = db.prepare(
-      "INSERT INTO findings (company_id, scope, period, code, severity, message, detail_json) VALUES (?, 'balancete', ?, ?, ?, ?, ?)"
-    );
-    for (const f of findings) ins.run(companyId, period, f.code, f.severity, f.message, f.detail ? JSON.stringify(f.detail) : null);
-  });
-  tx();
+  const learning = inLearningPeriod(db, companyId, period);
+  persistFindings(db, { companyId, scope: "balancete", period, findings, learningCodes: learning ? VARIATION_CODES : undefined });
 }

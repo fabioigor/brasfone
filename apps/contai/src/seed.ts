@@ -26,6 +26,7 @@ export function seedDemo(db: Db): void {
   );
   insertUser.run("gabinete@demo.pt", "Maria Contabilista", hashPassword("gabinete123"), "staff", null);
   insertUser.run("padaria@demo.pt", "Joao Padeiro", hashPassword("cliente123"), "client", c1);
+  db.prepare("UPDATE users SET profile = 'toc' WHERE role = 'staff' AND profile IS NULL").run();
   insertUser.run("tecnonorte@demo.pt", "Ana Silva", hashPassword("cliente123"), "client", c2);
 }
 
@@ -38,7 +39,7 @@ export function bootstrapAdmin(db: Db, email: string, password: string): "create
   const normalised = email.trim().toLowerCase();
   const exists = db.prepare("SELECT id FROM users WHERE email = ?").get(normalised);
   if (exists) return "exists";
-  db.prepare("INSERT INTO users (email, name, password_hash, role, company_id) VALUES (?, ?, ?, 'staff', NULL)")
+  db.prepare("INSERT INTO users (email, name, password_hash, role, company_id, profile) VALUES (?, ?, ?, 'staff', NULL, 'toc')")
     .run(normalised, "Administração", hashPassword(password));
   return "created";
 }
