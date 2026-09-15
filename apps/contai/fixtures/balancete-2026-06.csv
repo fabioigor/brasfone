@@ -1,0 +1,19 @@
+conta;descricao;debito;credito
+11;Caixa;1600,00;900,00
+12;Depositos a ordem;48500,00;41200,00
+211;Clientes;22400,00;19800,00
+221;Fornecedores;15200,00;18900,00
+2432;IVA dedutivel;2100,00;1800,00
+2433;IVA liquidado;900,00;2450,00
+25;Financiamentos obtidos;2000,00;14000,00
+32;Mercadorias;6100,00;2900,00
+43;Activos fixos tangiveis;38000,00;0,00
+51;Capital;0,00;25000,00
+56;Resultados transitados;0,00;8200,00
+61;CMVMC;13800,00;0,00
+62;Fornecimentos e servicos externos;7900,00;0,00
+63;Gastos com pessoal;11600,00;0,00
+64;Depreciacoes;1300,00;0,00
+69;Gastos de financiamento;350,00;0,00
+71;Vendas;0,00;31200,00
+72;Prestacoes de servicos;0,00;5400,00

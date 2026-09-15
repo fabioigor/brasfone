@@ -1,0 +1,20 @@
+From: Joao Padeiro <padaria@demo.pt>
+To: docs+1@contai.demo
+Subject: Factura fornecedor Julho
+Message-ID: <fixture-eml-001@demo.pt>
+Date: Wed, 15 Jul 2026 10:00:00 +0100
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="XYZ"
+
+--XYZ
+Content-Type: text/plain; charset=utf-8
+
+Segue a factura da Electro Fornecedora.
+
+--XYZ
+Content-Type: text/plain; name="factura-fornecedor.txt"
+Content-Disposition: attachment; filename="factura-fornecedor.txt"
+Content-Transfer-Encoding: base64
+
+RUxFQ1RSTyBGT1JORUNFRE9SQSBMREEKTklGOiA1MDE0NDI2MDAKUnVhIGRhcyBGbG9yZXMgMTIsIFBvcnRvCgpGQUNUVVJBIEZUIEEvMjAyNi0wMTQ3CkRhdGEgZGUgZW1pc3NhbzogMTUvMDcvMjAyNgoKQ2xpZW50ZTogUGFkYXJpYSBDZW50cmFsIExkYQpOSUY6IDUwNjI4NDQxNwoKRGVzY3JpY2FvICAgICAgICAgICAgICAgICAgICAgICAgICBRdGQgICAgUHJlY28KRmFyaW5oYSB0aXBvIDY1IChzYWNvIDI1a2cpICAgICAgICAgMTAgICAgMTgsNTAKTWFudXRlbmNhbyBmb3JubyBpbmR1c3RyaWFsICAgICAgICAgIDEgICAzNTAsMDAKCkluY2lkZW5jaWE6IDUzNSwwMApJVkEgKDIzJSk6IDEyMywwNQpUb3RhbCBhIHBhZ2FyOiA2NTgsMDUgRVVSCg==
+--XYZ--

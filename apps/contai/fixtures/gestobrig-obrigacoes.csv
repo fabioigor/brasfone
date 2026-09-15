@@ -1,0 +1,11 @@
+Entidade;NIF;Obrigação;Período;Data limite;Estado;Data de entrega;Responsável;Observações
+Padaria Central Lda;506284417;Declaração Periódica de IVA;2º Trimestre 2026;2026-08-20;Entregue;2026-08-18;Ana Silva;
+Padaria Central Lda;506284417;DMR - Declaração Mensal de Remunerações;2026-08;2026-09-10;Entregue;2026-09-12;Ana Silva;Entregue com atraso por falta de recibos
+Padaria Central Lda;506284417;SAF-T de facturação;2026-08;2026-09-05;Entregue;2026-09-04;Ana Silva;
+Padaria Central Lda;506284417;Declaração Periódica de IVA;3º Trimestre 2026;2026-11-20;Pendente;;Ana Silva;
+Padaria Central Lda;506284417;IES - Informação Empresarial Simplificada;2025;2026-07-15;Pendente;;Ana Silva;Aguarda aprovação de contas
+Padaria Central Lda;506284417;Renovação do certificado PME;2026;2026-09-30;Pendente;;Ana Silva;Aceitar no IAPMEI
+TecnoNorte Unipessoal Lda;509442013;Declaração Periódica de IVA;2026-07;2026-09-10;Entregue;2026-09-09;Rui Costa;
+TecnoNorte Unipessoal Lda;509442013;Modelo 22 - IRC;2025;2026-05-31;Justificada;;Rui Costa;Prazo prorrogado pela AT
+TecnoNorte Unipessoal Lda;509442013;Pagamento por conta IRC;2026;2026-09-15;Pendente;;Rui Costa;
+Empresa Inexistente SA;500000000;Declaração Periódica de IVA;2026-07;2026-09-10;Pendente;;Rui Costa;

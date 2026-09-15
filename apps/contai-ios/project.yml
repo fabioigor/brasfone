@@ -1,0 +1,71 @@
+# Projecto Xcode gerado com XcodeGen (brew install xcodegen && xcodegen generate).
+# App iOS "Cont.ai by Lumarcont": invólucro nativo (SwiftUI + WKWebView) da web app, com extensão de partilha.
+name: Contai
+options:
+  bundleIdPrefix: pt.lumarcont
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""          # preencher com o Team ID da conta Apple Developer da Lumarcont
+    MARKETING_VERSION: "0.5.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGN_STYLE: Automatic
+targets:
+  Contai:
+    type: application
+    platform: iOS
+    sources: [Contai]
+    dependencies:
+      - target: ContaiShare
+        embed: true
+    entitlements:
+      path: Contai/Contai.entitlements
+      properties:
+        com.apple.security.application-groups: [group.pt.lumarcont.contai]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: pt.lumarcont.contai
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    info:
+      path: Contai/Info.plist
+      properties:
+        CFBundleDisplayName: Cont.ai
+        CFBundleName: Cont.ai
+        ContaiAppURL: https://app.lumarcont.pt      # endereço da web app (substituir pelo domínio final)
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIViewControllerBasedStatusBarAppearance: true
+        NSCameraUsageDescription: A câmara é usada para fotografar facturas, recibos e outros documentos a enviar ao gabinete.
+        NSPhotoLibraryUsageDescription: A galeria é usada para escolher fotografias ou PDFs de documentos a enviar ao gabinete.
+        CFBundleURLTypes:
+          - CFBundleURLName: pt.lumarcont.contai
+            CFBundleURLSchemes: [contai]
+  ContaiShare:
+    type: app-extension
+    platform: iOS
+    sources: [ContaiShare]
+    entitlements:
+      path: ContaiShare/ContaiShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.pt.lumarcont.contai]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: pt.lumarcont.contai.share
+    info:
+      path: ContaiShare/Info.plist
+      properties:
+        CFBundleDisplayName: Enviar ao Cont.ai
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 20
+              NSExtensionActivationSupportsFileWithMaxCount: 20

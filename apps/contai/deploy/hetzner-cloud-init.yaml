@@ -1,0 +1,82 @@
+#cloud-config
+# Cont.ai by Lumarcont - provisionamento de um servidor Hetzner Cloud (Ubuntu 24.04).
+# Instala Docker, endurece o acesso (ufw, fail2ban, actualizacoes automaticas),
+# clona o repositorio, escreve o .env com os segredos e arranca a app com Caddy.
+# Os marcadores __X__ sao substituidos por deploy/hetzner-create.sh.
+package_update: true
+package_upgrade: false
+packages: [ca-certificates, curl, git, cron, ufw, fail2ban, unattended-upgrades, docker.io, docker-compose-v2]
+users:
+  - name: contai
+    groups: [sudo]
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ALL=(ALL) NOPASSWD:ALL
+__ADMIN_KEYS__
+write_files:
+  - path: /opt/contai.env
+    permissions: "0600"
+    content: |
+__ENV_INDENTED__
+  - path: /usr/local/bin/contai-update
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Wrapper fino: a logica de actualizacao vive no repositorio (apps/contai/deploy/update.sh).
+      exec bash /home/contai/brasfone/apps/contai/deploy/update.sh "$@"
+  - path: /usr/local/bin/contai-autoupdate
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Wrapper fino: a logica vive no repositorio (apps/contai/deploy/autoupdate.sh), actualizavel por git.
+      exec bash /home/contai/brasfone/apps/contai/deploy/autoupdate.sh "$@"
+  - path: /etc/systemd/system/contai-autoupdate.service
+    content: |
+      [Unit]
+      Description=Cont.ai: aplicar commits novos do ramo (git pull + rebuild)
+      After=network-online.target docker.service
+      Wants=network-online.target
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/contai-autoupdate
+      TimeoutStartSec=30min
+  - path: /etc/systemd/system/contai-autoupdate.timer
+    content: |
+      [Unit]
+      Description=Cont.ai: verificar o ramo de 5 em 5 minutos
+      [Timer]
+      OnBootSec=3min
+      OnUnitActiveSec=5min
+      RandomizedDelaySec=30s
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+  - path: /usr/local/bin/contai-backup
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Copia consistente da base de dados SQLite e do arquivo para /var/backups/contai (7 dias).
+      set -euo pipefail
+      D=/var/backups/contai/$(date +%F); mkdir -p "$D"
+      docker run --rm -v contai_contai-data:/data -v "$D":/out alpine sh -c "apk add -q sqlite && sqlite3 /data/contai.db \".backup /out/contai.db\" && tar czf /out/arquivo.tgz -C /data arquivo"
+      find /var/backups/contai -maxdepth 1 -mtime +7 -type d -exec rm -rf {} +
+  - path: /etc/cron.d/contai-backup
+    content: |
+      30 2 * * * root /usr/local/bin/contai-backup >> /var/log/contai-backup.log 2>&1
+  - path: /etc/contai-domain
+    content: |
+      __DOMAIN__
+runcmd:
+  - systemctl enable --now docker
+  - usermod -aG docker contai
+  - ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
+  - systemctl enable --now fail2ban
+  # Clonar como root e entregar ao utilizador: 'sudo -u contai' falha no primeiro arranque (palavra-passe expirada pelo cloud-init).
+  - git clone --branch __BRANCH__ --depth 1 https://github.com/__REPO__.git /home/contai/brasfone && chown -R contai:contai /home/contai/brasfone
+  - install -o contai -g contai -m 0600 /opt/contai.env /home/contai/brasfone/apps/contai/.env
+  - mkdir -p /var/lib/contai/config && chown 1000:1000 /var/lib/contai/config && ( [ -n "__DOMAIN__" ] && printf '%s\n' "__DOMAIN__" > /var/lib/contai/config/domain || true ) && chown 1000:1000 /var/lib/contai/config/domain 2>/dev/null || true
+  - mkdir -p /var/log/contai && cd /home/contai/brasfone && printf '{"commit":"%s","branch":"%s","updatedAt":"%s"}\n' "$(runuser -u contai -- git rev-parse --short HEAD)" "$(runuser -u contai -- git rev-parse --abbrev-ref HEAD)" "$(date -Is)" > /var/log/contai/deploy.json
+  - docker --version >> /var/log/contai-compose.log; docker compose version >> /var/log/contai-compose.log
+  - cd /home/contai/brasfone/apps/contai && (CONTAI_DOMAIN="__DOMAIN__" docker compose -f docker-compose.vps.yml up -d --build >> /var/log/contai-compose.log 2>&1 || echo "COMPOSE FALHOU $(date -Is)" >> /var/log/contai-compose.log)
+  - for i in $(seq 1 36); do curl -sf -o /dev/null http://127.0.0.1/health && break; sleep 5; done; if curl -sf -o /dev/null http://127.0.0.1/health; then echo "contai pronto $(date -Is)" > /var/log/contai-ready; else cd /home/contai/brasfone/apps/contai && docker compose -f docker-compose.vps.yml ps -a > /var/log/contai-docker.log 2>&1; docker compose -f docker-compose.vps.yml logs --no-color --tail 200 >> /var/log/contai-docker.log 2>&1; docker compose -f docker-compose.vps.yml down >> /var/log/contai-docker.log 2>&1; echo "APP NAO SAUDAVEL $(date -Is), contentores desligados para diagnostico" > /var/log/contai-ready; fi
+  - systemctl daemon-reload && systemctl enable --now contai-autoupdate.timer

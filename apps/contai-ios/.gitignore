@@ -1,0 +1,7 @@
+# Gerado pelo XcodeGen / Xcode
+Contai.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+build/
+*.ipa

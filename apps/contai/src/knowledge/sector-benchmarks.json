@@ -1,0 +1,50 @@
+{
+  "version": "2026.09",
+  "last_verified": "2026-09-12",
+  "disclaimer": "Valores de referência indicativos por sector, derivados de ordens de grandeza típicas dos Quadros do Setor (Central de Balanços, Banco de Portugal). Devem ser actualizados a partir do BPstat (API oficial) antes de uso em relatórios finais a clientes.",
+  "source": "Banco de Portugal - Quadros do Setor / Central de Balanços (BPstat, https://bpstat.bportugal.pt/data/docs)",
+  "sectors": [
+    {
+      "key": "restauracao_alimentar",
+      "label": "Restauração, padaria e pastelaria",
+      "cae_prefixes": ["107", "56"],
+      "ratios": { "margem_ebitda": 9.5, "margem_liquida": 3.0, "autonomia_financeira": 28.0, "liquidez_geral": 1.05, "peso_pessoal": 32.0, "peso_fse": 22.0, "peso_cmvmc": 34.0, "prazo_medio_recebimento": 8 },
+      "narrative": "Sector de margens estreitas e elevada intensidade de pessoal, muito sensível a custos de matérias-primas e energia."
+    },
+    {
+      "key": "comercio_retalho",
+      "label": "Comércio a retalho",
+      "cae_prefixes": ["47"],
+      "ratios": { "margem_ebitda": 6.0, "margem_liquida": 2.0, "autonomia_financeira": 32.0, "liquidez_geral": 1.3, "peso_pessoal": 12.0, "peso_fse": 14.0, "peso_cmvmc": 68.0, "prazo_medio_recebimento": 15 },
+      "narrative": "Sector com forte peso do custo das mercadorias vendidas; a rotação de existências e a gestão de margem comercial são os factores críticos."
+    },
+    {
+      "key": "servicos_ti",
+      "label": "Consultoria e serviços de tecnologias de informação",
+      "cae_prefixes": ["62", "63", "70", "71", "73", "74"],
+      "ratios": { "margem_ebitda": 16.0, "margem_liquida": 9.0, "autonomia_financeira": 45.0, "liquidez_geral": 1.8, "peso_pessoal": 48.0, "peso_fse": 25.0, "peso_cmvmc": 3.0, "prazo_medio_recebimento": 65 },
+      "narrative": "Sector de capital humano intensivo, com margens elevadas mas prazos de recebimento longos e dependência de poucos clientes."
+    },
+    {
+      "key": "construcao",
+      "label": "Construção e actividades imobiliárias",
+      "cae_prefixes": ["41", "42", "43", "68"],
+      "ratios": { "margem_ebitda": 10.0, "margem_liquida": 4.5, "autonomia_financeira": 30.0, "liquidez_geral": 1.4, "peso_pessoal": 22.0, "peso_fse": 40.0, "peso_cmvmc": 30.0, "prazo_medio_recebimento": 90 },
+      "narrative": "Sector cíclico, com elevada subcontratação (FSE) e ciclos de tesouraria longos ligados a autos de medição."
+    },
+    {
+      "key": "industria",
+      "label": "Indústria transformadora",
+      "cae_prefixes": ["10", "11", "13", "14", "15", "16", "17", "20", "22", "23", "24", "25", "26", "27", "28", "29", "31", "32"],
+      "ratios": { "margem_ebitda": 11.0, "margem_liquida": 5.0, "autonomia_financeira": 40.0, "liquidez_geral": 1.5, "peso_pessoal": 20.0, "peso_fse": 18.0, "peso_cmvmc": 52.0, "prazo_medio_recebimento": 60 },
+      "narrative": "Sector de capital intensivo, em que a produtividade, o custo energético e a exposição à exportação determinam a rendibilidade."
+    },
+    {
+      "key": "transportes_logistica",
+      "label": "Transportes e logística",
+      "cae_prefixes": ["49", "50", "51", "52", "53"],
+      "ratios": { "margem_ebitda": 12.0, "margem_liquida": 3.5, "autonomia_financeira": 27.0, "liquidez_geral": 1.1, "peso_pessoal": 28.0, "peso_fse": 45.0, "peso_cmvmc": 5.0, "prazo_medio_recebimento": 55 },
+      "narrative": "Sector com forte peso de combustíveis e subcontratação, margens líquidas finas e elevado endividamento associado à frota."
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "1234567890",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": { "display_phone_number": "351210000000", "phone_number_id": "PHONE123" },
+            "contacts": [{ "profile": { "name": "Joao Padeiro" }, "wa_id": "351912345678" }],
+            "messages": [
+              {
+                "from": "351912345678",
+                "id": "wamid.FIXTURE001",
+                "timestamp": "1789000000",
+                "type": "image",
+                "image": { "id": "MEDIA-IMG-1", "mime_type": "image/png", "sha256": "x", "caption": "Factura do fornecedor" }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

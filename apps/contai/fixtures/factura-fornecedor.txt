@@ -1,0 +1,17 @@
+ELECTRO FORNECEDORA LDA
+NIF: 501442600
+Rua das Flores 12, Porto
+
+FACTURA FT A/2026-0147
+Data de emissao: 15/07/2026
+
+Cliente: Padaria Central Lda
+NIF: 506284417
+
+Descricao                          Qtd    Preco
+Farinha tipo 65 (saco 25kg)         10    18,50
+Manutencao forno industrial          1   350,00
+
+Incidencia: 535,00
+IVA (23%): 123,05
+Total a pagar: 658,05 EUR

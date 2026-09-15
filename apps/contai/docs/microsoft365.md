@@ -1,0 +1,45 @@
+# Microsoft 365: OneDrive como arquivo e caixa de email com autenticação da aplicação
+
+## O que faz
+
+- **Arquivo no OneDrive/SharePoint:** cada documento recebido (portal, telemóvel, email, WhatsApp) é copiado, em segundo plano e de forma idempotente, para o OneDrive da Lumarcont em `Cont.ai / Empresa (NIF) / Ano / Mês / Tipo de documento / <id>-<nome original>`. O documento mostra a ligação "OneDrive" em Documentos; erros ficam registados e repetem-se até 5 vezes (botão "Repetir os com erro" em Integrações).
+- **Email com autenticação Microsoft 365:** a caixa de recepção (ex.: `documentos@lumarcont.pt`) é lida pela Graph API com a identidade da aplicação, sem guardar a palavra-passe da caixa e sem IMAP. Mensagens por ler com anexos entram no mesmo fluxo dos outros canais (remetentes autorizados por empresa); depois ficam marcadas como lidas com a categoria "Cont.ai". Anexos inline (assinaturas, logótipos) são ignorados.
+
+## Registo da aplicação no Entra ID (uma vez, 10 minutos, com conta de administrador do 365)
+
+1. https://entra.microsoft.com > Identidade > Aplicações > **Registos de aplicações** > Novo registo. Nome "Cont.ai by Lumarcont", tipos de conta "apenas este directório". Sem URI de redireccionamento.
+2. Na página da aplicação, copiar **ID da aplicação (cliente)** e **ID do directório (inquilino)**.
+3. **Certificados e segredos** > Novo segredo do cliente (validade 24 meses). Copiar o **valor** já (só aparece uma vez) e anotar a data de expiração.
+4. **Permissões de API** > Adicionar > Microsoft Graph > **Permissões de aplicação**: `Files.ReadWrite.All` (OneDrive), `Mail.ReadWrite` (caixa de email) e `Mail.Send` (email ao cliente com os documentos validados e em falta do e-Fatura). Depois **Conceder consentimento de administrador**.
+5. Recomendado, para limitar o acesso do email a uma só caixa: no Exchange Online PowerShell,
+   `New-ApplicationAccessPolicy -AppId <client id> -PolicyScopeGroupId documentos@lumarcont.pt -AccessRight RestrictAccess -Description "Cont.ai"`.
+   Sem esta política a permissão `Mail.ReadWrite` abrange todas as caixas do inquilino.
+6. Criar (se não existir) a caixa `documentos@lumarcont.pt` (caixa partilhada serve e não gasta licença) e garantir que a conta dona do OneDrive tem licença com OneDrive.
+
+## Configurar no Cont.ai
+
+Configuração > Integrações:
+
+- **Microsoft 365 (OneDrive como arquivo):** Tenant ID, Client ID, Client secret, OneDrive do utilizador (email da conta cuja drive recebe os ficheiros) ou, em alternativa, ID de um site SharePoint; pasta raiz (por omissão `Cont.ai`). **Testar com os valores acima** confirma o acesso à drive e mostra a quota.
+- **Recepção por email:** Caixa de correio Microsoft 365 (o email da caixa), pasta (`inbox`) e intervalo. O teste mostra o número de mensagens e de não lidas. Quando a caixa 365 está definida, o IMAP é ignorado.
+- Guardar reinicia a app; o arquivo começa a sincronizar os documentos já existentes (20 por minuto) e a caixa passa a ser lida no intervalo definido.
+
+## Pastas por centro de custo (regra OneDrive ↔ centro de custo)
+
+- Ao criar um centro de custo em Empresas > Centros de custo (ou no formulário de fornecedor), a app cria no OneDrive a pasta `Cont.ai / Empresa (NIF) / Centros de custo / CÓDIGO - Nome` e a subpasta `A receber`. A pasta fica registada no centro de custo (id, caminho, ligação); se a criação falhar, repete-se no ciclo seguinte (até 5 tentativas) e Integrações mostra quantos centros estão por criar.
+- **Arquivo:** um documento com centro de custo é arquivado dentro da pasta do centro (`.../CÓDIGO - Nome/AAAA/MM/Tipo/<id>-<nome>`); sem centro, no caminho habitual da empresa.
+- **Recepção pela pasta:** de minuto a minuto a app lê a subpasta `A receber` de cada centro de custo activo. Cada ficheiro suportado (PDF, imagens, TXT, CSV, XML) entra na app com esse centro de custo (mesmo pipeline do portal, uploader "Recepção automática"), é arquivado na pasta do centro e removido de `A receber`. Ficheiros não suportados ficam ignorados; erros ficam registados (`onedrive_intake`) e repetem-se até 3 vezes. Cada entrada fica no `audit_log` (`onedrive_intake`).
+- Permissão necessária: a mesma `Files.ReadWrite.All`.
+
+## Segurança
+
+- Segredos cifrados na base de dados (AES-256-GCM); nunca voltam ao browser em claro.
+- A aplicação só escreve na pasta raiz configurada; não apaga nada no OneDrive. Os nomes de ficheiro incluem o id do documento, por isso reenviar nunca duplica (substitui).
+- Cada upload fica no audit log (`onedrive_upload`) com o caminho; os testes de credenciais ficam no audit log sem valores.
+- Renovar o client secret antes de expirar: basta colar o novo em Integrações.
+
+## Limitações desta iteração
+
+- A leitura inversa limita-se às subpastas "A receber" dos centros de custo; alterações feitas directamente no arquivo não voltam à app.
+- Ficheiros acima de 4 MB seguem por sessão de upload em blocos de 5 MiB; acima de 250 GB não é suportado pela Graph.
+- A app envia email apenas no fluxo e-Fatura (validados e em falta), a partir da caixa configurada; confirmações automáticas ao remetente de email ficam para uma iteração seguinte.

@@ -1,0 +1,8 @@
+# Chave de assinatura e artefactos gerados pelo Bubblewrap: nunca no repositorio.
+android.keystore
+*.apk
+*.aab
+app/
+gradle/
+build/
+.gradle/

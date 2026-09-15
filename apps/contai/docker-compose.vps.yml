@@ -1,0 +1,38 @@
+# Cont.ai by Lumarcont - VPS europeu (Hetzner/Scaleway/OVH) com TLS automatico via Caddy.
+# Requer: DNS A do dominio a apontar para o VPS; variavel CONTAI_DOMAIN no ambiente da shell.
+services:
+  contai:
+    build: .
+    env_file: .env
+    environment:
+      - PORT=3000
+      - CONTAI_SYSTEM_LOG_DIR=/var/log/contai
+      - CONTAI_CONFIG_DIR=/config
+    volumes:
+      - contai-data:/data
+      # Configuracao escrita pela app e lida pelo host (dominio para o Caddy). update.sh garante a pasta e o dono.
+      - /var/lib/contai/config:/config
+      # Registo das actualizacoes automaticas, mostrado em Integracoes > Sistema (so leitura).
+      - /var/log/contai:/var/log/contai:ro
+    restart: unless-stopped
+    expose:
+      - "3000"
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Vazio ou indefinido -> ":80" (HTTP por IP). O Caddy so aplica o valor por omissao a variaveis inexistentes, nao a vazias.
+      - CONTAI_DOMAIN=${CONTAI_DOMAIN:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - contai
+volumes:
+  contai-data:
+  caddy-data:
+  caddy-config:

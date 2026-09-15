@@ -1,0 +1,17 @@
+PADARIA CENTRAL LDA
+NIF: 506284417
+Av. da Republica 45, Lisboa
+
+FACTURA FT 2026/312
+Data: 2026-07-20
+
+Cliente: Restaurante O Forno Lda
+NIF: 504426290
+
+Descricao                          Qtd    Preco
+Pao de forma (un)                  200     1,10
+Broa de milho (un)                  80     1,75
+
+Base tributavel: 360,00
+IVA (6%): 21,60
+Total: 381,60 EUR
