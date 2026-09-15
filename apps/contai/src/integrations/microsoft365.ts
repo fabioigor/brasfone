@@ -170,10 +170,11 @@ export class Microsoft365Files {
   }
 
   /** Sends an email from a mailbox with application permission Mail.Send. */
-  async sendMail(from: string, msg: { to: string[]; cc?: string[]; subject: string; html: string; text?: string }): Promise<void> {
+  async sendMail(from: string, msg: { to: string[]; cc?: string[]; subject: string; html: string; text?: string; attachments?: { name: string; contentType: string; bytes: Buffer }[] }): Promise<void> {
     const rcpt = (a: string) => ({ emailAddress: { address: a } });
+    const attachments = (msg.attachments ?? []).map((a) => ({ "@odata.type": "#microsoft.graph.fileAttachment", name: a.name, contentType: a.contentType, contentBytes: a.bytes.toString("base64") }));
     const res = await this.client.graph("POST", `/users/${encodeURIComponent(from)}/sendMail`, {
-      body: JSON.stringify({ message: { subject: msg.subject, body: { contentType: "HTML", content: msg.html }, toRecipients: msg.to.map(rcpt), ccRecipients: (msg.cc ?? []).map(rcpt) }, saveToSentItems: true }),
+      body: JSON.stringify({ message: { subject: msg.subject, body: { contentType: "HTML", content: msg.html }, toRecipients: msg.to.map(rcpt), ccRecipients: (msg.cc ?? []).map(rcpt), ...(attachments.length ? { attachments } : {}) }, saveToSentItems: true }),
       headers: { "content-type": "application/json" },
     });
     if (!res.ok && res.status !== 202) { const j: any = await res.json().catch(() => ({})); throw new Microsoft365Error(`Envio de email recusado (HTTP ${res.status}): ${j?.error?.message || "sem detalhe"}`.slice(0, 300), res.status); }

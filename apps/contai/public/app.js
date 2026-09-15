@@ -1520,17 +1520,15 @@ async function viewBalances(main) {
         } catch (e) { toast(e.message, true); }
       });
       const reportBtn = el("button", { class: "btn small" }, "Gerar relatório");
-      reportBtn.addEventListener("click", async () => {
-        try {
-          const out = await api("/api/reports/" + c.id, { method: "POST", json: { period: b.period } });
-          toast("Relatório gerado: " + out.summary.slice(0, 80));
-          location.hash = "#relatorios";
-        } catch (e) { toast(e.message, true); }
-      });
-      tbody.append(el("tr", {}, [el("td", {}, b.period), el("td", {}, b.source), el("td", {}, b.created_at), el("td", {}, [checkBtn, " ", reportBtn])]));
+      reportBtn.addEventListener("click", () => reportSectionsModal(c.id, b.period));
+      const pubBtn = el("button", { class: "btn small " + (b.published_at ? "" : "primary") }, b.published_at ? "Retirar do cliente" : "Disponibilizar ao cliente");
+      pubBtn.addEventListener("click", async () => { try { await api("/api/balances/" + c.id + "/" + b.period + "/publish", { method: "POST", json: { published: !b.published_at } }); toast(b.published_at ? "Balancete retirado da área do cliente." : "Balancete disponível na área do cliente."); render(); } catch (e) { toast(e.message, true); } });
+      const csvBtn = el("button", { class: "btn small", onclick: () => downloadAuth("/api/balances/" + c.id + "/" + b.period + "/csv", "balancete-" + b.period + ".csv") }, "CSV");
+      const mailBtn = el("button", { class: "btn small", onclick: () => sendBalanceModal(c.id, b.period) }, "Enviar por email");
+      tbody.append(el("tr", {}, [el("td", {}, b.period), el("td", {}, b.source), el("td", {}, [b.published_at ? el("span", { class: "badge ok", title: "Disponível ao cliente desde " + new Date(b.published_at).toLocaleDateString("pt-PT") + (b.published_name ? " por " + b.published_name : "") }, "disponível ao cliente") : el("span", { class: "badge muted" }, "só gabinete")]), el("td", {}, el("div", { class: "actions", style: "flex-wrap:wrap" }, [checkBtn, reportBtn, pubBtn, csvBtn, mailBtn]))]));
     }
-    main.append(el("div", { class: "card table-wrap" }, [el("h2", {}, c.name), el("table", {}, [
-      el("thead", {}, el("tr", {}, [el("th", {}, "Período"), el("th", {}, "Origem"), el("th", {}, "Importado em"), el("th", {}, "")])), tbody,
+    main.append(el("div", { class: "card table-wrap" }, [el("h2", {}, c.name), el("p", { class: "muted small" }, "O cliente só vê os balancetes que o gabinete disponibilizar (evita tirar um mês por fechar)."), el("table", {}, [
+      el("thead", {}, el("tr", {}, [el("th", {}, "Período"), el("th", {}, "Origem"), el("th", {}, "Cliente"), el("th", {}, "")])), tbody,
     ])]));
   }
 
@@ -1593,12 +1591,119 @@ async function viewBalances(main) {
   ])));
 }
 
+/** Download de um ficheiro autenticado (o browser nao envia o token em links simples). */
+async function downloadAuth(url, filename) {
+  try {
+    const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+    if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || "Erro ao descarregar."); }
+    const blob = await res.blob(); const a = el("a", { href: URL.createObjectURL(blob), download: filename }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  } catch (e) { toast(e.message, true); }
+}
+
+function sendBalanceModal(companyId, period) {
+  const to = el("input", { value: user.email, placeholder: "email1@..., email2@..." });
+  const msg = el("textarea", { rows: "2", placeholder: "Mensagem (opcional)" });
+  const btn = el("button", { class: "btn primary", type: "button" }, "Enviar");
+  const close = openModal("Enviar balancete " + period + " por email", el("div", { class: "stack" }, [el("p", { class: "muted small" }, "O balancete segue em anexo (CSV) com um resumo dos indicadores. Por omissão vai para o seu email; útil quando está no banco."), el("label", {}, ["Para", to]), el("label", {}, ["Mensagem", msg]), el("div", { class: "form-row" }, [btn])]));
+  btn.addEventListener("click", async () => { btn.disabled = true; try { const r = await api("/api/balances/" + companyId + "/" + period + "/send", { method: "POST", json: { to: to.value.split(",").map((x) => x.trim()).filter(Boolean), message: msg.value || undefined } }); toast("Enviado para " + r.to.join(", ")); close(); } catch (e) { toast(e.message, true); btn.disabled = false; } });
+}
+
+/** Escolha dos blocos do relatorio (os fixos entram sempre). */
+async function reportSectionsModal(companyId, period) {
+  const blocks = [
+    ["semaforo", "Semáforo de saúde (6 indicadores)"], ["actividade", "Actividade: vendas, margem e resultado"], ["gastos", "Estrutura de gastos"], ["tesouraria", "Tesouraria e prazos médios"], ["sector", "Posição face ao sector"],
+  ];
+  const checks = blocks.map(([id, label]) => { const cb = el("input", { type: "checkbox", value: id }); cb.checked = true; return { cb, row: el("label", { class: "small", style: "flex-direction:row;align-items:center;gap:8px" }, [cb, " ", label]) }; });
+  const polish = el("input", { type: "checkbox" });
+  const btn = el("button", { class: "btn primary", type: "button" }, "Gerar relatório");
+  const close = openModal("Relatório financeiro · " + period, el("div", { class: "stack" }, [
+    el("p", { class: "muted small" }, "Capa, memória descritiva, alertas e obrigações, três recomendações e anexo metodológico entram sempre. Escolha os blocos variáveis. O relatório só fica visível ao cliente depois de aprovado por um contabilista."),
+    ...checks.map((c) => c.row),
+    el("label", { class: "small", style: "flex-direction:row;align-items:center;gap:8px" }, [polish, " Polir a memória descritiva com IA (os números não mudam)"]),
+    el("div", { class: "form-row" }, [btn]),
+  ]));
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try { const out = await api("/api/reports/" + companyId, { method: "POST", json: { period, sections: checks.filter((c) => c.cb.checked).map((c) => c.cb.value), polish: polish.checked } }); toast("Relatório gerado (por aprovar): " + out.summary.slice(0, 80)); close(); location.hash = "#relatorios"; }
+    catch (e) { toast(e.message, true); btn.disabled = false; }
+  });
+}
+
+async function editRecommendationsModal(report) {
+  const r = await api("/api/reports/" + report.id);
+  const recs = (r.data.recommendations || []).slice(0, 3); while (recs.length < 3) recs.push({ title: "", text: "", basis: "contabilista" });
+  const fields = recs.map((rec) => ({ title: el("input", { value: rec.title, placeholder: "Título" }), text: el("textarea", { rows: "2" }), basis: rec.basis }));
+  fields.forEach((f, i) => { f.text.value = recs[i].text; });
+  const btn = el("button", { class: "btn primary", type: "button" }, "Guardar recomendações");
+  const close = openModal("Recomendações · " + report.title, el("div", { class: "stack" }, [el("p", { class: "muted small" }, "Três recomendações concretas, em linguagem de negócio. Editáveis até à aprovação; o texto explica, não calcula."), ...fields.map((f, i) => el("div", { class: "card flat" }, [el("strong", {}, "Recomendação " + (i + 1)), f.title, f.text, el("div", { class: "muted small" }, "Base: " + f.basis)])), el("div", { class: "form-row" }, [btn])]));
+  btn.addEventListener("click", async () => {
+    const list = fields.map((f) => ({ title: f.title.value.trim(), text: f.text.value.trim(), basis: f.basis })).filter((x) => x.title && x.text);
+    if (!list.length) { toast("Indique pelo menos uma recomendação.", true); return; }
+    try { await api("/api/reports/" + report.id, { method: "PATCH", json: { recommendations: list } }); toast("Recomendações guardadas."); close(); render(); } catch (e) { toast(e.message, true); }
+  });
+}
+
+/* ---------- Balancetes (area do cliente) ---------- */
+
+async function viewClientBalances(main) {
+  main.append(el("h2", {}, "Os meus balancetes"));
+  main.append(el("p", { class: "muted" }, "Balancetes disponibilizados pelo gabinete. Descarregue em CSV ou envie por email (por exemplo, quando está no banco)."));
+  const c = companies[0]; if (!c) return;
+  const list = (await api("/api/balances/" + c.id)).balances;
+  if (!list.length) { main.append(el("div", { class: "card muted" }, "Ainda não há balancetes disponibilizados. Fale com o gabinete.")); return; }
+  const tbody = el("tbody");
+  for (const b of list) {
+    tbody.append(el("tr", {}, [el("td", {}, b.period), el("td", {}, b.published_at ? new Date(b.published_at).toLocaleDateString("pt-PT") : ""), el("td", {}, el("div", { class: "actions" }, [
+      el("button", { class: "btn small", onclick: async () => { try { const d = await api("/api/balances/" + c.id + "/" + b.period); openModal("Balancete " + b.period, el("div", { class: "table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Conta"), el("th", {}, "Descrição"), el("th", { class: "num" }, "Saldo")])), el("tbody", {}, d.lines.map((l) => el("tr", {}, [el("td", {}, l.account), el("td", {}, l.description || ""), el("td", { class: "num" }, fmtEur(l.balance))])))])), { wide: true }); } catch (e) { toast(e.message, true); } } }, "Ver"),
+      el("button", { class: "btn small", onclick: () => downloadAuth("/api/balances/" + c.id + "/" + b.period + "/csv", "balancete-" + b.period + ".csv") }, "CSV"),
+      el("button", { class: "btn small primary", onclick: () => sendBalanceModal(c.id, b.period) }, "Enviar por email"),
+    ]))]));
+  }
+  main.append(el("div", { class: "card table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Período"), el("th", {}, "Disponível desde"), el("th", {}, "")])), tbody])));
+}
+
+/* ---------- Base legal ---------- */
+
+const LEGAL_TYPE_LABEL = { diario_republica: "Diário da República", oficio_circulado: "Ofício-circulado AT", informacao_vinculativa: "Informação vinculativa", codigo: "Código consolidado", doutrina_interna: "Doutrina interna Lumarcont", outro: "Outro" };
+
+async function viewLegal(main) {
+  main.append(el("h2", {}, "Base legal versionada"));
+  main.append(el("p", { class: "muted" }, "Cada peça entra com data de publicação e data de eficácia separadas; a conferência consulta a lei à data do documento. Nenhuma peça entra em produção sem validação do TOC responsável (excepto o texto consolidado do Código). Cadências: Diário da República diária, ofícios-circulados semanal, informações vinculativas mensal, Código trimestral, doutrina interna manual."));
+  const data = await api("/api/legal");
+  if (data.knowledge && data.knowledge.length) main.append(el("div", { class: "card" }, [el("h2", {}, "Conhecimento carregado na app"), el("div", { class: "small" }, data.knowledge.map((k) => el("div", {}, [el("strong", {}, k.name.replace("_", " ")), " v" + k.version + " · verificado em " + k.lastVerified + " (há " + k.ageDays + " dias)", k.stale ? el("span", { class: "badge bad", style: "margin-left:6px" }, "prazo de revisão ultrapassado") : el("span", { class: "badge ok", style: "margin-left:6px" }, "dentro do prazo")])))]));
+  const isToc = hasProfile("toc");
+  if (hasProfile("coordenador")) {
+    const type = el("select", {}, Object.entries(LEGAL_TYPE_LABEL).map(([k, v]) => el("option", { value: k }, v)));
+    const ref = el("input", { placeholder: "Referência (ex.: Ofício-Circulado 25117/2026)", required: "" }); const title = el("input", { placeholder: "Título", required: "" });
+    const summary = el("textarea", { rows: "2", placeholder: "Resumo do que muda e do que afecta (regras, verbas, artigos)" });
+    const url = el("input", { placeholder: "https://..." }); const pub = el("input", { type: "date" }); const eff = el("input", { type: "date", required: "" }); const effTo = el("input", { type: "date" }); const affects = el("input", { placeholder: "Afecta (ex.: verba 2.42 Lista I; regra A2.04)" });
+    const form = el("form", { class: "form-col wide" }, [el("div", { class: "form-row" }, [el("label", {}, ["Tipo", type]), el("label", { style: "flex:2" }, ["Referência", ref])]), el("label", {}, ["Título", title]), el("label", {}, ["Resumo", summary]), el("div", { class: "form-row" }, [el("label", {}, ["Publicação", pub]), el("label", {}, ["Eficácia desde", eff]), el("label", {}, ["Eficácia até", effTo])]), el("label", {}, ["Endereço", url]), el("label", {}, ["Afecta", affects]), el("div", { class: "form-row" }, [el("button", { class: "btn primary", type: "submit" }, "Registar peça (pendente)")])]);
+    form.addEventListener("submit", async (ev) => { ev.preventDefault(); try { await api("/api/legal", { method: "POST", json: { type: type.value, reference: ref.value, title: title.value, summary: summary.value || null, url: url.value || null, published_at: pub.value || null, effective_from: eff.value, effective_to: effTo.value || null, affects: affects.value || null } }); toast("Peça registada; fica pendente de validação pelo TOC."); render(); } catch (e) { toast(e.message, true); } });
+    main.append(el("div", { class: "card" }, [el("h2", {}, "Nova peça"), form]));
+  }
+  const tbody = el("tbody");
+  for (const l of data.sources) {
+    const actions = el("div", { class: "actions" });
+    if (isToc && l.status === "pendente") { actions.append(el("button", { class: "btn small primary", onclick: async () => { try { await api("/api/legal/" + l.id, { method: "PATCH", json: { status: "validado" } }); toast("Peça validada."); render(); } catch (e) { toast(e.message, true); } } }, "Validar"), el("button", { class: "btn small danger", onclick: async () => { try { await api("/api/legal/" + l.id, { method: "PATCH", json: { status: "rejeitado" } }); render(); } catch (e) { toast(e.message, true); } } }, "Rejeitar")); }
+    if (isToc && l.status !== "pendente") actions.append(el("button", { class: "btn small ghost", onclick: async () => { try { await api("/api/legal/" + l.id, { method: "PATCH", json: { status: "pendente" } }); render(); } catch (e) { toast(e.message, true); } } }, "Voltar a pendente"));
+    if (l.url) actions.append(el("a", { class: "btn small", href: l.url, target: "_blank", rel: "noopener" }, "Abrir"));
+    tbody.append(el("tr", {}, [
+      el("td", {}, [el("strong", {}, l.reference), el("div", { class: "small" }, l.title), l.summary ? el("div", { class: "muted small" }, l.summary) : null, l.affects ? el("div", { class: "muted small" }, "Afecta: " + l.affects) : null]),
+      el("td", {}, LEGAL_TYPE_LABEL[l.type] || l.type),
+      el("td", {}, [l.published_at ? "publicada " + l.published_at : "", el("div", {}, "eficácia " + l.effective_from + (l.effective_to ? " a " + l.effective_to : ""))]),
+      el("td", {}, [el("span", { class: "badge " + (l.status === "validado" ? "ok" : l.status === "rejeitado" ? "bad" : "warn") }, l.status), l.validated_name ? el("div", { class: "muted small" }, l.validated_name + " · " + (l.validated_at || "").slice(0, 10)) : null]),
+      el("td", {}, actions),
+    ]));
+  }
+  main.append(el("div", { class: "card table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Peça"), el("th", {}, "Tipo"), el("th", {}, "Datas"), el("th", {}, "Estado"), el("th", {}, "")])), data.sources.length ? tbody : el("tbody", {}, el("tr", {}, el("td", { colspan: "5", class: "muted" }, "Ainda sem peças registadas.")))])));
+}
+
 /* ---------- Relatórios financeiros ---------- */
 
 async function viewReports(main) {
   const isStaff = user.role === "staff";
   main.append(el("h2", {}, isStaff ? "Relatórios financeiros para clientes" : "Os meus relatórios financeiros"));
-  if (isStaff) main.append(el("p", { class: "muted" }, "Os relatórios são gerados a partir do balancete do período (vista Balancetes), com comparação ao sector de actividade da empresa (CAE) e memória descritiva."));
+  if (isStaff) main.append(el("p", { class: "muted" }, "Gerados a partir do balancete (vista Balancetes) com os dez blocos da especificação: capa, semáforo de seis indicadores, memória descritiva, actividade, gastos, tesouraria, posição face ao sector com o desfasamento visível, alertas e obrigações, três recomendações editáveis e anexo metodológico. Nenhum relatório chega ao cliente sem aprovação de um contabilista."));
 
   const reports = (await api("/api/reports")).reports;
   if (!reports.length) { main.append(el("div", { class: "card muted" }, "Ainda não há relatórios.")); return; }
@@ -1610,10 +1715,15 @@ async function viewReports(main) {
       const w = window.open("", "_blank");
       if (w) { w.document.open(); w.document.write(html); w.document.close(); }
     });
+    const actions = [openBtn];
+    if (isStaff) {
+      if (!r.approved_at) actions.push(el("button", { class: "btn small", onclick: () => editRecommendationsModal(r) }, "Recomendações"));
+      actions.push(el("button", { class: "btn small " + (r.approved_at ? "" : "primary"), onclick: async () => { try { await api("/api/reports/" + r.id + "/approve", { method: "POST", json: { approved: !r.approved_at } }); toast(r.approved_at ? "Aprovação retirada." : "Relatório aprovado e visível ao cliente."); render(); } catch (e) { toast(e.message, true); } } }, r.approved_at ? "Retirar aprovação" : "Aprovar para o cliente"));
+    }
     main.append(el("div", { class: "card" }, [
       el("div", { class: "form-row" }, [
-        el("div", { style: "flex:1" }, [el("strong", {}, r.title), el("div", { class: "muted small" }, r.company_name + " · modelo: " + r.template + " · " + r.created_at)]),
-        openBtn,
+        el("div", { style: "flex:1" }, [el("strong", {}, r.title), " ", r.approved_at ? el("span", { class: "badge ok", title: "Aprovado por " + (r.approved_name || "") }, "aprovado") : el("span", { class: "badge warn" }, "por aprovar"), el("div", { class: "muted small" }, r.company_name + " · modelo: " + r.template + " · " + r.created_at + (r.approved_name ? " · aprovado por " + r.approved_name : ""))]),
+        el("div", { class: "actions" }, actions),
       ]),
       el("p", {}, r.summary),
     ]));
@@ -2321,12 +2431,14 @@ const ROUTES = {
   recepcao: { label: "Recepção", ico: "✉", group: "Trabalho", view: viewInbox, roles: ["staff"] },
   pedidos: { label: "Pedidos", ico: "◔", group: "Trabalho", view: viewRequests, roles: ["staff", "client"] },
   balancetes: { label: "Balancetes", ico: "≡", group: "Análise", view: viewBalances, roles: ["staff"] },
+  meusbalancetes: { label: "Balancetes", ico: "≡", group: "Análise", view: viewClientBalances, roles: ["client"] },
   relatorios: { label: "Relatórios", ico: "◫", group: "Análise", view: viewReports, roles: ["staff", "client"] },
   painel: { label: "Indicadores e prazos", ico: "◷", group: "Análise", view: viewDashboard, roles: ["staff", "client"] },
   efatura: { label: "e-Fatura", ico: "⧉", group: "Análise", view: viewEFatura, roles: ["staff", "client"] },
   empresas: { label: "Empresas", ico: "⌂", group: "Configuração", view: viewCompanies, roles: ["staff"], minProfile: "coordenador" },
   fornecedores: { label: "Fornecedores", ico: "⊞", group: "Configuração", view: viewSuppliers, roles: ["staff"] },
   exportacao: { label: "Entrega", ico: "⇪", group: "Configuração", view: viewExport, roles: ["staff"] },
+  baselegal: { label: "Base legal", ico: "§", group: "Configuração", view: viewLegal, roles: ["staff"], minProfile: "coordenador" },
   integracoes: { label: "Integrações", ico: "⚙", group: "Configuração", view: viewIntegrations, roles: ["staff"], minProfile: "coordenador" },
   conta: { label: "A minha conta", ico: "☺", group: "Configuração", view: viewAccount, roles: ["staff", "client"] },
 };

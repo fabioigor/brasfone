@@ -2,6 +2,12 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-15 — Relatórios de dez blocos com aprovação, balancetes publicados, base legal versionada
+
+- **Decisão:** o relatório financeiro segue a estrutura comum de dez blocos da especificação (semáforo de seis indicadores, memória, actividade, gastos, tesouraria, sector com desfasamento visível e seis modelos sectoriais por CAE, alertas e obrigações, três recomendações editáveis, anexo metodológico), sem Power BI (gráficos próprios, PDF pelo browser), e nenhum relatório fica visível ao cliente sem aprovação registada de um contabilista. Os balancetes só chegam ao cliente quando o gabinete os disponibiliza (evita tirar um mês por fechar, como o Diogo pediu), com CSV e envio por email. A base legal é uma tabela versionada com data de publicação e de eficácia separadas, validada pelo TOC responsável.
+- **Indicadores sectoriais que exigem dados fora do balancete** (m², colaboradores, refeições, ocupação) aparecem como "n.d." com a razão, em vez de serem estimados; entram quando o módulo de salários e o SAF-T de facturação estiverem ligados.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-15 — Balancetes com dupla condição, hierarquia de padrões e carteira por contabilista
 
 - **Decisão:** o motor de balancetes passa a exigir dupla condição (desvio relativo e impacto absoluto em euros) em todas as regras de variação, com métodos de referência (mediana móvel 12 meses, homóloga, % das vendas, % do pessoal, valor fixo, dias de recebimento/pagamento) e hierarquia conta > cliente > sector > global. Os padrões por defeito seguem a tabela da especificação; as regras antigas só por percentagem foram removidas por gerarem ruído. Impactos mínimos reescaláveis pelo parâmetro versionado `escala_impactos_minimos` até a Lumarcont indicar a facturação mediana da carteira (decisão em aberto).

@@ -14,6 +14,10 @@ OneDrive (ou SharePoint) como arquivo de todos os documentos recebidos, em pasta
 
 Centros de custo por empresa escolhidos desde a digitalização (ecrã Digitalizar, formulário de Documentos, perguntas no WhatsApp) e aplicados às linhas do lançamento e à exportação; fornecedor desconhecido → pesquisa por NIF (VIES + pesquisa web por IA + nome no documento) com marcas e probabilidades, escolha humana, criação do fornecedor com centros de custo e aplicação aos lançamentos pendentes. Ver `docs/fornecedores.md`.
 
+## Relatórios de dez blocos, balancetes publicados e base legal
+
+Relatório financeiro com semáforo de seis indicadores, modelos sectoriais, alertas e obrigações, três recomendações editáveis, anexo metodológico e desfasamento sectorial visível; só chega ao cliente depois de aprovado. Balancetes disponibilizados ao cliente pelo gabinete, com CSV e envio por email. Base legal versionada com validação pelo TOC. Ver `docs/relatorios.md`.
+
 ## Conferência com ciclo de vida das excepções
 
 Alertas como excepções com estado (aberta, em análise, corrigida, falso positivo com motivo de lista fixa, aceite com excepção reutilizável, reaberta), severidades bloqueante/alerta/informativo, aprovação bloqueada sem justificação, indicadores do motor (precisão, falsos positivos, tempo de fecho) e parâmetros versionados com data de eficácia. Perfis contabilista/coordenador/TOC. Ver `docs/conferencia.md`.

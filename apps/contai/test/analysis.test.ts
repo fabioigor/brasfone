@@ -191,6 +191,6 @@ describe("relatorio financeiro", () => {
     expect(html).toContain("<svg");
     expect(html).toContain("Sector de referência");
     expect(html).not.toContain("<script src=");
-    expect(html).toContain("Referências sectoriais");
+    expect(html).toContain("Posição face ao sector");
   });
 });

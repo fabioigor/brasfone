@@ -497,6 +497,37 @@ function migrate(db: Db): void {
     db.exec("ALTER TABLE balance_rules ADD COLUMN updated_by INTEGER");
     db.exec("ALTER TABLE balance_rules ADD COLUMN updated_at TEXT");
   }
+  const repCols = (db.prepare("PRAGMA table_info(reports)").all() as any[]).map((c) => c.name);
+  if (!repCols.includes("approved_at")) {
+    db.exec("ALTER TABLE reports ADD COLUMN approved_by INTEGER");
+    db.exec("ALTER TABLE reports ADD COLUMN approved_at TEXT");
+    db.exec("ALTER TABLE reports ADD COLUMN sections_json TEXT");
+    db.exec("ALTER TABLE reports ADD COLUMN recommendations_json TEXT");
+    db.exec("ALTER TABLE reports ADD COLUMN sent_at TEXT");
+  }
+  const tbCols = (db.prepare("PRAGMA table_info(trial_balances)").all() as any[]).map((c) => c.name);
+  if (!tbCols.includes("published_at")) {
+    db.exec("ALTER TABLE trial_balances ADD COLUMN published_at TEXT");
+    db.exec("ALTER TABLE trial_balances ADD COLUMN published_by INTEGER");
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS legal_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL CHECK (type IN ('diario_republica','oficio_circulado','informacao_vinculativa','codigo','doutrina_interna','outro')),
+    reference TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT,
+    url TEXT,
+    published_at TEXT,
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    affects TEXT,
+    status TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente','validado','rejeitado')),
+    validated_by INTEGER,
+    validated_at TEXT,
+    created_by INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT
+  )`);
   const compCols = (db.prepare("PRAGMA table_info(companies)").all() as any[]).map((c) => c.name);
   if (!compCols.includes("learning_until")) db.exec("ALTER TABLE companies ADD COLUMN learning_until TEXT");
   db.exec(`CREATE TABLE IF NOT EXISTS settings (

@@ -68,7 +68,7 @@ import {
   computeFinancials,
 } from "./domain/trialBalance.js";
 import { listRules, evaluateRules, persistBalanceFindings, checkBalance, RULE_METHODS } from "./domain/balanceRules.js";
-import { buildReportData } from "./domain/financialReport.js";
+import { buildReportData, REPORT_BLOCKS, ReportData } from "./domain/financialReport.js";
 import { renderReportHtml } from "./domain/reportHtml.js";
 import { knowledgeStatus, loadVatRules, loadSectorBenchmarks } from "./knowledge/index.js";
 import { AgentGateway } from "./ai/agents.js";
@@ -853,8 +853,60 @@ export function createServer({
   app.get("/api/balances/:companyId", auth, (req, res) => {
     const companyId = Number(req.params.companyId);
     if (req.user!.role === "client" && companyId !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
-    const rows = db.prepare("SELECT id, period, source, created_at FROM trial_balances WHERE company_id = ? ORDER BY period DESC").all(companyId);
+    const rows = db.prepare(`SELECT tb.id, tb.period, tb.source, tb.created_at, tb.published_at, u.name AS published_name FROM trial_balances tb LEFT JOIN users u ON u.id = tb.published_by WHERE tb.company_id = ? ${req.user!.role === "client" ? "AND tb.published_at IS NOT NULL" : ""} ORDER BY tb.period DESC`).all(companyId);
     return res.json({ balances: rows });
+  });
+
+  // O gabinete decide quando um balancete fica disponível ao cliente (o cliente nunca tira um mês por fechar).
+  app.post("/api/balances/:companyId/:period/publish", auth, requireStaff, (req, res) => {
+    const companyId = Number(req.params.companyId); const period = String(req.params.period);
+    if (!inCarteira(req, companyId)) return res.status(403).json({ error: "Empresa fora da sua carteira." });
+    const publish = req.body?.published !== false;
+    const r = db.prepare("UPDATE trial_balances SET published_at = ?, published_by = ? WHERE company_id = ? AND period = ?").run(publish ? new Date().toISOString() : null, publish ? req.user!.id : null, companyId, period);
+    if (!r.changes) return res.status(404).json({ error: "Balancete inexistente." });
+    audit(db, req.user!.id, publish ? "publish" : "unpublish", "trial_balance", null, `${companyId}/${period}`);
+    return res.json({ period, published: publish });
+  });
+
+  const balanceCsv = (lines: { account: string; description: string | null; debit: number; credit: number; balance: number }[]): string =>
+    ["Conta;Descricao;Debito;Credito;Saldo", ...lines.map((l) => [l.account, String(l.description ?? "").replace(/[;\r\n]+/g, " "), l.debit.toFixed(2).replace(".", ","), l.credit.toFixed(2).replace(".", ","), l.balance.toFixed(2).replace(".", ",")].join(";"))].join("\n") + "\n";
+
+  app.get("/api/balances/:companyId/:period/csv", auth, (req, res) => {
+    const companyId = Number(req.params.companyId); const period = String(req.params.period);
+    if (req.user!.role === "client" && companyId !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
+    const meta = db.prepare("SELECT published_at FROM trial_balances WHERE company_id = ? AND period = ?").get(companyId, period) as any;
+    if (!meta) return res.status(404).json({ error: "Balancete inexistente." });
+    if (req.user!.role === "client" && !meta.published_at) return res.status(403).json({ error: "Balancete ainda não disponibilizado pelo gabinete." });
+    const tb = loadTrialBalance(db, companyId, period)!;
+    const company = db.prepare("SELECT name FROM companies WHERE id = ?").get(companyId) as any;
+    audit(db, req.user!.id, "download", "trial_balance", null, `${companyId}/${period}`);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="balancete-${String(company.name).replace(/[^\w.-]+/g, "_")}-${period}.csv"`);
+    return res.send("\uFEFF" + balanceCsv(tb.lines));
+  });
+
+  // "Estou no banco, envio o balancete por email": o cliente envia para si (ou para quem indicar); o gabinete idem.
+  app.post("/api/balances/:companyId/:period/send", auth, async (req, res) => {
+    const companyId = Number(req.params.companyId); const period = String(req.params.period);
+    if (req.user!.role === "client" && companyId !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
+    const meta = db.prepare("SELECT published_at FROM trial_balances WHERE company_id = ? AND period = ?").get(companyId, period) as any;
+    if (!meta) return res.status(404).json({ error: "Balancete inexistente." });
+    if (req.user!.role === "client" && !meta.published_at) return res.status(403).json({ error: "Balancete ainda não disponibilizado pelo gabinete." });
+    const body = z.object({ to: z.array(z.string().email()).min(1).max(5).optional(), message: z.string().max(1000).optional() }).safeParse(req.body ?? {});
+    if (!body.success) return res.status(400).json({ error: "Destinatários inválidos." });
+    const to = body.data.to ?? [req.user!.email];
+    const from = mailSenderFrom();
+    if (!mailSender || !from) return res.status(409).json({ error: "Envio de email não configurado (Integrações > Microsoft 365 e caixa de correio). Use o botão CSV para descarregar." });
+    const tb = loadTrialBalance(db, companyId, period)!;
+    const company = db.prepare("SELECT name, nif FROM companies WHERE id = ?").get(companyId) as any;
+    const fin = computeFinancials(tb.lines);
+    const eur = (n: number) => n.toFixed(2).replace(".", ",") + " €";
+    const html = `<div style="font-family:Segoe UI,Arial,sans-serif;color:#1C1917"><p>Segue em anexo o balancete de <strong>${company.name}</strong> (NIF ${company.nif}) do período <strong>${period}</strong>, disponibilizado pela Lumarcont.</p>${body.data.message ? `<p>${String(body.data.message).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!))}</p>` : ""}<p style="font-size:13px">Vendas e serviços ${eur(fin.vendas)} · EBITDA ${eur(fin.ebitda)} · Resultado ${eur(fin.resultadoLiquido)} · Disponibilidades ${eur(fin.disponibilidades)}</p><p>Lumarcont · Cont.ai</p></div>`;
+    try {
+      await mailSender.sendMail(from, { to, subject: `Balancete ${company.name} · ${period}`, html, attachments: [{ name: `balancete-${period}.csv`, contentType: "text/csv", bytes: Buffer.from("\uFEFF" + balanceCsv(tb.lines), "utf8") }] });
+      audit(db, req.user!.id, "send", "trial_balance", null, `${companyId}/${period} -> ${to.join(",")}`);
+      return res.json({ sent: true, to });
+    } catch (e: any) { return res.status(502).json({ error: `Envio falhou: ${String(e?.message || e).slice(0, 200)}` }); }
   });
 
   app.get("/api/balances/:companyId/:period", auth, (req, res) => {
@@ -862,6 +914,7 @@ export function createServer({
     if (req.user!.role === "client" && companyId !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
     const tb = loadTrialBalance(db, companyId, String(req.params.period));
     if (!tb) return res.status(404).json({ error: "Balancete inexistente." });
+    if (req.user!.role === "client" && !(db.prepare("SELECT published_at FROM trial_balances WHERE company_id = ? AND period = ?").get(companyId, String(req.params.period)) as any)?.published_at) return res.status(403).json({ error: "Balancete ainda não disponibilizado pelo gabinete." });
     return res.json({ ...tb, financials: computeFinancials(tb.lines) });
   });
 
@@ -942,8 +995,12 @@ export function createServer({
     const companyId = Number(req.params.companyId);
     const period = String(req.body?.period ?? "");
     if (!/^\d{4}(-\d{2})?$/.test(period)) return res.status(400).json({ error: "Período inválido (use AAAA ou AAAA-MM)." });
+    if (!inCarteira(req, companyId)) return res.status(403).json({ error: "Empresa fora da sua carteira." });
     try {
       const data = buildReportData(db, companyId, period);
+      // Selecção de blocos: os fixos (capa, memória, alertas, recomendações, metodologia) entram sempre.
+      const wanted: string[] = Array.isArray(req.body?.sections) ? req.body.sections.filter((x: unknown) => typeof x === "string") : REPORT_BLOCKS.map((b) => b.id);
+      data.sections = REPORT_BLOCKS.filter((b) => b.fixed || wanted.includes(b.id)).map((b) => b.id);
       if (req.body?.polish && agents.enabled) {
         const polished = await agents.polishNarrative(data.narrative);
         if (polished) data.narrative = polished;
@@ -951,10 +1008,10 @@ export function createServer({
       const html = renderReportHtml(data);
       const title = `Relatório financeiro ${data.companyName} · ${period}`;
       const r = db
-        .prepare("INSERT INTO reports (company_id, period, template, title, summary, data_json, html, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(companyId, period, data.template, title, data.summary, JSON.stringify(data), html, req.user!.id);
+        .prepare("INSERT INTO reports (company_id, period, template, title, summary, data_json, html, created_by, sections_json, recommendations_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(companyId, period, data.sectorModel?.key ?? data.template, title, data.summary, JSON.stringify(data), html, req.user!.id, JSON.stringify(data.sections), JSON.stringify(data.recommendations ?? []));
       audit(db, req.user!.id, "create", "report", Number(r.lastInsertRowid), period);
-      return res.status(201).json({ id: Number(r.lastInsertRowid), title, summary: data.summary, template: data.template });
+      return res.status(201).json({ id: Number(r.lastInsertRowid), title, summary: data.summary, template: data.sectorModel?.key ?? data.template, approved: false });
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
@@ -962,17 +1019,19 @@ export function createServer({
 
   app.get("/api/reports", auth, (req, res) => {
     const companyId = scopedCompanyId(req, req.query.company_id ? Number(req.query.company_id) : null);
-    let sql = "SELECT r.id, r.company_id, c.name AS company_name, r.period, r.template, r.title, r.summary, r.created_at FROM reports r JOIN companies c ON c.id = r.company_id WHERE 1=1";
+    let sql = "SELECT r.id, r.company_id, c.name AS company_name, r.period, r.template, r.title, r.summary, r.created_at, r.approved_at, u.name AS approved_name, r.sent_at FROM reports r JOIN companies c ON c.id = r.company_id LEFT JOIN users u ON u.id = r.approved_by WHERE 1=1";
     const params: any[] = [];
     if (companyId !== null) { sql += " AND r.company_id = ?"; params.push(companyId); }
+    if (req.user!.role === "client") sql += " AND r.approved_at IS NOT NULL";
+    const cs = carteiraSql(req, "r.company_id"); sql += cs.sql; params.push(...cs.params);
     sql += " ORDER BY r.created_at DESC LIMIT 100";
     return res.json({ reports: db.prepare(sql).all(...params) });
   });
 
   app.get("/api/reports/:id/html", auth, (req, res) => {
-    const r = db.prepare("SELECT company_id, html FROM reports WHERE id = ?").get(Number(req.params.id)) as any;
+    const r = db.prepare("SELECT company_id, html, approved_at FROM reports WHERE id = ?").get(Number(req.params.id)) as any;
     if (!r) return res.status(404).json({ error: "Relatório inexistente." });
-    if (req.user!.role === "client" && r.company_id !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
+    if (req.user!.role === "client" && (r.company_id !== req.user!.companyId || !r.approved_at)) return res.status(403).json({ error: "Sem acesso." });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(r.html);
   });
@@ -980,8 +1039,78 @@ export function createServer({
   app.get("/api/reports/:id", auth, (req, res) => {
     const r = db.prepare("SELECT * FROM reports WHERE id = ?").get(Number(req.params.id)) as any;
     if (!r) return res.status(404).json({ error: "Relatório inexistente." });
-    if (req.user!.role === "client" && r.company_id !== req.user!.companyId) return res.status(403).json({ error: "Sem acesso." });
-    return res.json({ ...r, data: JSON.parse(r.data_json), data_json: undefined, html: undefined });
+    if (req.user!.role === "client" && (r.company_id !== req.user!.companyId || !r.approved_at)) return res.status(403).json({ error: "Sem acesso." });
+    return res.json({ ...r, data: JSON.parse(r.data_json), data_json: undefined, html: undefined, blocks: REPORT_BLOCKS });
+  });
+
+  // Recomendações editáveis pelo contabilista antes da aprovação (re-render do HTML); nunca depois de aprovado.
+  app.patch("/api/reports/:id", auth, requireStaff, (req, res) => {
+    const body = z.object({ recommendations: z.array(z.object({ title: z.string().min(2).max(120), text: z.string().min(2).max(1000), basis: z.string().max(120).optional() })).min(1).max(3) }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Indique entre 1 e 3 recomendações (título e texto)." });
+    const r = db.prepare("SELECT * FROM reports WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!r) return res.status(404).json({ error: "Relatório inexistente." });
+    if (r.approved_at) return res.status(409).json({ error: "Relatório já aprovado: gere uma nova versão para alterar." });
+    if (!inCarteira(req, r.company_id)) return res.status(403).json({ error: "Empresa fora da sua carteira." });
+    const data = JSON.parse(r.data_json) as ReportData;
+    data.recommendations = body.data.recommendations.map((x) => ({ title: x.title, text: x.text, basis: x.basis ?? "contabilista" }));
+    const html = renderReportHtml(data);
+    db.prepare("UPDATE reports SET data_json = ?, html = ?, recommendations_json = ? WHERE id = ?").run(JSON.stringify(data), html, JSON.stringify(data.recommendations), r.id);
+    audit(db, req.user!.id, "update", "report", r.id, "recomendacoes");
+    return res.json({ ok: true, recommendations: data.recommendations });
+  });
+
+  // Nenhum relatório chega ao cliente sem aprovação de um contabilista (fica registado quem aprovou).
+  app.post("/api/reports/:id/approve", auth, requireStaff, (req, res) => {
+    const r = db.prepare("SELECT id, company_id, approved_at FROM reports WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!r) return res.status(404).json({ error: "Relatório inexistente." });
+    if (!inCarteira(req, r.company_id)) return res.status(403).json({ error: "Empresa fora da sua carteira." });
+    const approve = req.body?.approved !== false;
+    db.prepare("UPDATE reports SET approved_by = ?, approved_at = ? WHERE id = ?").run(approve ? req.user!.id : null, approve ? new Date().toISOString() : null, r.id);
+    audit(db, req.user!.id, approve ? "approve" : "unapprove", "report", r.id);
+    return res.json({ id: r.id, approved: approve });
+  });
+
+  // ---------- Base legal versionada (data de publicação e de eficácia separadas; validação humana) ----------
+  app.get("/api/legal", auth, requireStaff, (req, res) => {
+    const status = typeof req.query.status === "string" && req.query.status ? req.query.status : null;
+    const rows = db.prepare(`SELECT l.*, u.name AS validated_name, c.name AS created_name FROM legal_sources l LEFT JOIN users u ON u.id = l.validated_by LEFT JOIN users c ON c.id = l.created_by ${status ? "WHERE l.status = ?" : ""} ORDER BY l.effective_from DESC, l.id DESC LIMIT 500`).all(...(status ? [status] : []));
+    return res.json({ sources: rows, knowledge: knowledgeStatus(), cadence: { diario_republica: "diária", oficio_circulado: "semanal", informacao_vinculativa: "mensal", codigo: "trimestral", doutrina_interna: "manual" } });
+  });
+  const legalSchema = z.object({
+    type: z.enum(["diario_republica", "oficio_circulado", "informacao_vinculativa", "codigo", "doutrina_interna", "outro"]),
+    reference: z.string().trim().min(2).max(120), title: z.string().trim().min(3).max(300), summary: z.string().max(4000).nullable().optional(),
+    url: z.string().max(500).nullable().optional(), published_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), effective_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), affects: z.string().max(500).nullable().optional(),
+  });
+  app.post("/api/legal", auth, requireProfile("coordenador"), (req, res) => {
+    const body = legalSchema.safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos (tipo, referência, título e data de eficácia são obrigatórios)." });
+    const d = body.data;
+    if (d.url && !/^https?:\/\//i.test(d.url)) return res.status(400).json({ error: "O endereço tem de começar por http:// ou https://." });
+    const r = db.prepare("INSERT INTO legal_sources (type, reference, title, summary, url, published_at, effective_from, effective_to, affects, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?)")
+      .run(d.type, d.reference, d.title, d.summary ?? null, d.url ?? null, d.published_at ?? null, d.effective_from, d.effective_to ?? null, d.affects ?? null, req.user!.id);
+    audit(db, req.user!.id, "legal_create", "legal_source", Number(r.lastInsertRowid), d.reference);
+    return res.status(201).json({ source: db.prepare("SELECT * FROM legal_sources WHERE id = ?").get(r.lastInsertRowid) });
+  });
+  app.patch("/api/legal/:id", auth, requireProfile("coordenador"), (req, res) => {
+    const cur = db.prepare("SELECT * FROM legal_sources WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!cur) return res.status(404).json({ error: "Peça inexistente." });
+    const body = legalSchema.partial().extend({ status: z.enum(["pendente", "validado", "rejeitado"]).optional() }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
+    const d = body.data;
+    if (d.status && d.status !== "pendente" && (req.user!.profile ?? "toc") !== "toc") return res.status(403).json({ error: "Só o TOC responsável valida ou rejeita peças da base legal." });
+    if (cur.status === "validado" && !d.status && (req.user!.profile ?? "toc") !== "toc") return res.status(403).json({ error: "Peça validada: só o TOC altera." });
+    db.prepare(`UPDATE legal_sources SET type = COALESCE(?, type), reference = COALESCE(?, reference), title = COALESCE(?, title), summary = COALESCE(?, summary), url = COALESCE(?, url), published_at = COALESCE(?, published_at), effective_from = COALESCE(?, effective_from), effective_to = COALESCE(?, effective_to), affects = COALESCE(?, affects),
+      status = COALESCE(?, status), validated_by = CASE WHEN ? IS NOT NULL THEN ? ELSE validated_by END, validated_at = CASE WHEN ? IS NOT NULL THEN datetime('now') ELSE validated_at END, updated_at = datetime('now') WHERE id = ?`)
+      .run(d.type ?? null, d.reference ?? null, d.title ?? null, d.summary ?? null, d.url ?? null, d.published_at ?? null, d.effective_from ?? null, d.effective_to ?? null, d.affects ?? null, d.status ?? null, d.status ?? null, req.user!.id, d.status ?? null, cur.id);
+    audit(db, req.user!.id, d.status ? "legal_" + d.status : "legal_update", "legal_source", cur.id, JSON.stringify({ before: { status: cur.status, effective_from: cur.effective_from }, after: d }));
+    return res.json({ source: db.prepare("SELECT * FROM legal_sources WHERE id = ?").get(cur.id) });
+  });
+  app.delete("/api/legal/:id", auth, requireProfile("toc"), (req, res) => {
+    const r = db.prepare("DELETE FROM legal_sources WHERE id = ?").run(Number(req.params.id));
+    if (!r.changes) return res.status(404).json({ error: "Peça inexistente." });
+    audit(db, req.user!.id, "legal_delete", "legal_source", Number(req.params.id));
+    return res.json({ ok: true });
   });
 
   // ---------- Conhecimento (lei do IVA, benchmarks) ----------

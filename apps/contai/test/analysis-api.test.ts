@@ -94,6 +94,9 @@ describe("balancetes, padroes e relatorios via API", () => {
   });
 
   it("cliente le o balancete da sua empresa mas nao o de outra", async () => {
+    // so depois de o gabinete disponibilizar o balancete
+    expect((await C(request(app).get("/api/balances/1/2026-07"))).status).toBe(403);
+    await S(request(app).post("/api/balances/1/2026-07/publish").send({}));
     const mine = await C(request(app).get("/api/balances/1/2026-07"));
     expect(mine.status).toBe(200);
     expect(mine.body.financials.vendas).toBe(42040);
@@ -115,7 +118,8 @@ describe("balancetes, padroes e relatorios via API", () => {
   it("gera relatorio com comparacao sectorial e o cliente consegue ve-lo", async () => {
     const res = await S(request(app).post("/api/reports/1").send({ period: "2026-07" }));
     expect(res.status).toBe(201);
-    expect(res.body.template).toBe("restauracao_alimentar");
+    expect(res.body.template).toBe("industria"); // modelo sectorial por divisao de CAE (10 = industria); a referencia de racios continua a ser a do sector 107
+    await S(request(app).post(`/api/reports/${res.body.id}/approve`).send({}));
     const list = await C(request(app).get("/api/reports"));
     expect(list.body.reports.some((r: any) => r.id === res.body.id)).toBe(true);
     const html = await C(request(app).get(`/api/reports/${res.body.id}/html`));
