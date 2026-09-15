@@ -77,10 +77,15 @@ describe("balancetes, padroes e relatorios via API", () => {
     expect(a.status).toBe(201);
     const b = await S(request(app).post("/api/balances/1/import").field("period", "2026-07").attach("file", fixture("balancete-2026-07.csv"), "b.csv"));
     expect(b.status).toBe(201);
+    // Sem historico de 3 meses as regras de mediana ficam em silencio (sem falsos positivos)...
+    const quiet = await S(request(app).post("/api/balances/1/2026-07/check"));
+    expect(quiet.status).toBe(200);
+    expect(quiet.body.previousPeriod).toBe("2026-06");
+    expect(quiet.body.findings.some((f: any) => f.code === "VARIACAO_ANOMALA")).toBe(false);
+    // ...um padrao do cliente face ao mes anterior com dupla condicao dispara.
+    expect((await S(request(app).post("/api/rules")).send({ company_id: 1, name: "FSE vs mês anterior", type: "variacao", method: "mes_anterior", account_prefixes: ["62"], threshold: 30, min_impact: 500 })).status).toBe(201);
     const check = await S(request(app).post("/api/balances/1/2026-07/check"));
-    expect(check.status).toBe(200);
-    expect(check.body.previousPeriod).toBe("2026-06");
-    expect(check.body.findings.some((f: any) => f.code === "VARIACAO_ANOMALA")).toBe(true);
+    expect(check.body.findings.some((f: any) => f.code === "VARIACAO_ANOMALA" && f.detail?.method === "mes_anterior")).toBe(true);
   });
 
   it("periodo invalido e rejeitado", async () => {

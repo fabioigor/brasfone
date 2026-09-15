@@ -163,6 +163,7 @@ describe("servidor MCP", () => {
     const jul = await callTool("contai_importar_balancete", { company_id: 1, period: "2026-07", csv: fixture("balancete-2026-07.csv") });
     expect(jul.indicadores.vendas).toBe(42040);
 
+    db.prepare("INSERT INTO balance_rules (company_id, name, type, account_prefixes, threshold, min_impact, method, severity, enabled) VALUES (1, 'FSE vs mês anterior', 'variacao', '62', 30, 500, 'mes_anterior', 'aviso', 1)").run();
     const check = await callTool("contai_conferir_balancete", { company_id: 1, period: "2026-07" });
     expect(check.alertas.some((a: any) => a.code === "VARIACAO_ANOMALA")).toBe(true);
 

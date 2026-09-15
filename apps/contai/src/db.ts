@@ -488,6 +488,15 @@ function migrate(db: Db): void {
     company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
     PRIMARY KEY (user_id, company_id)
   )`);
+  const ruleCols = (db.prepare("PRAGMA table_info(balance_rules)").all() as any[]).map((c) => c.name);
+  if (!ruleCols.includes("method")) {
+    db.exec("ALTER TABLE balance_rules ADD COLUMN method TEXT");
+    db.exec("ALTER TABLE balance_rules ADD COLUMN min_impact REAL");
+    db.exec("ALTER TABLE balance_rules ADD COLUMN cae_prefix TEXT");
+    db.exec("ALTER TABLE balance_rules ADD COLUMN account TEXT");
+    db.exec("ALTER TABLE balance_rules ADD COLUMN updated_by INTEGER");
+    db.exec("ALTER TABLE balance_rules ADD COLUMN updated_at TEXT");
+  }
   const compCols = (db.prepare("PRAGMA table_info(companies)").all() as any[]).map((c) => c.name);
   if (!compCols.includes("learning_until")) db.exec("ALTER TABLE companies ADD COLUMN learning_until TEXT");
   db.exec(`CREATE TABLE IF NOT EXISTS settings (

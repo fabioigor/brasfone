@@ -34,7 +34,7 @@ import { startCentralGestMock } from "../integrations/centralgest-mock.js";
 import { auditStoredDocument } from "../domain/vatAudit.js";
 import { transitionFinding } from "../domain/exceptions.js";
 import { parseBalanceCsv, deriveBalanceFromEntries, saveTrialBalance, loadTrialBalance, previousPeriod, computeFinancials } from "../domain/trialBalance.js";
-import { listRules, evaluateRules, persistBalanceFindings } from "../domain/balanceRules.js";
+import { listRules, persistBalanceFindings, checkBalance } from "../domain/balanceRules.js";
 import { buildReportData } from "../domain/financialReport.js";
 import { renderReportHtml } from "../domain/reportHtml.js";
 import { knowledgeStatus, loadVatRules } from "../knowledge/index.js";
@@ -563,7 +563,7 @@ export function buildMcpServer(ctx: McpContext): McpServer {
       const tb = loadTrialBalance(db, company_id, period);
       if (!tb) return fail(`Nao existe balancete ${period} para a empresa ${company_id}. Use contai_importar_balancete primeiro.`);
       const prev = loadTrialBalance(db, company_id, previousPeriod(period));
-      const findings = evaluateRules(listRules(db, company_id), tb.lines, prev?.lines ?? null);
+      const { findings } = checkBalance(db, company_id, period, tb.lines);
       persistBalanceFindings(db, company_id, period, findings);
       return ok({ period, periodo_anterior: prev ? previousPeriod(period) : null, alertas: findings, indicadores: computeFinancials(tb.lines) });
     }

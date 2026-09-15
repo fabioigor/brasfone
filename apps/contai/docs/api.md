@@ -51,6 +51,8 @@ Autenticação: `Authorization: Bearer <JWT>` obtido em `POST /api/auth/login`. 
 | GET | `/api/parameters` | gabinete |
 | POST | `/api/parameters` | gabinete |
 | GET | `/api/users` | gabinete |
+| GET | `/api/users/:id/assignments` | gabinete |
+| PATCH | `/api/users/:id` | gabinete |
 | POST | `/api/users` | gabinete |
 | DELETE | `/api/users/:id` | gabinete |
 | POST | `/api/companies/:id/credentials` | autenticado |

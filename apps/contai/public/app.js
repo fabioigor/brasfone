@@ -1151,10 +1151,11 @@ async function viewCompanies(main) {
     const caeInput = el("input", { value: c.cae || "", placeholder: "CAE", style: "width:70px" });
     const terrSel = el("select", {}, ["continente", "acores", "madeira"].map((t) => el("option", { value: t }, t)));
     terrSel.value = c.territory || "continente";
+    const learnInput = el("input", { type: "date", value: c.learning_until || "", title: "Fim do período de aprendizagem (vazio = 6 meses após a criação)", style: "width:150px" });
     const cgBtn = el("button", { class: "btn small" }, "Guardar");
     cgBtn.addEventListener("click", async () => {
       try {
-        await api("/api/companies/" + c.id, { method: "PATCH", json: { centralgest_code: cgInput.value.trim() || null, cae: caeInput.value.trim() || null, territory: terrSel.value } });
+        await api("/api/companies/" + c.id, { method: "PATCH", json: { centralgest_code: cgInput.value.trim() || null, cae: caeInput.value.trim() || null, territory: terrSel.value, learning_until: learnInput.value || null } });
         toast("Empresa actualizada.");
         await loadCompanies();
       } catch (e) {
@@ -1165,7 +1166,7 @@ async function viewCompanies(main) {
       el("td", {}, c.name),
       el("td", {}, c.nif),
       el("td", {}, c.vat_regime),
-      el("td", {}, [caeInput, " ", terrSel]),
+      el("td", {}, [caeInput, " ", terrSel, el("div", { class: "muted small", style: "margin-top:4px" }, ["aprendizagem até ", learnInput])]),
       el("td", {}, [cgInput, " ", cgBtn]),
       el("td", {}, [userBtn, " ", el("button", { class: "btn small", onclick: () => manageContacts(c) }, "Remetentes"), " ", el("button", { class: "btn small", onclick: () => manageCostCenters(c) }, "Centros de custo")]),
     ]));
@@ -1187,18 +1188,31 @@ async function staffTeamCard(main) {
   const name = el("input", { placeholder: "Nome", required: "true" });
   const email = el("input", { type: "email", placeholder: "email@lumarcont.pt", required: "true" });
   const pass = el("input", { type: "text", placeholder: "Palavra-passe inicial (mín. 8)", required: "true", autocomplete: "off" });
-  const form = el("form", { class: "form-row" }, [el("label", {}, ["Nome", name]), el("label", { style: "flex:2" }, ["Email", email]), el("label", {}, ["Palavra-passe", pass]), el("button", { class: "btn primary", type: "submit" }, "Criar acesso de gabinete")]);
+  const profileSel = el("select", {}, Object.entries(PROFILE_LABEL).filter(([k]) => k !== "toc" || hasProfile("toc")).map(([k, v]) => el("option", { value: k }, v)));
+  const carteiraSel = el("select", { multiple: "", size: "3", title: "Carteira (só para contabilistas; vazio = todas)" }); for (const c of companies) carteiraSel.append(el("option", { value: c.id }, c.name));
+  const form = el("form", { class: "form-row" }, [el("label", {}, ["Nome", name]), el("label", { style: "flex:2" }, ["Email", email]), el("label", {}, ["Palavra-passe", pass]), el("label", {}, ["Perfil", profileSel]), el("label", {}, ["Carteira", carteiraSel]), el("button", { class: "btn primary", type: "submit" }, "Criar acesso de gabinete")]);
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    try { await api("/api/users", { method: "POST", json: { name: name.value, email: email.value, password: pass.value } }); toast("Acesso de gabinete criado para " + email.value + ". Peça para alterar a palavra-passe em A minha conta."); render(); }
+    try { await api("/api/users", { method: "POST", json: { name: name.value, email: email.value, password: pass.value, profile: profileSel.value, company_ids: [...carteiraSel.selectedOptions].map((o) => Number(o.value)) } }); toast("Acesso de gabinete criado para " + email.value + ". Peça para alterar a palavra-passe em A minha conta."); render(); }
     catch (e) { toast(e.message, true); }
   });
   const list = el("div", { class: "stack" });
-  for (const u of staffUsers) list.append(el("div", { class: "item" }, [
-    el("div", {}, [el("div", { class: "title" }, u.name), el("div", { class: "meta" }, [u.email, u.id === user.id ? el("span", { class: "badge info" }, "esta conta") : null])]),
-    u.id !== user.id ? el("div", { class: "actions" }, el("button", { class: "btn small danger", onclick: async () => { if (!confirm("Apagar o acesso de " + u.email + "?")) return; try { await api("/api/users/" + u.id, { method: "DELETE" }); toast("Acesso apagado."); render(); } catch (e) { toast(e.message, true); } } }, "Apagar")) : null,
-  ]));
-  main.append(el("div", { class: "card" }, [el("h2", {}, "Equipa do gabinete"), el("p", { class: "muted small" }, "Contas com acesso total (todas as empresas, validação, integrações). Cada pessoa deve alterar a palavra-passe inicial em A minha conta."), form, list]));
+  for (const u of staffUsers) {
+    const prof = el("select", {}, Object.entries(PROFILE_LABEL).map(([k, v]) => el("option", { value: k }, v))); prof.value = u.profile || "toc";
+    prof.addEventListener("change", async () => { try { await api("/api/users/" + u.id, { method: "PATCH", json: { profile: prof.value } }); toast("Perfil actualizado."); } catch (e) { toast(e.message, true); prof.value = u.profile || "toc"; } });
+    const carteira = (u.company_ids || []).map((id) => (companies.find((c) => c.id === id) || {}).name).filter(Boolean);
+    const cartBtn = el("button", { class: "btn small", onclick: () => {
+      const sel = el("select", { multiple: "", size: String(Math.min(8, companies.length)) }); for (const c of companies) { const o = el("option", { value: c.id }, c.name); if ((u.company_ids || []).includes(c.id)) o.selected = true; sel.append(o); }
+      const save = el("button", { class: "btn primary", type: "button" }, "Guardar carteira");
+      const close = openModal("Carteira de " + u.name, el("div", { class: "stack" }, [el("p", { class: "muted small" }, "Empresas que este contabilista vê e valida. Sem selecção, vê todas."), sel, el("div", { class: "form-row" }, [save])]));
+      save.addEventListener("click", async () => { try { await api("/api/users/" + u.id, { method: "PATCH", json: { company_ids: [...sel.selectedOptions].map((o) => Number(o.value)) } }); toast("Carteira actualizada."); close(); render(); } catch (e) { toast(e.message, true); } });
+    } }, "Carteira");
+    list.append(el("div", { class: "item" }, [
+      el("div", {}, [el("div", { class: "title" }, u.name), el("div", { class: "meta" }, [u.email, el("span", { class: "badge info" }, PROFILE_LABEL[u.profile || "toc"]), u.id === user.id ? el("span", { class: "badge muted" }, "esta conta") : null, (u.profile === "contabilista") ? el("span", { class: "muted small" }, carteira.length ? "carteira: " + carteira.join(", ") : "carteira: todas") : null])]),
+      hasProfile("coordenador") ? el("div", { class: "actions" }, [u.id !== user.id ? prof : null, u.profile === "contabilista" || !u.profile ? cartBtn : null, u.id !== user.id ? el("button", { class: "btn small danger", onclick: async () => { if (!confirm("Apagar o acesso de " + u.email + "?")) return; try { await api("/api/users/" + u.id, { method: "DELETE" }); toast("Acesso apagado."); render(); } catch (e) { toast(e.message, true); } } }, "Apagar") : null]) : null,
+    ]));
+  }
+  main.append(el("div", { class: "card" }, [el("h2", {}, "Equipa do gabinete"), el("p", { class: "muted small" }, "Perfis: contabilista (a sua carteira, fecha excepções), coordenador (padrões por cliente, contas, integrações), TOC responsável (tudo: padrões globais, parâmetros, base legal, alertas reabertos). Cada pessoa deve alterar a palavra-passe inicial em A minha conta."), hasProfile("coordenador") ? form : null, list]));
 }
 
 async function viewExport(main) {
@@ -1454,9 +1468,13 @@ async function engineCards(main, profile) {
 /* ---------- Balancetes e padrões ---------- */
 
 const RULE_TYPE_LABEL = {
-  saldo_sinal: "Sinal do saldo", variacao_percentual: "Variação %", variacao_absoluta: "Variação €",
-  saldo_maximo: "Saldo máximo", saldo_minimo: "Saldo mínimo", racio: "Rácio",
+  variacao: "Variação (dupla condição)", saldo_sinal: "Sinal do saldo", saldo_maximo: "Saldo máximo", saldo_minimo: "Saldo mínimo", racio: "Rácio",
+  variacao_percentual: "Variação % (antigo)", variacao_absoluta: "Variação € (antigo)",
 };
+const RULE_METHOD_LABEL = { mes_anterior: "Mês anterior", mediana_12m: "Mediana móvel 12 meses", homologa: "Homóloga (mesmo mês do ano anterior)", pct_vendas: "% das vendas", pct_pessoal: "% dos gastos com pessoal", valor_fixo: "Valor fixo esperado (parâmetro)", dias_recebimento: "Dias de recebimento", dias_pagamento: "Dias de pagamento" };
+const PROFILE_LABEL = { contabilista: "Contabilista", coordenador: "Coordenador", toc: "TOC responsável" };
+const PROFILE_RANK = { contabilista: 0, coordenador: 1, toc: 2 };
+const hasProfile = (min) => user.role === "staff" && (PROFILE_RANK[user.profile || "toc"] || 0) >= PROFILE_RANK[min];
 
 async function viewBalances(main) {
   main.append(el("h2", {}, "Balancetes"));
@@ -1516,28 +1534,41 @@ async function viewBalances(main) {
     ])]));
   }
 
-  const rules = (await api("/api/rules")).rules;
+  const rulesRes = await api("/api/rules");
+  const rules = rulesRes.rules;
   const rname = el("input", { placeholder: "Nome do padrão", required: "true" });
-  const rtype = el("select", {}, Object.entries(RULE_TYPE_LABEL).map(([k, v]) => el("option", { value: k }, v)));
+  const rtype = el("select", {}, Object.entries(RULE_TYPE_LABEL).filter(([k]) => !k.startsWith("variacao_")).map(([k, v]) => el("option", { value: k }, v)));
+  const rmethod = el("select", {}, (rulesRes.methods || Object.keys(RULE_METHOD_LABEL)).map((m) => el("option", { value: m }, RULE_METHOD_LABEL[m] || m)));
+  rmethod.value = "mediana_12m";
   const rprefix = el("input", { placeholder: "Contas (ex.: 62 ou 71,72)", required: "true" });
-  const rparam = el("input", { placeholder: "devedor/credor ou contas do denominador" });
-  const rthr = el("input", { type: "number", step: "0.01", placeholder: "Limiar" });
-  const rsev = el("select", {}, [el("option", { value: "aviso" }, "Aviso"), el("option", { value: "erro" }, "Erro"), el("option", { value: "info" }, "Info")]);
-  const rcompany = el("select");
-  rcompany.append(el("option", { value: "" }, "Global (todas)"));
-  for (const c of companies) rcompany.append(el("option", { value: c.id }, c.name));
+  const rparam = el("input", { placeholder: "devedor/credor, contas do denominador ou valor fixo" });
+  const rthr = el("input", { type: "number", step: "0.01", placeholder: "% / p.p. / dias" });
+  const rimpact = el("input", { type: "number", step: "1", placeholder: "€ mínimo" });
+  const rsev = el("select", {}, [el("option", { value: "aviso" }, "Alerta"), el("option", { value: "erro" }, "Bloqueante"), el("option", { value: "info" }, "Informativo")]);
+  const rlevel = el("select", {}, [el("option", { value: "global" }, "Global (todas)"), el("option", { value: "sector" }, "Sector (CAE)"), el("option", { value: "cliente" }, "Empresa"), el("option", { value: "conta" }, "Conta de uma empresa")]);
+  const rcompany = el("select"); for (const c of companies) rcompany.append(el("option", { value: c.id }, c.name));
+  const rcae = el("input", { placeholder: "CAE (ex.: 10 ou 107)", style: "width:120px" });
+  const raccount = el("input", { placeholder: "Conta exacta (ex.: 6221)", style: "width:150px" });
+  const scopeBox = el("span", {});
+  const refreshScope = () => { scopeBox.innerHTML = ""; if (rlevel.value === "sector") scopeBox.append(rcae); if (rlevel.value === "cliente" || rlevel.value === "conta") scopeBox.append(rcompany); if (rlevel.value === "conta") scopeBox.append(" ", raccount); };
+  rlevel.addEventListener("change", refreshScope); refreshScope();
+  const methodLabel = el("label", {}, ["Método de referência", rmethod]); const impactLabel = el("label", {}, ["Impacto mínimo €", rimpact]);
+  const refreshType = () => { const v = rtype.value === "variacao"; methodLabel.hidden = !v; impactLabel.hidden = !v; };
+  rtype.addEventListener("change", refreshType); refreshType();
   const rform = el("form", { class: "form-row" }, [
-    el("label", { style: "flex:2" }, ["Nome", rname]), el("label", {}, ["Tipo", rtype]), el("label", {}, ["Contas", rprefix]),
-    el("label", {}, ["Parâmetro", rparam]), el("label", {}, ["Limiar", rthr]), el("label", {}, ["Gravidade", rsev]), el("label", {}, ["Âmbito", rcompany]),
+    el("label", { style: "flex:2" }, ["Nome", rname]), el("label", {}, ["Tipo", rtype]), methodLabel, el("label", {}, ["Contas", rprefix]),
+    el("label", {}, ["Parâmetro", rparam]), el("label", {}, ["Desvio (limiar)", rthr]), impactLabel, el("label", {}, ["Gravidade", rsev]), el("label", {}, ["Nível", rlevel]), el("label", {}, ["Âmbito", scopeBox]),
     el("button", { class: "btn primary", type: "submit" }, "Criar padrão"),
   ]);
   rform.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     try {
+      const lvl = rlevel.value;
       await api("/api/rules", { method: "POST", json: {
-        company_id: rcompany.value ? Number(rcompany.value) : null, name: rname.value, type: rtype.value,
+        company_id: lvl === "cliente" || lvl === "conta" ? Number(rcompany.value) : null, cae_prefix: lvl === "sector" ? rcae.value.trim() || null : null, account: lvl === "conta" ? raccount.value.trim() || null : null,
+        name: rname.value, type: rtype.value, method: rtype.value === "variacao" ? rmethod.value : null,
         account_prefixes: rprefix.value.split(",").map((x) => x.trim()).filter(Boolean),
-        param: rparam.value || null, threshold: rthr.value === "" ? null : Number(rthr.value), severity: rsev.value,
+        param: rparam.value || null, threshold: rthr.value === "" ? null : Number(rthr.value), min_impact: rimpact.value === "" ? null : Number(rimpact.value), severity: rsev.value,
       } });
       toast("Padrão criado."); render();
     } catch (e) { toast(e.message, true); }
@@ -1548,14 +1579,15 @@ async function viewBalances(main) {
     toggle.addEventListener("click", async () => { await api("/api/rules/" + r.id, { method: "PATCH", json: { enabled: !r.enabled } }); render(); });
     const del = el("button", { class: "btn small danger" }, "Apagar");
     del.addEventListener("click", async () => { if (confirm("Apagar o padrão \"" + r.name + "\"?")) { await api("/api/rules/" + r.id, { method: "DELETE" }); render(); } });
+    const level = r.account ? "Conta " + r.account + " · " + ((companies.find((c) => c.id === r.companyId) || {}).name || "") : r.companyId ? (companies.find((c) => c.id === r.companyId) || {}).name || "" : r.caePrefix ? "Sector CAE " + r.caePrefix : "Global";
     rbody.append(el("tr", {}, [
-      el("td", {}, [r.name, el("div", { class: "muted small" }, r.companyId ? (companies.find((c) => c.id === r.companyId) || {}).name || "" : "Global")]),
-      el("td", {}, RULE_TYPE_LABEL[r.type] || r.type), el("td", {}, r.accountPrefixes.join(", ")),
-      el("td", {}, [r.param || "", r.threshold !== null ? " " + r.threshold : ""]), el("td", {}, badge(r.severity)),
+      el("td", {}, [r.name, el("div", { class: "muted small" }, level)]),
+      el("td", {}, [RULE_TYPE_LABEL[r.type] || r.type, r.method ? el("div", { class: "muted small" }, RULE_METHOD_LABEL[r.method] || r.method) : null]), el("td", {}, r.accountPrefixes.join(", ")),
+      el("td", {}, [r.param || "", r.threshold !== null ? " " + r.threshold + (r.method && /pct_/.test(r.method) ? " p.p." : r.method && /dias/.test(r.method) ? " dias" : r.type === "variacao" ? "%" : "") : "", r.minImpact != null ? el("div", { class: "muted small" }, "impacto ≥ " + fmtEur(r.minImpact)) : (r.type === "variacao" ? el("div", { class: "warn-text small" }, "sem impacto mínimo") : null)]), el("td", {}, badge(r.severity)),
       el("td", {}, r.enabled ? badge("activo") : badge("inactivo")), el("td", {}, [toggle, " ", del]),
     ]));
   }
-  main.append(el("div", { class: "card" }, [el("h2", {}, "Padrões de conferência"), el("p", { class: "muted small" }, "Regras que disparam alertas ao conferir um balancete: sinal dos saldos, variações anormais face ao período anterior, saldos limite e rácios."), rform]));
+  main.append(el("div", { class: "card" }, [el("h2", {}, "Padrões de conferência"), el("p", { class: "muted small" }, "Variações só disparam quando o desvio relativo E o impacto absoluto em euros ultrapassam ambos o limiar (dupla condição). Métodos: mediana móvel de 12 meses, homóloga, % das vendas ou dos gastos com pessoal, valor fixo, dias de recebimento/pagamento. Hierarquia: conta > empresa > sector (CAE) > global, o mais específico ganha. Globais e sectoriais são do TOC; por empresa, do coordenador. Clientes novos ficam 6 meses em aprendizagem."), hasProfile("coordenador") ? rform : el("p", { class: "muted small" }, "Só o coordenador ou o TOC criam padrões.")]));
   main.append(el("div", { class: "card table-wrap" }, el("table", {}, [
     el("thead", {}, el("tr", {}, [el("th", {}, "Padrão"), el("th", {}, "Tipo"), el("th", {}, "Contas"), el("th", {}, "Parâmetro / limiar"), el("th", {}, "Gravidade"), el("th", {}, "Estado"), el("th", {}, "")])), rbody,
   ])));
@@ -2292,17 +2324,17 @@ const ROUTES = {
   relatorios: { label: "Relatórios", ico: "◫", group: "Análise", view: viewReports, roles: ["staff", "client"] },
   painel: { label: "Indicadores e prazos", ico: "◷", group: "Análise", view: viewDashboard, roles: ["staff", "client"] },
   efatura: { label: "e-Fatura", ico: "⧉", group: "Análise", view: viewEFatura, roles: ["staff", "client"] },
-  empresas: { label: "Empresas", ico: "⌂", group: "Configuração", view: viewCompanies, roles: ["staff"] },
+  empresas: { label: "Empresas", ico: "⌂", group: "Configuração", view: viewCompanies, roles: ["staff"], minProfile: "coordenador" },
   fornecedores: { label: "Fornecedores", ico: "⊞", group: "Configuração", view: viewSuppliers, roles: ["staff"] },
   exportacao: { label: "Entrega", ico: "⇪", group: "Configuração", view: viewExport, roles: ["staff"] },
-  integracoes: { label: "Integrações", ico: "⚙", group: "Configuração", view: viewIntegrations, roles: ["staff"] },
+  integracoes: { label: "Integrações", ico: "⚙", group: "Configuração", view: viewIntegrations, roles: ["staff"], minProfile: "coordenador" },
   conta: { label: "A minha conta", ico: "☺", group: "Configuração", view: viewAccount, roles: ["staff", "client"] },
 };
 
 function currentRoute() {
   const hash = (location.hash.replace("#", "").split("?")[0]) || "hoje";
   const route = ROUTES[hash];
-  if (!route || !route.roles.includes(user.role)) return "hoje";
+  if (!route || !route.roles.includes(user.role) || (route.minProfile && !hasProfile(route.minProfile))) return "hoje";
   return hash;
 }
 
@@ -2320,14 +2352,14 @@ async function render() {
   }
   loginView.hidden = true;
   appView.hidden = false;
-  $("#user-label").textContent = user.name + " (" + (user.role === "staff" ? "gabinete" : "cliente") + ")";
+  $("#user-label").textContent = user.name + " (" + (user.role === "staff" ? (PROFILE_LABEL[user.profile || "toc"] || "gabinete").toLowerCase() : "cliente") + ")";
 
   const nav = $("#nav");
   nav.innerHTML = "";
   const active = currentRoute();
   let lastGroup = null;
   for (const [key, r] of Object.entries(ROUTES)) {
-    if (!r.roles.includes(user.role)) continue;
+    if (!r.roles.includes(user.role) || (r.minProfile && !hasProfile(r.minProfile))) continue;
     if (r.group !== lastGroup) { nav.append(el("div", { class: "group" }, r.group)); lastGroup = r.group; }
     nav.append(el("a", { href: "#" + key, class: key === active ? "active" : "" }, [el("span", { class: "ico" }, r.ico), r.label]));
   }

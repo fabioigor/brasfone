@@ -126,11 +126,16 @@ describe("balancetes e padroes", () => {
     expect(f.some((a) => a.code === "SALDO_INVERTIDO")).toBe(false);
   });
 
-  it("variacao anormal de FSE e detectada", () => {
-    const f = evaluateRules(rules, jul, jun);
-    const v = f.find((a) => a.code === "VARIACAO_ANOMALA" && a.message.includes("FSE"));
-    expect(v).toBeDefined();
-    expect(v!.detail?.pct).toBeGreaterThan(30);
+  it("variacao de FSE so dispara com desvio relativo E impacto absoluto (dupla condicao)", () => {
+    const fse = (r: Partial<typeof rules[0]>) => [{ id: 99, companyId: null, name: "62 FSE", type: "variacao" as const, method: "mes_anterior" as const, accountPrefixes: ["62"], param: null, threshold: 30, minImpact: 500, severity: "aviso" as const, enabled: true, ...r }];
+    const hit = evaluateRules(fse({}), jul, jun).find((a) => a.code === "VARIACAO_ANOMALA");
+    expect(hit).toBeDefined();
+    expect(Math.abs(hit!.detail!.deviation as number)).toBeGreaterThan(30);
+    expect(hit!.detail!.impact as number).toBeGreaterThanOrEqual(500);
+    // mesmo desvio relativo, impacto minimo muito alto: nao interessa a ninguem
+    expect(evaluateRules(fse({ minImpact: 100000 }), jul, jun).some((a) => a.code === "VARIACAO_ANOMALA")).toBe(false);
+    // as regras por defeito de mediana precisam de historico (>= 3 meses); sem ele nao ha falso positivo
+    expect(evaluateRules(rules, jul, jun).some((a) => a.code === "VARIACAO_ANOMALA")).toBe(false);
   });
 
   it("saldo invertido em bancos gera erro", () => {

@@ -51,3 +51,24 @@ Precisão por regra (corrigidas / fechadas), taxa de falsos positivos, tempo mé
 | GET/DELETE | `/api/exceptions`, `/api/exceptions/:id` | gabinete |
 | GET/POST | `/api/parameters` | gabinete / TOC |
 | POST | `/api/entries/:id/decision` com `override_reason` quando há bloqueantes | gabinete |
+
+## Módulo B: padrões de balancete com dupla condição
+
+- Tipo `variacao` com **método de referência**: mês anterior, mediana móvel de 12 meses (exige ≥ 3 meses de histórico), homóloga (mesmo mês do ano anterior), % das vendas, % dos gastos com pessoal, valor fixo esperado, dias de recebimento, dias de pagamento.
+- **Dupla condição obrigatória:** o alerta só dispara quando o desvio relativo (%, p.p. ou dias) **e** o impacto absoluto em euros ultrapassam ambos o limiar. A API recusa regras de variação sem impacto mínimo. Os impactos mínimos são multiplicados pelo parâmetro `escala_impactos_minimos` (recalcular a partir da facturação mediana da carteira).
+- **Hierarquia em quatro níveis**, resolvida do mais específico para o mais genérico: conta do cliente > cliente > sector (prefixo de CAE) > global. Para a mesma família (tipo + contas) só a regra mais específica corre. Globais e sectoriais são do TOC responsável; por cliente e por conta, do coordenador.
+- **Padrões por defeito** da especificação: 61 % das vendas 5 p.p./1 000 €; 62 mediana 30%/500 €; 63 mediana 10%/1 000 €; 64 mediana 2%/250 €; 68 mediana 40%/500 € (informativo); 71 e 72 homóloga 25%/2 500 €; 21 dias de recebimento 15 dias/5 000 €; 22 dias de pagamento 15 dias/5 000 €. As regras antigas só por percentagem foram removidas.
+- **Estruturais:** B1.01 débitos = créditos (tolerância `tolerancia_balancete_eur`), B1.03 soma das subcontas = saldo da agregadora quando o balancete traz ambas (`SUBCONTAS_INCOERENTES`, bloqueante), sinal dos saldos (B1.04/B1.08 via padrões).
+- **Aprendizagem:** 6 meses por cliente novo (`periodo_aprendizagem_meses` ou `learning_until` da empresa): as variações são geradas mas marcadas "aprendizagem".
+
+## Carteira do contabilista
+
+Um contabilista com empresas atribuídas (Empresas > Equipa do gabinete > Carteira) só vê e valida essas empresas: listas de empresas, documentos, lançamentos e alertas filtradas no servidor; aprovar fora da carteira devolve 403. Sem atribuições, vê todas. Coordenador e TOC vêem tudo.
+
+| Método | Rota | Acesso |
+|---|---|---|
+| GET | `/api/users` (com `company_ids`), `/api/users/:id/assignments` | gabinete |
+| POST | `/api/users` `{name, email, password, profile, company_ids}` | coordenador+ |
+| PATCH | `/api/users/:id` `{profile, company_ids, name}` (perfil TOC só pelo TOC) | coordenador+ |
+| POST/PATCH/DELETE | `/api/rules` (com `method`, `min_impact`, `cae_prefix`, `account`) | coordenador+; globais/sectoriais só TOC |
+| PATCH | `/api/companies/:id` `{learning_until}` | gabinete |

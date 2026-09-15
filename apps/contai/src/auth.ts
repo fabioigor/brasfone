@@ -101,3 +101,16 @@ export function scopedCompanyId(req: Request, requested: number | null): number 
   if (req.user?.role === "staff") return requested;
   return req.user?.companyId ?? -1;
 }
+
+export type Profile = "contabilista" | "coordenador" | "toc";
+const RANK: Record<Profile, number> = { contabilista: 0, coordenador: 1, toc: 2 };
+
+/** Requires a firm profile of at least the given level (toc > coordenador > contabilista). */
+export function requireProfile(min: Profile) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (req.user?.role !== "staff") return res.status(403).json({ error: "Acesso reservado ao gabinete." });
+    const p = (req.user.profile ?? "toc") as Profile;
+    if ((RANK[p] ?? 0) < RANK[min]) return res.status(403).json({ error: min === "toc" ? "Acesso reservado ao TOC responsável." : "Acesso reservado ao coordenador ou ao TOC responsável." });
+    next();
+  };
+}

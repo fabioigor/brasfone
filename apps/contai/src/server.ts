@@ -28,6 +28,7 @@ import {
   verifyPassword,
   hashPassword,
   scopedCompanyId,
+  requireProfile,
   issuePreviewToken,
   verifyPreviewToken,
 } from "./auth.js";
@@ -66,7 +67,7 @@ import {
   previousPeriod,
   computeFinancials,
 } from "./domain/trialBalance.js";
-import { listRules, evaluateRules, persistBalanceFindings } from "./domain/balanceRules.js";
+import { listRules, evaluateRules, persistBalanceFindings, checkBalance, RULE_METHODS } from "./domain/balanceRules.js";
 import { buildReportData } from "./domain/financialReport.js";
 import { renderReportHtml } from "./domain/reportHtml.js";
 import { knowledgeStatus, loadVatRules, loadSectorBenchmarks } from "./knowledge/index.js";
@@ -144,11 +145,20 @@ export function createServer({
 
   const auth = authenticate(db);
 
+  /** Companies a staff user may see: null = all (coordenador, toc, or contabilista without assignments); list for a contabilista with a carteira. */
+  const carteira = (req: Request): number[] | null => {
+    if (req.user!.role !== "staff" || (req.user!.profile ?? "toc") !== "contabilista") return null;
+    const ids = (db.prepare("SELECT company_id FROM company_assignments WHERE user_id = ?").all(req.user!.id) as any[]).map((r) => r.company_id);
+    return ids.length ? ids : null;
+  };
+  const inCarteira = (req: Request, companyId: number | null): boolean => { const c = carteira(req); return !c || companyId === null || c.includes(companyId); };
+  const carteiraSql = (req: Request, column: string): { sql: string; params: number[] } => { const c = carteira(req); return c ? { sql: ` AND ${column} IN (${c.map(() => "?").join(",")})`, params: c } : { sql: "", params: [] }; };
+
   app.get("/health", (_req, res) => res.json({ status: "ok", version: APP_VERSION }));
 
   // Estado do sistema (versao, ultimo deploy, registo da actualizacao automatica) para o gabinete.
   const startedAt = new Date().toISOString();
-  app.get("/api/system", auth, requireStaff, (_req, res) => {
+  app.get("/api/system", auth, requireProfile("coordenador"), (_req, res) => {
     const dir = process.env.CONTAI_SYSTEM_LOG_DIR || "";
     const read = (name: string): string | null => { try { return dir ? fs.readFileSync(path.join(dir, name), "utf8") : null; } catch { return null; } };
     let deploy: any = null; try { deploy = JSON.parse(read("deploy.json") || "null"); } catch { deploy = null; }
@@ -212,11 +222,12 @@ export function createServer({
       const rows = db.prepare("SELECT * FROM companies WHERE id = ?").all(req.user!.companyId);
       return res.json({ companies: rows });
     }
-    const rows = db.prepare("SELECT * FROM companies ORDER BY name").all();
+    const c = carteira(req);
+    const rows = c ? db.prepare(`SELECT * FROM companies WHERE id IN (${c.map(() => "?").join(",")}) ORDER BY name`).all(...c) : db.prepare("SELECT * FROM companies ORDER BY name").all();
     return res.json({ companies: rows });
   });
 
-  app.post("/api/companies", auth, requireStaff, (req, res) => {
+  app.post("/api/companies", auth, requireProfile("coordenador"), (req, res) => {
     const body = z
       .object({
         name: z.string().min(2),
@@ -240,7 +251,7 @@ export function createServer({
     }
   });
 
-  app.post("/api/companies/:id/users", auth, requireStaff, (req, res) => {
+  app.post("/api/companies/:id/users", auth, requireProfile("coordenador"), (req, res) => {
     const companyId = Number(req.params.id);
     const body = z
       .object({ name: z.string().min(2), email: z.string().email(), password: z.string().min(8) })
@@ -264,8 +275,9 @@ export function createServer({
 
   // ---------- Equipa do gabinete (contas staff) ----------
   app.get("/api/users", auth, requireStaff, (_req, res) => {
-    const rows = db.prepare("SELECT id, email, name, role, company_id, profile, created_at FROM users WHERE email NOT IN ('canais@contai.local', 'mcp@contai.local') ORDER BY role, name").all();
-    return res.json({ users: rows });
+    const rows = db.prepare("SELECT id, email, name, role, company_id, profile, created_at FROM users WHERE email NOT IN ('canais@contai.local', 'mcp@contai.local') ORDER BY role, name").all() as any[];
+    const assigns = db.prepare("SELECT user_id, company_id FROM company_assignments").all() as any[];
+    return res.json({ users: rows.map((u) => ({ ...u, company_ids: assigns.filter((a) => a.user_id === u.id).map((a) => a.company_id) })) });
   });
 
   app.post("/api/users", auth, requireStaff, (req, res) => {
@@ -283,7 +295,28 @@ export function createServer({
     }
   });
 
-  app.delete("/api/users/:id", auth, requireStaff, (req, res) => {
+  app.get("/api/users/:id/assignments", auth, requireStaff, (req, res) => {
+    const rows = db.prepare("SELECT company_id FROM company_assignments WHERE user_id = ?").all(Number(req.params.id)) as any[];
+    return res.json({ company_ids: rows.map((r) => r.company_id) });
+  });
+
+  app.patch("/api/users/:id", auth, requireProfile("coordenador"), (req, res) => {
+    const body = z.object({ profile: z.enum(["contabilista", "coordenador", "toc"]).optional(), company_ids: z.array(z.number().int()).optional(), name: z.string().trim().min(2).optional() }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
+    const u = db.prepare("SELECT id, role, profile FROM users WHERE id = ?").get(Number(req.params.id)) as any;
+    if (!u || u.role !== "staff") return res.status(404).json({ error: "Conta de gabinete inexistente." });
+    if (body.data.profile === "toc" && (req.user!.profile ?? "toc") !== "toc") return res.status(403).json({ error: "Só o TOC responsável atribui o perfil TOC." });
+    if (u.profile === "toc" && body.data.profile && body.data.profile !== "toc" && (db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'staff' AND profile = 'toc'").get() as any).n <= 1) return res.status(400).json({ error: "Tem de ficar pelo menos um TOC responsável." });
+    const tx = db.transaction(() => {
+      if (body.data.profile || body.data.name) db.prepare("UPDATE users SET profile = COALESCE(?, profile), name = COALESCE(?, name) WHERE id = ?").run(body.data.profile ?? null, body.data.name ?? null, u.id);
+      if (body.data.company_ids) { db.prepare("DELETE FROM company_assignments WHERE user_id = ?").run(u.id); for (const cid of body.data.company_ids) db.prepare("INSERT OR IGNORE INTO company_assignments (user_id, company_id) VALUES (?, ?)").run(u.id, cid); }
+    });
+    tx();
+    audit(db, req.user!.id, "update_staff", "user", u.id, JSON.stringify(body.data));
+    return res.json({ user: db.prepare("SELECT id, email, name, role, profile FROM users WHERE id = ?").get(u.id), company_ids: (db.prepare("SELECT company_id FROM company_assignments WHERE user_id = ?").all(u.id) as any[]).map((r) => r.company_id) });
+  });
+
+  app.delete("/api/users/:id", auth, requireProfile("coordenador"), (req, res) => {
     const id = Number(req.params.id);
     if (id === req.user!.id) return res.status(400).json({ error: "Não pode apagar a sua própria conta." });
     const u = db.prepare("SELECT id, role FROM users WHERE id = ?").get(id) as any;
@@ -382,6 +415,7 @@ export function createServer({
       sql += " AND d.status = ?";
       params.push(status);
     }
+    const cs = carteiraSql(req, "d.company_id"); sql += cs.sql; params.push(...cs.params);
     sql += " ORDER BY d.created_at DESC LIMIT 200";
     return res.json({ documents: db.prepare(sql).all(...params) });
   });
@@ -409,9 +443,9 @@ export function createServer({
          FROM entries e
          JOIN documents d ON d.id = e.document_id
          JOIN companies c ON c.id = e.company_id
-         WHERE e.status = ? ORDER BY e.created_at LIMIT 200`
+         WHERE e.status = ?${carteiraSql(req, "e.company_id").sql} ORDER BY e.created_at LIMIT 200`
       )
-      .all(status) as any[];
+      .all(status, ...carteiraSql(req, "e.company_id").params) as any[];
     const companyNif = new Map<number, string>(); const ccByCompany = new Map<number, any[]>();
     const supplierInfo = (companyId: number, extracted: any) => {
       if (!companyNif.has(companyId)) companyNif.set(companyId, ((db.prepare("SELECT nif FROM companies WHERE id = ?").get(companyId) as any)?.nif) ?? "");
@@ -460,6 +494,7 @@ export function createServer({
     if (!body.success) return res.status(400).json({ error: "Pedido inválido.", details: body.error.issues });
     const entry = db.prepare("SELECT * FROM entries WHERE id = ?").get(Number(req.params.id)) as any;
     if (!entry) return res.status(404).json({ error: "Lançamento inexistente." });
+    if (!inCarteira(req, entry.company_id)) return res.status(403).json({ error: "Empresa fora da sua carteira." });
     if (entry.status !== "pendente") {
       return res.status(409).json({ error: `Lançamento já decidido (${entry.status}).` });
     }
@@ -590,6 +625,7 @@ export function createServer({
         centralgest_code: z.string().trim().min(1).nullable().optional(),
         cae: z.string().trim().regex(/^\d{3,5}$/).nullable().optional(),
         territory: z.enum(["continente", "acores", "madeira"]).optional(),
+        learning_until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
       })
       .safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Dados inválidos.", details: body.error.issues });
@@ -598,6 +634,7 @@ export function createServer({
     if (body.data.centralgest_code !== undefined) { sets.push("centralgest_code = ?"); params.push(body.data.centralgest_code); }
     if (body.data.cae !== undefined) { sets.push("cae = ?"); params.push(body.data.cae); }
     if (body.data.territory !== undefined) { sets.push("territory = ?"); params.push(body.data.territory); }
+    if (body.data.learning_until !== undefined) { sets.push("learning_until = ?"); params.push(body.data.learning_until); }
     if (sets.length === 0) return res.status(400).json({ error: "Nada para actualizar." });
     params.push(Number(req.params.id));
     const r = db.prepare(`UPDATE companies SET ${sets.join(", ")} WHERE id = ?`).run(...params);
@@ -689,6 +726,7 @@ export function createServer({
     // Clientes só vêem alertas que lhes dizem respeito (documentos), nunca os de balancete.
     if (req.user!.role === "client") sql += " AND f.scope = 'documento' AND f.severity != 'info'";
     if (String(req.query.learning ?? "") === "0") sql += " AND f.learning = 0";
+    const cs = carteiraSql(req, "f.company_id"); sql += cs.sql; params.push(...cs.params);
     sql += " ORDER BY CASE f.status WHEN 'reaberto' THEN 0 ELSE 1 END, CASE f.severity WHEN 'erro' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END, f.created_at DESC LIMIT 300";
     return res.json({ findings: db.prepare(sql).all(...params), severity_labels: SEVERITY_LABEL });
   });
@@ -832,55 +870,68 @@ export function createServer({
     const period = String(req.params.period);
     const tb = loadTrialBalance(db, companyId, period);
     if (!tb) return res.status(404).json({ error: "Balancete inexistente. Importe-o primeiro." });
-    const prev = loadTrialBalance(db, companyId, previousPeriod(period));
-    const findings = evaluateRules(listRules(db, companyId), tb.lines, prev?.lines ?? null);
+    const { findings, previousPeriod: prevPeriod } = checkBalance(db, companyId, period, tb.lines);
     persistBalanceFindings(db, companyId, period, findings);
     audit(db, req.user!.id, "check_balance", "trial_balance", null, `${companyId}/${period}: ${findings.length} alertas`);
-    return res.json({ period, previousPeriod: prev ? previousPeriod(period) : null, findings });
+    return res.json({ period, previousPeriod: prevPeriod, findings });
   });
 
   app.get("/api/rules", auth, requireStaff, (req, res) => {
     const companyId = req.query.company_id ? Number(req.query.company_id) : null;
-    return res.json({ rules: listRules(db, companyId) });
+    return res.json({ rules: listRules(db, companyId), methods: RULE_METHODS });
   });
 
   const ruleSchema = z.object({
     company_id: z.number().int().positive().nullable().optional(),
+    cae_prefix: z.string().regex(/^\d{2,5}$/).nullable().optional(),
+    account: z.string().regex(/^\d{2,12}$/).nullable().optional(),
     name: z.string().min(3),
-    type: z.enum(["saldo_sinal", "variacao_percentual", "variacao_absoluta", "saldo_maximo", "saldo_minimo", "racio"]),
+    type: z.enum(["saldo_sinal", "variacao", "variacao_percentual", "variacao_absoluta", "saldo_maximo", "saldo_minimo", "racio"]),
     account_prefixes: z.array(z.string().min(1)).min(1),
     param: z.string().nullable().optional(),
     threshold: z.number().nullable().optional(),
+    min_impact: z.number().min(0).nullable().optional(),
+    method: z.enum(["mes_anterior", "mediana_12m", "homologa", "pct_vendas", "pct_pessoal", "valor_fixo", "dias_recebimento", "dias_pagamento"]).nullable().optional(),
     severity: z.enum(["info", "aviso", "erro"]).default("aviso"),
     enabled: z.boolean().default(true),
   });
 
-  app.post("/api/rules", auth, requireStaff, (req, res) => {
+  app.post("/api/rules", auth, requireProfile("coordenador"), (req, res) => {
     const body = ruleSchema.safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Dados inválidos.", details: body.error.issues });
     const d = body.data;
+    // Dupla condição obrigatória: uma regra de variação sem impacto mínimo em euros não é aceite.
+    if (["variacao", "variacao_percentual"].includes(d.type) && (d.min_impact === null || d.min_impact === undefined)) return res.status(400).json({ error: "Regras de variação exigem impacto mínimo em euros (dupla condição): nunca só por percentagem." });
+    // Hierarquia: global e sectorial (sem empresa) só pelo TOC; por cliente ou conta pelo coordenador.
+    if (!d.company_id && (req.user!.profile ?? "toc") !== "toc") return res.status(403).json({ error: "Padrões globais e sectoriais são do TOC responsável." });
+    if (d.account && !d.company_id) return res.status(400).json({ error: "Um padrão ao nível da conta é sempre de uma empresa." });
     const r = db
-      .prepare("INSERT INTO balance_rules (company_id, name, type, account_prefixes, param, threshold, severity, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(d.company_id ?? null, d.name, d.type, d.account_prefixes.join(","), d.param ?? null, d.threshold ?? null, d.severity, d.enabled ? 1 : 0);
+      .prepare("INSERT INTO balance_rules (company_id, cae_prefix, account, name, type, account_prefixes, param, threshold, min_impact, method, severity, enabled, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))")
+      .run(d.company_id ?? null, d.company_id ? null : (d.cae_prefix ?? null), d.account ?? null, d.name, d.type, d.account_prefixes.join(","), d.param ?? null, d.threshold ?? null, d.min_impact ?? null, d.method ?? null, d.severity, d.enabled ? 1 : 0, req.user!.id);
     audit(db, req.user!.id, "create", "balance_rule", Number(r.lastInsertRowid));
     return res.status(201).json({ id: Number(r.lastInsertRowid) });
   });
 
-  app.patch("/api/rules/:id", auth, requireStaff, (req, res) => {
-    const body = z.object({ enabled: z.boolean().optional(), threshold: z.number().nullable().optional(), severity: z.enum(["info", "aviso", "erro"]).optional() }).safeParse(req.body);
+  app.patch("/api/rules/:id", auth, requireProfile("coordenador"), (req, res) => {
+    const body = z.object({ enabled: z.boolean().optional(), threshold: z.number().nullable().optional(), min_impact: z.number().min(0).nullable().optional(), method: z.enum(["mes_anterior", "mediana_12m", "homologa", "pct_vendas", "pct_pessoal", "valor_fixo", "dias_recebimento", "dias_pagamento"]).nullable().optional(), severity: z.enum(["info", "aviso", "erro"]).optional() }).safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
-    const sets: string[] = []; const params: any[] = [];
+    const before = db.prepare("SELECT * FROM balance_rules WHERE id = ?").get(Number(req.params.id)) as any;
+    if (before && !before.company_id && (req.user!.profile ?? "toc") !== "toc") return res.status(403).json({ error: "Padrões globais e sectoriais são do TOC responsável." });
+    const sets: string[] = ["updated_by = ?", "updated_at = datetime('now')"]; const params: any[] = [req.user!.id];
     if (body.data.enabled !== undefined) { sets.push("enabled = ?"); params.push(body.data.enabled ? 1 : 0); }
     if (body.data.threshold !== undefined) { sets.push("threshold = ?"); params.push(body.data.threshold); }
+    if (body.data.min_impact !== undefined) { sets.push("min_impact = ?"); params.push(body.data.min_impact); }
+    if (body.data.method !== undefined) { sets.push("method = ?"); params.push(body.data.method); }
     if (body.data.severity !== undefined) { sets.push("severity = ?"); params.push(body.data.severity); }
-    if (!sets.length) return res.status(400).json({ error: "Nada para actualizar." });
+    if (sets.length <= 2) return res.status(400).json({ error: "Nada para actualizar." });
     params.push(Number(req.params.id));
     const r = db.prepare(`UPDATE balance_rules SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+    audit(db, req.user!.id, "update", "balance_rule", Number(req.params.id), JSON.stringify({ before: before ? { threshold: before.threshold, min_impact: before.min_impact, method: before.method, severity: before.severity, enabled: before.enabled } : null, after: body.data }));
     if (r.changes === 0) return res.status(404).json({ error: "Padrão inexistente." });
     return res.json({ ok: true });
   });
 
-  app.delete("/api/rules/:id", auth, requireStaff, (req, res) => {
+  app.delete("/api/rules/:id", auth, requireProfile("coordenador"), (req, res) => {
     const r = db.prepare("DELETE FROM balance_rules WHERE id = ?").run(Number(req.params.id));
     if (r.changes === 0) return res.status(404).json({ error: "Padrão inexistente." });
     return res.json({ ok: true });
@@ -1064,10 +1115,10 @@ export function createServer({
   });
 
   // ---------- Dominio e TLS (auto-servico) ----------
-  app.get("/api/domain", auth, requireStaff, async (_req, res) => {
+  app.get("/api/domain", auth, requireProfile("coordenador"), async (_req, res) => {
     return res.json(await domainStatus(process.env.CONTAI_SYSTEM_LOG_DIR || null));
   });
-  app.put("/api/domain", auth, requireStaff, async (req, res) => {
+  app.put("/api/domain", auth, requireProfile("coordenador"), async (req, res) => {
     const body = z.object({ domain: z.string().max(253) }).safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Pedido inválido." });
     const d = normaliseDomain(body.data.domain);
@@ -1078,7 +1129,7 @@ export function createServer({
   });
 
   // ---------- Testes de credenciais (sem guardar) ----------
-  app.post("/api/settings/test/:group", auth, requireStaff, async (req, res) => {
+  app.post("/api/settings/test/:group", auth, requireProfile("coordenador"), async (req, res) => {
     const v = (k: string): string => String((req.body?.values ?? {})[k] ?? process.env[k] ?? "").trim();
     const started = Date.now();
     const done = (ok: boolean, detail: string, extra: Record<string, unknown> = {}) => {
@@ -1137,11 +1188,11 @@ export function createServer({
   });
 
   // ---------- Integracoes (definicoes cifradas na BD) ----------
-  app.get("/api/settings", auth, requireStaff, (_req, res) => {
+  app.get("/api/settings", auth, requireProfile("coordenador"), (_req, res) => {
     return res.json({ settings: listSettings(db), restart: !!onSettingsSaved });
   });
 
-  app.put("/api/settings", auth, requireStaff, (req, res) => {
+  app.put("/api/settings", auth, requireProfile("coordenador"), (req, res) => {
     const body = z.object({ values: z.record(z.string(), z.string().max(4000).nullable()) }).safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Pedido inválido." });
     try {

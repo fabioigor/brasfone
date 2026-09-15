@@ -62,7 +62,7 @@ describe("equipa do gabinete", () => {
     const client = (await request(app).post("/api/auth/login").send({ email: "padaria@demo.pt", password: "cliente123" })).body.token;
     expect((await request(app).post("/api/users").set("Authorization", `Bearer ${client}`).send({ name: "X Y", email: "x@y.pt", password: "12345678" })).status).toBe(403);
     expect((await request(app).post("/api/users").set("Authorization", `Bearer ${staff}`).send({ name: "X Y", email: "x@y.pt", password: "curta" })).status).toBe(400);
-    const c = await request(app).post("/api/users").set("Authorization", `Bearer ${staff}`).send({ name: "Diogo Teste", email: "Diogo@Exemplo.pt", password: "Senha-Forte-123" });
+    const c = await request(app).post("/api/users").set("Authorization", `Bearer ${staff}`).send({ name: "Diogo Teste", email: "Diogo@Exemplo.pt", password: "Senha-Forte-123", profile: "coordenador" });
     expect(c.status).toBe(201); expect(c.body.email).toBe("diogo@exemplo.pt");
     expect((await request(app).post("/api/users").set("Authorization", `Bearer ${staff}`).send({ name: "Diogo Teste", email: "diogo@exemplo.pt", password: "Senha-Forte-123" })).status).toBe(409);
     const login = await request(app).post("/api/auth/login").send({ email: "diogo@exemplo.pt", password: "Senha-Forte-123" });
@@ -74,7 +74,7 @@ describe("equipa do gabinete", () => {
     expect((await request(app).delete("/api/users/" + me).set("Authorization", `Bearer ${login.body.token}`)).status).toBe(400);
     expect((await request(app).delete("/api/users/" + c.body.id).set("Authorization", `Bearer ${staff}`)).status).toBe(200);
     const only = (db.prepare("SELECT id FROM users WHERE email = 'gabinete@demo.pt'").get() as any).id;
-    const other = (await request(app).post("/api/users").set("Authorization", `Bearer ${staff}`).send({ name: "Outro Staff", email: "o@s.pt", password: "12345678" })).body;
+    const other = (await request(app).post("/api/users").set("Authorization", `Bearer ${staff}`).send({ name: "Outro Staff", email: "o@s.pt", password: "12345678", profile: "coordenador" })).body;
     const otherToken = (await request(app).post("/api/auth/login").send({ email: "o@s.pt", password: "12345678" })).body.token;
     expect((await request(app).delete("/api/users/" + only).set("Authorization", `Bearer ${otherToken}`)).status).toBe(200);
     expect((await request(app).delete("/api/users/" + other.id).set("Authorization", `Bearer ${otherToken}`)).status).toBe(400);

@@ -2,6 +2,12 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-15 — Balancetes com dupla condição, hierarquia de padrões e carteira por contabilista
+
+- **Decisão:** o motor de balancetes passa a exigir dupla condição (desvio relativo e impacto absoluto em euros) em todas as regras de variação, com métodos de referência (mediana móvel 12 meses, homóloga, % das vendas, % do pessoal, valor fixo, dias de recebimento/pagamento) e hierarquia conta > cliente > sector > global. Os padrões por defeito seguem a tabela da especificação; as regras antigas só por percentagem foram removidas por gerarem ruído. Impactos mínimos reescaláveis pelo parâmetro versionado `escala_impactos_minimos` até a Lumarcont indicar a facturação mediana da carteira (decisão em aberto).
+- **Perfis:** contabilista com carteira (filtro no servidor), coordenador (configuração por cliente, contas), TOC responsável (padrões globais e sectoriais, parâmetros). Contas existentes ficaram TOC para não perder acesso.
+- **Reversível por:** Fábio (product owner); limiares pela Lumarcont na app.
+
 ## 2026-09-15 — Excepções com estado, severidades, parâmetros versionados e perfis (reunião com a Lumarcont de 14/09)
 
 - **Decisão:** os alertas da conferência passam a excepções com ciclo de vida (aberta → em análise → corrigida | falso positivo | aceite; reaberta quando recorre), conforme a especificação de desenvolvimento acordada. Falso positivo exige motivo de uma lista fixa (8 propostos pela INUBIA, corrigíveis pela Lumarcont); aceite grava justificação reutilizável que aceita automaticamente alertas iguais. Severidades: bloqueante (aprovar exige justificação), alerta, informativo. Período de aprendizagem de 6 meses por cliente novo. Tolerâncias e limiares saem do código para a tabela `parameters` com data de eficácia, e cada conferência regista a versão usada. Perfis do gabinete: contabilista, coordenador, TOC responsável.
