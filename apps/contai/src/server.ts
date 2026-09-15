@@ -41,6 +41,7 @@ import { IntakeDialog, DOC_TYPE_OPTIONS } from "./channels/dialog.js";
 import { getProfile, isKnownSupplier, counterpartyNif } from "./domain/supplierMemory.js";
 import { applyCostCenter } from "./domain/entries.js";
 import { transitionFinding, findingMetrics, listFpReasons, blockingFindings, SEVERITY_LABEL } from "./domain/exceptions.js";
+import { listArticles, rebuildArticles, decideArticle, framingsFor, articleKey } from "./domain/articles.js";
 import { listParameters, addParameterVersion, PARAMETER_DEFS } from "./domain/parameters.js";
 import { DocType } from "./domain/classification.js";
 import { OcrEngine, DocumentOcr } from "./ocr/engine.js";
@@ -798,15 +799,18 @@ export function createServer({
     catch (e: any) { return res.status(400).json({ error: e.message }); }
   });
 
+  const framingsExtra = (companyId: number) => ({ articleFramings: framingsFor(db, companyId, new Date().toISOString().slice(0, 10)), articleKey });
   app.post("/api/audit/documents/:id", auth, requireStaff, (req, res) => {
-    const findings = auditStoredDocument(db, Number(req.params.id));
+    const doc = db.prepare("SELECT company_id FROM documents WHERE id = ?").get(Number(req.params.id)) as any;
+    const findings = auditStoredDocument(db, Number(req.params.id), doc ? framingsExtra(doc.company_id) : {});
     return res.json({ findings });
   });
 
   app.post("/api/audit/companies/:companyId", auth, requireStaff, (req, res) => {
     const docs = db.prepare("SELECT id FROM documents WHERE company_id = ? AND extracted_json IS NOT NULL").all(Number(req.params.companyId)) as any[];
+    const extra = framingsExtra(Number(req.params.companyId));
     let total = 0;
-    for (const d of docs) total += auditStoredDocument(db, d.id).length;
+    for (const d of docs) total += auditStoredDocument(db, d.id, extra).length;
     return res.json({ documents: docs.length, findings: total });
   });
 
@@ -1068,6 +1072,27 @@ export function createServer({
     db.prepare("UPDATE reports SET approved_by = ?, approved_at = ? WHERE id = ?").run(approve ? req.user!.id : null, approve ? new Date().toISOString() : null, r.id);
     audit(db, req.user!.id, approve ? "approve" : "unapprove", "report", r.id);
     return res.json({ id: r.id, approved: approve });
+  });
+
+  // ---------- A3: fichas de enquadramento fiscal por artigo ----------
+  app.get("/api/companies/:id/articles", auth, requireStaff, (req, res) => {
+    const companyId = Number(req.params.id);
+    if (!inCarteira(req, companyId)) return res.status(403).json({ error: "Empresa fora da sua carteira." });
+    const queue = typeof req.query.queue === "string" && req.query.queue && req.query.queue !== "todas" ? req.query.queue : null;
+    return res.json(listArticles(db, companyId, queue));
+  });
+  app.post("/api/companies/:id/articles/rebuild", auth, requireStaff, (req, res) => {
+    const companyId = Number(req.params.id);
+    if (!inCarteira(req, companyId)) return res.status(403).json({ error: "Empresa fora da sua carteira." });
+    const r = rebuildArticles(db, companyId);
+    audit(db, req.user!.id, "articles_rebuild", "company", companyId, JSON.stringify(r));
+    return res.json({ ...r, ...listArticles(db, companyId).summary });
+  });
+  app.patch("/api/articles/:id", auth, requireProfile("coordenador"), (req, res) => {
+    const body = z.object({ status: z.enum(["validado", "rejeitado", "proposto"]), band: z.enum(["normal", "intermedia", "reduzida", "isento"]).nullable().optional(), legal_basis: z.string().max(200).nullable().optional(), notes: z.string().max(1000).nullable().optional(), effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional() }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos." });
+    try { return res.json({ article: decideArticle(db, Number(req.params.id), req.user!.id, { status: body.data.status, band: body.data.band, legalBasis: body.data.legal_basis, notes: body.data.notes, effectiveFrom: body.data.effective_from }) }); }
+    catch (e: any) { return res.status(/inexistente/.test(e.message) ? 404 : 400).json({ error: e.message }); }
   });
 
   // ---------- Base legal versionada (data de publicação e de eficácia separadas; validação humana) ----------

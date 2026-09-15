@@ -1698,6 +1698,87 @@ async function viewLegal(main) {
   main.append(el("div", { class: "card table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Peça"), el("th", {}, "Tipo"), el("th", {}, "Datas"), el("th", {}, "Estado"), el("th", {}, "")])), data.sources.length ? tbody : el("tbody", {}, el("tr", {}, el("td", { colspan: "5", class: "muted" }, "Ainda sem peças registadas.")))])));
 }
 
+/* ---------- A3: fichas de enquadramento fiscal por artigo ---------- */
+
+const BAND_LABEL = { normal: "Taxa normal", intermedia: "Taxa intermédia", reduzida: "Taxa reduzida", isento: "Isento / 0%" };
+const ARTICLE_QUEUE_LABEL = { aplicar: "A aplicar", validar: "Por validar", hipoteses: "Só hipóteses", validado: "Validadas", rejeitado: "Rejeitadas" };
+
+function scoreBar(score) {
+  const pct = Math.round((score || 0) * 100);
+  return el("div", { class: "scorebar" + (pct >= 90 ? " hi" : pct < 70 ? " lo" : ""), title: pct + "%" }, el("span", { style: "width:" + pct + "%" }));
+}
+
+async function viewArticles(main) {
+  main.append(el("h2", {}, "Fichas de artigo (enquadramento fiscal)"));
+  main.append(el("p", { class: "muted" }, "O motor classifica artigos, não linhas. Cada artigo de cada cliente tem uma ficha persistente com a taxa proposta, a base legal (verba das Listas I e II) e o grau de confiança. Uma ficha validada passa a ser a referência de todas as facturas futuras desse artigo, sem IA. Acima do limiar de aplicação a proposta é usada na conferência; entre os dois limiares aguarda validação; abaixo mostram-se apenas hipóteses. Os limiares são parâmetros versionados (score_artigo_aplicar e score_artigo_validar)."));
+  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const companySel = el("select"); companyOptions(companySel, false);
+  if (params.get("empresa")) companySel.value = params.get("empresa");
+  const queueSel = el("select", {}, [el("option", { value: "todas" }, "Todas as filas"), ...Object.entries(ARTICLE_QUEUE_LABEL).map(([k, v]) => el("option", { value: k }, v))]);
+  if (params.get("fila")) queueSel.value = params.get("fila");
+  const rebuildBtn = el("button", { class: "btn small" }, "Reconstruir a partir dos documentos");
+  const summaryBox = el("div", { class: "grid cols-4" });
+  const tbody = el("tbody");
+  const canDecide = hasProfile("coordenador");
+
+  const load = async () => {
+    if (!companySel.value) { tbody.innerHTML = ""; tbody.append(el("tr", {}, el("td", { colspan: "7", class: "muted" }, "Escolha uma empresa."))); return; }
+    location.hash = "artigos?empresa=" + companySel.value + "&fila=" + queueSel.value;
+    const data = await api("/api/companies/" + companySel.value + "/articles?queue=" + queueSel.value);
+    const s = data.summary;
+    summaryBox.innerHTML = "";
+    const stat = (n, l, cls) => el("div", { class: "card stat flat" + (cls || "") }, [el("div", { class: "n" }, String(n)), el("div", { class: "l" }, l)]);
+    summaryBox.append(stat(s.coverage === null ? "—" : s.coverage + "%", "Cobertura validada · objectivo 80%", s.coverage !== null && s.coverage < 80 ? " warn" : ""), stat(s.aplicar, "A aplicar (score alto)"), stat(s.validar, "Por validar", s.validar ? " warn" : ""), stat(s.hipoteses, "Só hipóteses"));
+    tbody.innerHTML = "";
+    if (!data.articles.length) tbody.append(el("tr", {}, el("td", { colspan: "7", class: "muted" }, "Sem fichas nesta fila. Processe documentos com linhas ou reconstrua a partir dos documentos existentes.")));
+    for (const a of data.articles) {
+      const rates = a.observed_rates || [];
+      const counts = {}; for (const r of rates) counts[r] = (counts[r] || 0) + 1;
+      const observed = Object.entries(counts).sort((x, y) => y[1] - x[1]).map(([r, n]) => r + "% ×" + n).join(", ") || "—";
+      const band = a.status === "validado" ? a.validated_band : a.proposed_band;
+      const actions = el("div", { class: "actions" });
+      if (canDecide && a.status !== "validado") actions.append(el("button", { class: "btn small primary", onclick: () => validateArticleModal(a, load) }, "Validar"));
+      if (canDecide && a.status === "proposto") actions.append(el("button", { class: "btn small danger", onclick: async () => { try { await api("/api/articles/" + a.id, { method: "PATCH", json: { status: "rejeitado" } }); toast("Ficha rejeitada; o artigo deixa de ser conferido por ficha."); load(); } catch (e) { toast(e.message, true); } } }, "Rejeitar"));
+      if (canDecide && a.status !== "proposto") actions.append(el("button", { class: "btn small ghost", onclick: async () => { try { await api("/api/articles/" + a.id, { method: "PATCH", json: { status: "proposto" } }); load(); } catch (e) { toast(e.message, true); } } }, "Reabrir"));
+      tbody.append(el("tr", {}, [
+        el("td", { "data-l": "Artigo" }, [el("strong", {}, a.description), el("div", { class: "muted small" }, "chave: " + a.key + " · " + a.occurrences + " ocorrência(s)" + (a.last_seen ? " · última " + a.last_seen : ""))]),
+        el("td", { "data-l": "Enquadramento" }, [band ? el("strong", {}, BAND_LABEL[band] || band) : el("span", { class: "muted" }, "sem proposta"), a.legal_basis ? el("div", { class: "muted small" }, a.legal_basis) : null, (a.hypotheses || []).length ? el("div", { class: "small warn-text" }, "Hipóteses: " + a.hypotheses.map((h) => (BAND_LABEL[h.band] || h.band) + " (" + h.why + ")").join("; ")) : null]),
+        el("td", { "data-l": "Confiança" }, [scoreBar(a.status === "validado" ? 1 : a.score), el("div", { class: "muted small" }, (a.status === "validado" ? "100" : Math.round(a.score * 100)) + "% · " + (a.source || ""))]),
+        el("td", { "data-l": "Taxas observadas" }, observed),
+        el("td", { "data-l": "Fila" }, el("span", { class: "badge " + (a.queue === "validado" ? "ok" : a.queue === "aplicar" ? "info" : a.queue === "rejeitado" ? "muted" : "warn") }, ARTICLE_QUEUE_LABEL[a.queue] || a.queue)),
+        el("td", { "data-l": "Validação" }, a.validated_at ? el("div", { class: "small" }, [(a.status === "validado" ? "validada" : "decidida") + " em " + String(a.validated_at).slice(0, 10), a.effective_from ? el("div", { class: "muted" }, "eficaz desde " + a.effective_from) : null, a.notes ? el("div", { class: "muted" }, a.notes) : null]) : el("span", { class: "muted" }, "—")),
+        el("td", {}, actions),
+      ]));
+    }
+  };
+  rebuildBtn.addEventListener("click", async () => { if (!companySel.value) return; rebuildBtn.disabled = true; try { const r = await api("/api/companies/" + companySel.value + "/articles/rebuild", { method: "POST" }); toast(r.documents + " documento(s) percorrido(s); " + r.total + " ficha(s)."); await load(); } catch (e) { toast(e.message, true); } finally { rebuildBtn.disabled = false; } });
+  companySel.addEventListener("change", load); queueSel.addEventListener("change", load);
+  main.append(el("div", { class: "card" }, [el("div", { class: "form-row" }, [el("label", {}, ["Empresa", companySel]), el("label", {}, ["Fila", queueSel]), el("span", { class: "spacer" }), rebuildBtn]), summaryBox]));
+  main.append(el("div", { class: "card table-wrap" }, el("table", {}, [el("thead", {}, el("tr", {}, [el("th", {}, "Artigo"), el("th", {}, "Enquadramento"), el("th", {}, "Confiança"), el("th", {}, "Taxas observadas"), el("th", {}, "Fila"), el("th", {}, "Validação"), el("th", {}, "")])), tbody])));
+  if (!canDecide) main.append(el("p", { class: "muted small" }, "Validar ou rejeitar fichas requer o perfil de coordenador ou TOC."));
+  await load();
+}
+
+function validateArticleModal(a, onDone) {
+  const band = el("select", {}, Object.entries(BAND_LABEL).map(([k, v]) => el("option", { value: k }, v)));
+  if (a.validated_band || a.proposed_band) band.value = a.validated_band || a.proposed_band;
+  const legal = el("input", { value: a.legal_basis || "", placeholder: "Base legal (ex.: verba 1.1.5 Lista I CIVA)" });
+  const eff = el("input", { type: "date", value: a.effective_from || new Date().toISOString().slice(0, 10) });
+  const notes = el("textarea", { rows: "2", placeholder: "Observações (opcional)" }, a.notes || "");
+  const form = el("form", { class: "form-col" }, [
+    el("p", { class: "muted small" }, "A ficha validada passa a ser a referência de conferência para todas as facturas futuras deste artigo. Divergências entre a factura e a ficha geram alerta com a menção \"ficha validada\"."),
+    el("label", {}, ["Artigo", el("strong", {}, a.description)]),
+    el("label", {}, ["Enquadramento", band]), el("label", {}, ["Base legal", legal]), el("label", {}, ["Eficaz desde", eff]), el("label", {}, ["Observações", notes]),
+    el("div", { class: "form-row" }, [el("button", { class: "btn primary", type: "submit" }, "Validar ficha")]),
+  ]);
+  const close = openModal("Validar enquadramento", form);
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try { await api("/api/articles/" + a.id, { method: "PATCH", json: { status: "validado", band: band.value, legal_basis: legal.value || null, effective_from: eff.value || null, notes: notes.value || null } }); toast("Ficha validada."); close(); onDone(); }
+    catch (e) { toast(e.message, true); }
+  });
+}
+
 /* ---------- Relatórios financeiros ---------- */
 
 async function viewReports(main) {
@@ -2437,6 +2518,7 @@ const ROUTES = {
   efatura: { label: "e-Fatura", ico: "⧉", group: "Análise", view: viewEFatura, roles: ["staff", "client"] },
   empresas: { label: "Empresas", ico: "⌂", group: "Configuração", view: viewCompanies, roles: ["staff"], minProfile: "coordenador" },
   fornecedores: { label: "Fornecedores", ico: "⊞", group: "Configuração", view: viewSuppliers, roles: ["staff"] },
+  artigos: { label: "Fichas de artigo", ico: "⌗", group: "Configuração", view: viewArticles, roles: ["staff"] },
   exportacao: { label: "Entrega", ico: "⇪", group: "Configuração", view: viewExport, roles: ["staff"] },
   baselegal: { label: "Base legal", ico: "§", group: "Configuração", view: viewLegal, roles: ["staff"], minProfile: "coordenador" },
   integracoes: { label: "Integrações", ico: "⚙", group: "Configuração", view: viewIntegrations, roles: ["staff"], minProfile: "coordenador" },

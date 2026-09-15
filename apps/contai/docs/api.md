@@ -8,6 +8,7 @@ Autenticação: `Authorization: Bearer <JWT>` obtido em `POST /api/auth/login`. 
 | GET | `/.well-known/assetlinks.json` | público |
 | POST | `/api/audit/companies/:companyId` | gabinete |
 | POST | `/api/audit/documents/:id` | gabinete |
+| PATCH | `/api/articles/:id` | coordenador+ |
 | POST | `/api/auth/login` | público |
 | POST | `/api/auth/password` | autenticado |
 | GET | `/api/balances/:companyId` | autenticado |
@@ -41,6 +42,8 @@ Autenticação: `Authorization: Bearer <JWT>` obtido em `POST /api/auth/login`. 
 | GET | `/api/companies/:id/efatura/notify` | gabinete |
 | POST | `/api/companies/:id/efatura/notify` | gabinete |
 | PATCH | `/api/efatura/:id` | gabinete |
+| GET | `/api/companies/:id/articles` | gabinete |
+| POST | `/api/companies/:id/articles/rebuild` | gabinete |
 | GET | `/api/companies/:id/credentials` | autenticado |
 | POST | `/api/findings/:id/transition` | gabinete |
 | GET | `/api/findings/metrics` | gabinete |

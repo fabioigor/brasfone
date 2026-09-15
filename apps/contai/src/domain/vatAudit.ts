@@ -56,7 +56,21 @@ export interface AuditContext {
   qrCount?: number;
   /** Versioned tolerances (from the parameters table at the document date). */
   tolerances?: { lineEur: number; documentEur: number; versions: string };
+  /** A3 article framings (validated, or proposed above the apply threshold), by normalised article key. */
+  articleFramings?: Map<string, { band: VatBand | "isento"; legalBasis: string | null; validated: boolean; score: number }>;
+  /** Normaliser shared with the article records (injected to avoid a circular import). */
+  articleKey?: (description: string) => string;
 }
+
+/** Category for an item: the article record wins over the keyword classifier. */
+function frameItem(description: string, ctx: AuditContext): { band: VatBand | "isento"; legal: string; validated: boolean } | null {
+  const key = ctx.articleKey ? ctx.articleKey(description) : null;
+  const f = key ? ctx.articleFramings?.get(key) : undefined;
+  if (f) return { band: f.band, legal: (f.legalBasis ?? "ficha de artigo") + (f.validated ? " (ficha validada)" : ` (ficha proposta, score ${f.score})`), validated: f.validated };
+  const cat = categoriseItem(description);
+  return cat ? { band: cat.band, legal: cat.legal_basis, validated: false } : null;
+}
+const frameRate = (band: VatBand | "isento", territory: Territory, date: string) => (band === "isento" ? 0 : bandRate(band, territory, date));
 
 const DEFAULT_TOLERANCES = { lineEur: 0.01, documentEur: 0.01, versions: "defaults" };
 
@@ -212,26 +226,27 @@ export function auditDocument(docType: DocType, x: ExtractedData, ctx: AuditCont
   //    Com desagregação por taxa, o artigo é comparado com a sua própria taxa quando conhecida.
   if (x.vatRate === null && breakdown.length > 1 && x.items.length > 0) {
     const bad: string[] = [];
+    let anyValidated = false;
     for (const item of x.items) {
-      const cat = categoriseItem(item.description);
+      const cat = frameItem(item.description, ctx);
       if (!cat || item.vatRate === null || item.vatRate === undefined) continue;
-      const expected = bandRate(cat.band, ctx.territory, date);
-      if (expected !== item.vatRate) bad.push(`"${item.description}" a ${item.vatRate}% (esperado ${expected}%, ${cat.legal_basis})`);
+      const expected = frameRate(cat.band, ctx.territory, date);
+      if (expected !== item.vatRate) { bad.push(`"${item.description}" a ${item.vatRate}% (esperado ${expected}%, ${cat.legal})`); if (cat.validated) anyValidated = true; }
     }
     if (bad.length) {
-      findings.push({ code: "TAXA_DESADEQUADA", severity: "aviso", message: `Artigos com taxa possivelmente desadequada: ${bad.join("; ")}.` });
+      findings.push({ code: "TAXA_DESADEQUADA", severity: "aviso", message: `Artigos com taxa possivelmente desadequada: ${bad.join("; ")}.`, detail: { validatedRecord: anyValidated } });
     }
   }
   if (x.vatRate !== null && x.items.length > 0) {
     const mismatches: { item: string; category: string; expectedRate: number; legal: string }[] = [];
     const expectedRates = new Set<number>();
     for (const item of x.items) {
-      const cat = categoriseItem(item.description);
+      const cat = frameItem(item.description, ctx);
       if (!cat) continue;
-      const expected = bandRate(cat.band, ctx.territory, date);
+      const expected = frameRate(cat.band, ctx.territory, date);
       expectedRates.add(expected);
       if (expected !== x.vatRate) {
-        mismatches.push({ item: item.description, category: cat.label, expectedRate: expected, legal: cat.legal_basis });
+        mismatches.push({ item: item.description, category: cat.validated ? "ficha validada" : "enquadramento proposto", expectedRate: expected, legal: cat.legal });
       }
     }
     if (mismatches.length > 0) {
@@ -302,12 +317,12 @@ export function buildAuditContext(db: Db, companyId: number, x: ExtractedData, e
 }
 
 /** Runs the audit on one stored document and persists the findings. */
-export function auditStoredDocument(db: Db, documentId: number): Finding[] {
+export function auditStoredDocument(db: Db, documentId: number, extra: Partial<AuditContext> = {}): Finding[] {
   const doc = db.prepare("SELECT * FROM documents WHERE id = ?").get(documentId) as any;
   if (!doc || !doc.extracted_json) return [];
   const x = JSON.parse(doc.extracted_json) as ExtractedData;
   if (!x.items) x.items = [];
-  const ctx = buildAuditContext(db, doc.company_id, x, documentId);
+  const ctx = { ...buildAuditContext(db, doc.company_id, x, documentId), ...extra };
   const findings = auditDocument(doc.doc_type, x, ctx);
   persistDocumentFindings(db, doc.company_id, documentId, findings, x.nifs.find((n) => n !== ctx.companyNif) ?? null, ctx.tolerances?.versions ?? null);
   return findings;

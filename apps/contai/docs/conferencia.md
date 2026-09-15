@@ -39,6 +39,15 @@ Precisão por regra (corrigidas / fechadas), taxa de falsos positivos, tempo mé
 
 `users.profile`: `contabilista` (a sua carteira, fecha excepções), `coordenador` (padrões por cliente, motivos, contas), `toc` (tudo: parâmetros, base legal, reabertas). As contas existentes ficaram `toc`; as novas nascem `contabilista`. Carteira por contabilista em `company_assignments`.
 
+## Módulo A3: fichas de enquadramento fiscal por artigo
+
+O motor classifica artigos, não linhas. Cada artigo de cada cliente (descrição normalizada: sem acentos, quantidades, unidades, embalagens nem referências) tem uma ficha persistente em `article_profiles` com a taxa proposta, a base legal (verba das Listas I e II ou artigo 18.º do CIVA), o grau de confiança, a origem da proposta (regras, taxas observadas nas facturas, ou ambas) e o estado (`proposto`, `validado`, `rejeitado`).
+
+- **Proposta:** o classificador por palavras-chave dá 0,75 de base; taxas observadas coerentes com a regra sobem para 0,85 a 0,95, incoerentes descem para 0,50 e geram uma hipótese alternativa. Sem regra, três ou mais ocorrências à mesma taxa dão 0,60 (fonte "observado"); menos que isso ficam só hipóteses (0,40 ou 0,20).
+- **Filas por parâmetro versionado:** score ≥ `score_artigo_aplicar` (0,90) → "a aplicar" (a proposta entra na conferência com aviso quando diverge da factura); entre `score_artigo_validar` (0,70) e 0,90 → "por validar"; abaixo → "só hipóteses".
+- **Validação:** só coordenador ou TOC validam ou rejeitam (`PATCH /api/articles/:id`), com taxa, base legal, data de eficácia e observações; fica em `audit_log`. Uma ficha validada passa a ser a referência de todas as facturas futuras desse artigo, sem IA; a divergência gera `TAXA_DESADEQUADA` com a menção "ficha validada" (`detail.validatedRecord`). Fichas rejeitadas saem da conferência. Só artigos novos, descrições alteradas ou fichas reabertas voltam ao classificador.
+- **Cobertura:** percentagem de fichas validadas sobre as activas, com objectivo de 80% (vista Configuração > Fichas de artigo). A reconstrução a partir dos documentos existentes é idempotente.
+
 ## API
 
 | Método | Rota | Acesso |
@@ -51,6 +60,8 @@ Precisão por regra (corrigidas / fechadas), taxa de falsos positivos, tempo mé
 | GET/DELETE | `/api/exceptions`, `/api/exceptions/:id` | gabinete |
 | GET/POST | `/api/parameters` | gabinete / TOC |
 | POST | `/api/entries/:id/decision` com `override_reason` quando há bloqueantes | gabinete |
+| GET/POST | `/api/companies/:id/articles?queue=aplicar|validar|hipoteses|validado|rejeitado`, `/api/companies/:id/articles/rebuild` | gabinete (carteira) |
+| PATCH | `/api/articles/:id` `{status, band, legal_basis, effective_from, notes}` | coordenador+ |
 
 ## Módulo B: padrões de balancete com dupla condição
 

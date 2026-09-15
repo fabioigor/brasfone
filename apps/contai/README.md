@@ -4,7 +4,7 @@ Portal digital para gabinetes de contabilidade, inspirado no Kangaroo Files: rec
 
 ## Dossier de transferência
 
-`docs/handover.md` resume produto, pedidos, arquitectura, infra-estrutura, estado e pendentes para quem continuar ou refazer o projecto; `docs/api.md` lista as 68 rotas e as 25 ferramentas MCP.
+`docs/handover.md` resume produto, pedidos, arquitectura, infra-estrutura, estado e pendentes para quem continuar ou refazer o projecto; `docs/api.md` lista as 118 rotas e as 25 ferramentas MCP.
 
 ## Microsoft 365
 
@@ -21,6 +21,10 @@ Relatório financeiro com semáforo de seis indicadores, modelos sectoriais, ale
 ## Conferência com ciclo de vida das excepções
 
 Alertas como excepções com estado (aberta, em análise, corrigida, falso positivo com motivo de lista fixa, aceite com excepção reutilizável, reaberta), severidades bloqueante/alerta/informativo, aprovação bloqueada sem justificação, indicadores do motor (precisão, falsos positivos, tempo de fecho) e parâmetros versionados com data de eficácia. Perfis contabilista/coordenador/TOC. Ver `docs/conferencia.md`.
+
+## Fichas de artigo (A3)
+
+O motor classifica artigos, não linhas: cada artigo de cada cliente tem uma ficha persistente com taxa proposta, base legal, confiança e estado; filas "a aplicar / por validar / só hipóteses" por parâmetros versionados; a ficha validada por coordenador ou TOC passa a ser a referência de conferência sem IA. Ver `docs/conferencia.md`.
 
 ## e-Fatura: conciliação e documentos em falta
 

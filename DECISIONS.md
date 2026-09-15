@@ -2,6 +2,13 @@
 
 Decisões assumidas por omissão (conforme `CLAUDE.md`) durante o desenvolvimento, para não bloquear o trabalho em perguntas não críticas. Formato: data, decisão, contexto/alternativas consideradas, quem pode reverter.
 
+## 2026-09-15 — Cont.ai: fichas de enquadramento fiscal por artigo (A3)
+
+- **Decisão:** o motor de conferência classifica artigos, não linhas. Cada artigo de cada cliente tem uma ficha persistente (`article_profiles`) com taxa proposta, base legal, confiança, origem e estado; as filas "a aplicar / por validar / só hipóteses" dependem dos parâmetros versionados `score_artigo_aplicar` (0,90) e `score_artigo_validar` (0,70). Só coordenador ou TOC validam; a ficha validada passa a ser a referência de conferência sem IA e a divergência com a factura gera alerta com a menção "ficha validada".
+- **Contexto:** especificação Cont.ai (A3) e reunião V2 com o Diogo (Lumarcont): conferir uma vez por artigo, não a cada factura; artigos novos, descrições alteradas ou alterações legais são os únicos que voltam ao classificador. O classificador desta versão é determinístico (regras do CIVA em JSON + taxas observadas); a IA entra apenas como segunda opinião, nunca a decidir.
+- **Por decidir com o Diogo:** famílias de artigos para treino inicial, limiar de cobertura por cliente (assumido 80%), quem valida quando o coordenador está ausente.
+- **Reversível por:** Fábio (product owner).
+
 ## 2026-09-15 — Relatórios de dez blocos com aprovação, balancetes publicados, base legal versionada
 
 - **Decisão:** o relatório financeiro segue a estrutura comum de dez blocos da especificação (semáforo de seis indicadores, memória, actividade, gastos, tesouraria, sector com desfasamento visível e seis modelos sectoriais por CAE, alertas e obrigações, três recomendações editáveis, anexo metodológico), sem Power BI (gráficos próprios, PDF pelo browser), e nenhum relatório fica visível ao cliente sem aprovação registada de um contabilista. Os balancetes só chegam ao cliente quando o gabinete os disponibiliza (evita tirar um mês por fechar, como o Diogo pediu), com CSV e envio por email. A base legal é uma tabela versionada com data de publicação e de eficácia separadas, validada pelo TOC responsável.

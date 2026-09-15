@@ -32,6 +32,7 @@ import {
 } from "../integrations/centralgest.js";
 import { startCentralGestMock } from "../integrations/centralgest-mock.js";
 import { auditStoredDocument } from "../domain/vatAudit.js";
+import { framingsFor, articleKey } from "../domain/articles.js";
 import { transitionFinding } from "../domain/exceptions.js";
 import { parseBalanceCsv, deriveBalanceFromEntries, saveTrialBalance, loadTrialBalance, previousPeriod, computeFinancials } from "../domain/trialBalance.js";
 import { listRules, persistBalanceFindings, checkBalance } from "../domain/balanceRules.js";
@@ -433,8 +434,9 @@ export function buildMcpServer(ctx: McpContext): McpServer {
         ? [{ id: document_id }]
         : (db.prepare("SELECT id FROM documents WHERE company_id = ? AND extracted_json IS NOT NULL").all(company_id) as any[]);
       const out: any[] = [];
+      const extra = { articleFramings: framingsFor(db, company_id, new Date().toISOString().slice(0, 10)), articleKey };
       for (const d of docs) {
-        const findings = auditStoredDocument(db, d.id);
+        const findings = auditStoredDocument(db, d.id, extra);
         if (findings.length) out.push({ document_id: d.id, alertas: findings });
       }
       return ok({ documentos_conferidos: docs.length, com_alertas: out.length, resultado: out });

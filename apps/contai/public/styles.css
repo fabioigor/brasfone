@@ -350,3 +350,9 @@ tr.overdue td:first-child { box-shadow: inset 4px 0 0 var(--danger); }
 .mail-preview { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #fff; color: #1C1917; max-height: 320px; overflow: auto; font-size: 13.5px; }
 .mail-preview table { width: 100%; }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Fichas de artigo: barra de confiança */
+.scorebar { position: relative; height: 8px; border-radius: 4px; background: var(--border, #ddd); min-width: 80px; overflow: hidden; }
+.scorebar > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--info); }
+.scorebar.hi > span { background: var(--ok); }
+.scorebar.lo > span { background: var(--warn); }

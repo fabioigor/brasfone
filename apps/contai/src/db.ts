@@ -528,6 +528,30 @@ function migrate(db: Db): void {
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT
   )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS article_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    key TEXT NOT NULL,
+    description TEXT NOT NULL,
+    cae TEXT,
+    proposed_band TEXT,
+    legal_basis TEXT,
+    score REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'proposto' CHECK (status IN ('proposto','validado','rejeitado')),
+    source TEXT,
+    hypotheses_json TEXT,
+    validated_band TEXT,
+    validated_by INTEGER,
+    validated_at TEXT,
+    effective_from TEXT,
+    occurrences INTEGER NOT NULL DEFAULT 0,
+    last_seen TEXT,
+    observed_rates_json TEXT NOT NULL DEFAULT '[]',
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT,
+    UNIQUE (company_id, key)
+  )`);
   const compCols = (db.prepare("PRAGMA table_info(companies)").all() as any[]).map((c) => c.name);
   if (!compCols.includes("learning_until")) db.exec("ALTER TABLE companies ADD COLUMN learning_until TEXT");
   db.exec(`CREATE TABLE IF NOT EXISTS settings (

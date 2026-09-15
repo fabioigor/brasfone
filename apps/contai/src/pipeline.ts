@@ -20,6 +20,7 @@ import { analyseDocument, DocumentAnalysis } from "./extraction/analyse.js";
 import { ClaudeStructuredExtractor } from "./extraction/structured.js";
 import { counterpartyNif, getProfile, touchProfile } from "./domain/supplierMemory.js";
 import { reconcileEFatura } from "./integrations/efatura.js";
+import { upsertArticlesFromDocument, framingsFor, articleKey } from "./domain/articles.js";
 
 export interface IngestInput {
   companyId: number;
@@ -152,9 +153,14 @@ function proposeAndAudit(
     status = (db.prepare("SELECT status FROM documents WHERE id = ?").get(documentId) as any).status;
   }
 
+  // A3: register the document's articles (records persist per client) and audit against validated/high-score framings.
+  const docDate = a.extracted.docDate ?? new Date().toISOString().slice(0, 10);
+  try { upsertArticlesFromDocument(db, company.id, a.extracted, company.territory ?? "continente", docDate); } catch { /* fichas nunca bloqueiam a recepção */ }
   const auditCtx = buildAuditContext(db, company.id, a.extracted, documentId);
   auditCtx.divergences = a.divergences;
   auditCtx.qrCount = a.qrCount;
+  auditCtx.articleFramings = framingsFor(db, company.id, docDate);
+  auditCtx.articleKey = articleKey;
   const findings = [...ocrFindings(a.ocr, a.qr !== null), ...auditDocument(docType as DocType, a.extracted, auditCtx)];
   persistDocumentFindings(db, company.id, documentId, findings, otherNif, auditCtx.tolerances?.versions ?? null);
   return { entryId, status, findings, docType };
