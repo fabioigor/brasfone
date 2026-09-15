@@ -259,6 +259,36 @@ export function createServer({
     }
   });
 
+  // ---------- Equipa do gabinete (contas staff) ----------
+  app.get("/api/users", auth, requireStaff, (_req, res) => {
+    const rows = db.prepare("SELECT id, email, name, role, company_id, created_at FROM users WHERE email != 'canais@contai.local' ORDER BY role, name").all();
+    return res.json({ users: rows });
+  });
+
+  app.post("/api/users", auth, requireStaff, (req, res) => {
+    const body = z.object({ name: z.string().trim().min(2), email: z.string().email(), password: z.string().min(8) }).safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: "Dados inválidos (nome, email e palavra-passe com 8 ou mais caracteres)." });
+    try {
+      const r = db.prepare("INSERT INTO users (email, name, password_hash, role, company_id) VALUES (?, ?, ?, 'staff', NULL)").run(body.data.email.toLowerCase(), body.data.name, hashPassword(body.data.password));
+      audit(db, req.user!.id, "create_staff", "user", Number(r.lastInsertRowid), body.data.email.toLowerCase());
+      return res.status(201).json({ id: Number(r.lastInsertRowid), email: body.data.email.toLowerCase(), role: "staff" });
+    } catch (e: any) {
+      if (String(e.message).includes("UNIQUE")) return res.status(409).json({ error: "Já existe um utilizador com esse email." });
+      throw e;
+    }
+  });
+
+  app.delete("/api/users/:id", auth, requireStaff, (req, res) => {
+    const id = Number(req.params.id);
+    if (id === req.user!.id) return res.status(400).json({ error: "Não pode apagar a sua própria conta." });
+    const u = db.prepare("SELECT id, role FROM users WHERE id = ?").get(id) as any;
+    if (!u) return res.status(404).json({ error: "Utilizador inexistente." });
+    if (u.role === "staff" && (db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'staff' AND email != 'canais@contai.local'").get() as any).n <= 1) return res.status(400).json({ error: "Tem de ficar pelo menos uma conta de gabinete." });
+    db.prepare("DELETE FROM users WHERE id = ?").run(id);
+    audit(db, req.user!.id, "delete", "user", id);
+    return res.json({ ok: true });
+  });
+
   // ---------- Documentos ----------
   app.post("/api/documents", auth, upload.single("file"), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Ficheiro em falta (campo 'file')." });

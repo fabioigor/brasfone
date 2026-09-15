@@ -1115,6 +1115,7 @@ async function viewCompanies(main) {
     }
   });
   main.append(el("div", { class: "card" }, [el("h2", {}, "Nova empresa"), form]));
+  await staffTeamCard(main);
 
   const tbody = el("tbody");
   for (const c of companies) {
@@ -1162,6 +1163,27 @@ async function viewCompanies(main) {
       ])
     )
   );
+}
+
+/** Contas do gabinete (staff): listar, criar, apagar. */
+async function staffTeamCard(main) {
+  const data = await api("/api/users").catch(() => ({ users: [] }));
+  const staffUsers = (data.users || []).filter((u) => u.role === "staff");
+  const name = el("input", { placeholder: "Nome", required: "true" });
+  const email = el("input", { type: "email", placeholder: "email@lumarcont.pt", required: "true" });
+  const pass = el("input", { type: "text", placeholder: "Palavra-passe inicial (mín. 8)", required: "true", autocomplete: "off" });
+  const form = el("form", { class: "form-row" }, [el("label", {}, ["Nome", name]), el("label", { style: "flex:2" }, ["Email", email]), el("label", {}, ["Palavra-passe", pass]), el("button", { class: "btn primary", type: "submit" }, "Criar acesso de gabinete")]);
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try { await api("/api/users", { method: "POST", json: { name: name.value, email: email.value, password: pass.value } }); toast("Acesso de gabinete criado para " + email.value + ". Peça para alterar a palavra-passe em A minha conta."); render(); }
+    catch (e) { toast(e.message, true); }
+  });
+  const list = el("div", { class: "stack" });
+  for (const u of staffUsers) list.append(el("div", { class: "item" }, [
+    el("div", {}, [el("div", { class: "title" }, u.name), el("div", { class: "meta" }, [u.email, u.id === user.id ? el("span", { class: "badge info" }, "esta conta") : null])]),
+    u.id !== user.id ? el("div", { class: "actions" }, el("button", { class: "btn small danger", onclick: async () => { if (!confirm("Apagar o acesso de " + u.email + "?")) return; try { await api("/api/users/" + u.id, { method: "DELETE" }); toast("Acesso apagado."); render(); } catch (e) { toast(e.message, true); } } }, "Apagar")) : null,
+  ]));
+  main.append(el("div", { class: "card" }, [el("h2", {}, "Equipa do gabinete"), el("p", { class: "muted small" }, "Contas com acesso total (todas as empresas, validação, integrações). Cada pessoa deve alterar a palavra-passe inicial em A minha conta."), form, list]));
 }
 
 async function viewExport(main) {
