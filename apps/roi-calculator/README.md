@@ -1,0 +1,43 @@
+# Calculadora ROI Pipedrive + Meta CAPI (INUBIA)
+
+Aplicação de stand para o Social Media Hackathon 2026 (Forum Braga, 1 e 2 de Outubro). Mostra a agências de marketing o retorno de integrar o Pipedrive com a Meta Conversions API (CAPI): CPL mais baixo, mais SQL ao mesmo investimento, clientes retidos mais tempo, avença justificada e comissão de referral pela parceria INUBIA.
+
+## Fluxo
+
+1. **Enquadramento**: o que é a integração e porque interessa à agência, ao cliente e à parceria.
+2. **A vossa agência**: avença mensal, clientes activos, retenção em meses, investimento em ads, CPL e taxa de SQL. Pressupostos editáveis (redução de CPL 25%, subida de SQL 30%, retenção +50%, avença +15%, custos da integração, referral).
+3. **Resultados**: ROI ao primeiro ano, payback, custo por SQL, LTV, receita adicional, gráfico do funil e tabela de cálculo.
+4. **Receber relatório**: nome da agência, contacto, telefone e email. O servidor cria Organização, Pessoa, Negócio e Nota no Pipedrive e envia o relatório por email com o plano de parceiros.
+
+## Correr localmente
+
+```bash
+cd apps/roi-calculator
+npm install
+cp .env.example .env   # preencher token Pipedrive e SMTP
+npm start              # http://localhost:3080
+```
+
+Sem credenciais (demonstração offline): `npm run dev` arranca em `DRY_RUN=1`, que regista no terminal em vez de chamar o Pipedrive e o SMTP.
+
+Testes do relatório e do modelo: `npm test`.
+
+## Modelo de cálculo
+
+Por cliente e por mês: leads = investimento / CPL; SQL = leads × taxa SQL; custo por SQL = investimento / SQL. Com CAPI: CPL × (1 − redução), taxa SQL × (1 + subida), tecto de 95%.
+
+Relação com o cliente: LTV = avença × retenção; com CAPI: avença × (1 + aumento) × retenção × (1 + aumento de retenção).
+
+Agência (primeiro ano): ganho = (avenças revistas − avenças actuais) × 12 × clientes + comissões de referral (clientes apresentados × projecto médio × %). Investimento = implementação + manutenção × 12 × clientes. ROI = (ganho − investimento) / investimento. Payback = investimento / (ganho / 12).
+
+## Configuração Pipedrive
+
+Usa a API v1 com token pessoal (`PIPEDRIVE_API_TOKEN`) e o domínio da conta (`PIPEDRIVE_COMPANY_DOMAIN`). Opcionalmente `PIPEDRIVE_PIPELINE_ID`, `PIPEDRIVE_STAGE_ID` e `PIPEDRIVE_OWNER_ID` para colocar os negócios de parceria no pipeline certo. A organização é procurada pelo nome exacto e a pessoa pelo email, para não duplicar quando a mesma agência preenche duas vezes. O negócio tem como valor a comissão de referral anual estimada e recebe uma nota fixada com o relatório.
+
+## Email
+
+SMTP via `nodemailer` (Google Workspace funciona com password de aplicação). `MAIL_CC` recebe cópia de cada envio. `PARTNER_PLAN_URL` acrescenta um botão para o plano de parceiros completo.
+
+## Deploy para o stand
+
+Qualquer host Node (Railway, Render, Vercel com serverless adaptado, VPS). Apontar o domínio, preencher `.env` e abrir `/` num portátil ou tablet. A página guarda os últimos valores introduzidos no browser, o que ajuda a retomar a conversa se o ecrã for actualizado.

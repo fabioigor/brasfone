@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Calculadora ROI CAPI</title>
+<meta name="description" content="Calculadora de retorno do investimento na integração Pipedrive + Meta Conversions API para agências de marketing. INUBIA no Social Media Hackathon 2026.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&family=Ubuntu+Mono:wght@400;700&display=swap">
+<style>
+  :root {
+    --navy: #0A1628;
+    --navy-2: #101F38;
+    --navy-3: #172A4A;
+    --line: #223A62;
+    --ink: #F5F6FA;
+    --ink-2: #B8C4DA;
+    --ink-3: #7E8DA8;
+    --blue: #1D3DF5;
+    --blue-2: #3D5BFF;
+    --blue-soft: #6B8AF0;
+    --red: #FF0000;
+    --green: #22A657;
+    --green-2: #4ADE80;
+    --warn: #F5B342;
+    --radius: 10px;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--navy); color: var(--ink); }
+  body {
+    font-family: 'Ubuntu', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-size: 16px; line-height: 1.5;
+    padding-inline: 16px; padding-block: 0 48px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: 'Ubuntu Mono', ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.15; }
+  h1 { font-size: clamp(1.9rem, 4.2vw, 3.1rem); font-weight: 700; letter-spacing: -0.01em; }
+  h2 { font-size: clamp(1.35rem, 2.4vw, 1.8rem); font-weight: 700; }
+  h3 { font-size: 1.05rem; font-weight: 500; color: var(--ink-2); }
+  p { margin: 0; }
+  a { color: var(--green-2); }
+  .wrap { max-width: 1080px; margin-inline: auto; }
+  .eyebrow { font-size: 0.74rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+
+  /* Top bar with both brands */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    padding-block: 18px; border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand img { height: 30px; width: auto; display: block; }
+  .brand .x { color: var(--ink-3); font-size: 1.1rem; }
+  .brand .smh { display: flex; align-items: center; gap: 10px; }
+  .brand .smh img { height: 22px; }
+  .brand .smh span { font-size: 0.85rem; color: var(--ink-2); font-weight: 500; white-space: nowrap; }
+  .platinum { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; color: var(--ink-2); }
+  .platinum img { height: 34px; width: auto; border-radius: 4px; }
+
+  /* Steps */
+  .steps { display: flex; gap: 6px; margin-block: 28px 8px; }
+  .steps button {
+    flex: 1; background: var(--navy-2); border: 1px solid var(--line); color: var(--ink-3);
+    padding: 10px 8px; border-radius: 6px; font: inherit; font-size: 0.82rem; font-weight: 500; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .steps button .n { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 0.72rem; background: var(--navy-3); color: var(--ink-2); }
+  .steps button.active { color: var(--ink); border-color: var(--blue-2); background: var(--navy-3); }
+  .steps button.active .n { background: var(--blue); color: #fff; }
+  .steps button.done .n { background: var(--green); color: #fff; }
+  .steps button:focus-visible { outline: 2px solid var(--green-2); outline-offset: 2px; }
+  @media (max-width: 640px) { .steps button span.lbl { display: none; } }
+
+  section.panel { display: none; padding-block: 28px; }
+  section.panel.active { display: block; }
+
+  /* Hero */
+  .hero { display: grid; grid-template-columns: 1.2fr 1fr; gap: 36px; align-items: center; }
+  @media (max-width: 800px) { .hero { grid-template-columns: 1fr; } }
+  .hero p.lead { font-size: 1.12rem; color: var(--ink-2); max-width: 60ch; margin-top: 14px; }
+  .hero .tag { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 18px; padding: 6px 12px; border-radius: 999px; background: var(--navy-3); color: var(--green-2); font-size: 0.82rem; font-weight: 500; }
+  .hero .tag i { width: 8px; height: 8px; border-radius: 50%; background: var(--green-2); display: inline-block; }
+  .flow { background: var(--navy-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .flow ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+  .flow li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
+  .flow li b { display: block; color: var(--ink); font-weight: 500; }
+  .flow li span { color: var(--ink-2); font-size: 0.93rem; }
+  .flow li .ic { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; background: var(--navy-3); color: var(--green-2); }
+  .flow .arrow { text-align: center; color: var(--ink-3); font-size: 0.8rem; }
+  .cta-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 26px; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 12px 20px; border-radius: 8px; font: inherit; font-weight: 500; cursor: pointer;
+    border: 1px solid transparent; text-decoration: none;
+  }
+  .btn.primary { background: var(--blue); color: #fff; }
+  .btn.primary:hover { background: var(--blue-2); }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .btn.ghost:hover { border-color: var(--ink-3); }
+  .btn.green { background: var(--green); color: #fff; }
+  .btn.green:hover { background: #27B863; }
+  .btn:focus-visible { outline: 2px solid var(--green-2); outline-offset: 2px; }
+  .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+  /* Forms */
+  .grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 760px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+  .field { display: grid; gap: 6px; }
+  .field label { font-size: 0.86rem; color: var(--ink-2); font-weight: 500; }
+  .field small { color: var(--ink-3); font-size: 0.78rem; }
+  .input { display: flex; align-items: center; background: var(--navy-2); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .input:focus-within { border-color: var(--blue-2); }
+  .input input, .input select { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--ink); font: inherit; font-size: 1.05rem; padding: 11px 12px; outline: none; }
+  .input .unit { padding: 0 12px; color: var(--ink-3); font-size: 0.85rem; border-left: 1px solid var(--line); align-self: stretch; display: grid; place-items: center; white-space: nowrap; }
+  .card { background: var(--navy-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .card + .card { margin-top: 18px; }
+  .card h2 { margin-bottom: 4px; }
+  .card .sub { color: var(--ink-3); font-size: 0.9rem; margin-bottom: 18px; }
+  details.assump { margin-top: 18px; border: 1px dashed var(--line); border-radius: var(--radius); padding: 14px 18px; }
+  details.assump summary { cursor: pointer; color: var(--ink-2); font-weight: 500; }
+  details.assump .grid3 { margin-top: 16px; }
+
+  /* Results */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+  .kpi { background: var(--navy-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+  .kpi .lbl { font-size: 0.78rem; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.08em; }
+  .kpi .val { font-size: 1.85rem; font-weight: 700; margin-top: 4px; line-height: 1.1; }
+  .kpi .val.good { color: var(--green-2); }
+  .kpi .delta { font-size: 0.85rem; color: var(--ink-2); margin-top: 4px; }
+  .kpi.hero-kpi { grid-column: span 2; background: linear-gradient(135deg, var(--navy-3), var(--navy-2)); border-color: var(--blue-2); }
+  .kpi.hero-kpi .val { font-size: 2.6rem; }
+  @media (max-width: 900px) { .kpi.hero-kpi { grid-column: span 2; } }
+
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+  table.cmp th, table.cmp td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+  table.cmp th:first-child, table.cmp td:first-child { text-align: left; color: var(--ink-2); font-weight: 400; }
+  table.cmp th { color: var(--ink-3); font-weight: 500; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  table.cmp td.after { color: var(--green-2); font-weight: 500; }
+  table.cmp tr.section td { color: var(--ink); font-weight: 500; padding-top: 18px; border-bottom: 0; text-align: left; }
+  .tbl-wrap { overflow-x: auto; }
+
+  .chart { margin-top: 8px; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .legend { display: flex; gap: 18px; font-size: 0.82rem; color: var(--ink-2); margin-top: 8px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+  .why { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+  @media (max-width: 760px) { .why { grid-template-columns: 1fr; } }
+  .why div { background: var(--navy-3); border-radius: 8px; padding: 14px 16px; font-size: 0.92rem; color: var(--ink-2); }
+  .why div b { color: var(--ink); display: block; margin-bottom: 4px; font-weight: 500; }
+
+  .note { font-size: 0.82rem; color: var(--ink-3); margin-top: 14px; }
+  .alert { padding: 12px 14px; border-radius: 8px; font-size: 0.92rem; margin-top: 14px; }
+  .alert.ok { background: rgba(34,166,87,0.15); border: 1px solid var(--green); color: var(--ink); }
+  .alert.warn { background: rgba(245,179,66,0.12); border: 1px solid var(--warn); color: var(--ink); }
+  .alert.err { background: rgba(255,0,0,0.12); border: 1px solid var(--red); color: var(--ink); }
+  .check { display: flex; gap: 10px; align-items: flex-start; font-size: 0.9rem; color: var(--ink-2); }
+  .check input { margin-top: 4px; accent-color: var(--blue); }
+  .nav { display: flex; justify-content: space-between; gap: 12px; margin-top: 26px; flex-wrap: wrap; }
+  .plan { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 16px; }
+  @media (max-width: 760px) { .plan { grid-template-columns: 1fr; } }
+  .plan div { background: var(--navy-3); border-radius: 8px; padding: 14px 16px; font-size: 0.92rem; color: var(--ink-2); }
+  .plan div b { color: var(--green-2); display: block; font-size: 1.15rem; margin-bottom: 4px; }
+  .footer { border-top: 1px solid var(--line); margin-top: 30px; padding-top: 16px; font-size: 0.8rem; color: var(--ink-3); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .accent { color: var(--red); }
+  @media (prefers-reduced-motion: no-preference) { .kpi .val { transition: color 0.2s; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <img src="assets/inubia-logo.png" alt="INUBIA">
+      <span class="x">×</span>
+      <div class="smh"><img src="assets/smh-logo.png" alt="Social Media Hackathon"><span>Social Media Hackathon 2026</span></div>
+    </div>
+    <div class="platinum"><img src="assets/platinum.png" alt="Pipedrive Platinum Partner"><span>Maior Pipedrive Platinum Partner<br>de Portugal e Espanha</span></div>
+  </header>
+
+  <nav class="steps" aria-label="Passos">
+    <button type="button" data-step="0" class="active"><span class="n">1</span><span class="lbl">Enquadramento</span></button>
+    <button type="button" data-step="1"><span class="n">2</span><span class="lbl">A vossa agência</span></button>
+    <button type="button" data-step="2"><span class="n">3</span><span class="lbl">Resultados</span></button>
+    <button type="button" data-step="3"><span class="n">4</span><span class="lbl">Receber relatório</span></button>
+  </nav>
+
+  <!-- 1. Enquadramento -->
+  <section class="panel active" data-panel="0">
+    <div class="hero">
+      <div>
+        <span class="tag"><i></i>Forum Braga, 1 e 2 de Outubro</span>
+        <h1>Quanto vale à vossa agência fechar o ciclo entre o Pipedrive e a Meta?</h1>
+        <p class="lead">A maioria das agências optimiza campanhas para o lead. O cliente paga pelo SQL. Com a Conversions API ligada ao Pipedrive, a Meta aprende com as oportunidades que realmente avançam no CRM e passa a procurar mais desse perfil. Esta calculadora mostra o efeito no CPL, no custo por SQL e na retenção dos vossos clientes.</p>
+        <div class="cta-row">
+          <button class="btn primary" type="button" data-go="1">Calcular o ROI da agência</button>
+          <button class="btn ghost" type="button" data-go="2">Ver exemplo com valores de referência</button>
+        </div>
+      </div>
+      <div class="flow">
+        <span class="eyebrow">Como funciona a integração</span>
+        <ol style="margin-top:14px">
+          <li><span class="ic">1</span><div><b>Lead entra pela campanha Meta</b><span>Formulário ou landing page. O lead é criado no Pipedrive com origem e campanha.</span></div></li>
+          <li><span class="ic">2</span><div><b>A equipa qualifica no CRM</b><span>Quando o lead passa a SQL, reunião marcada ou negócio ganho, a etapa muda no Pipedrive.</span></div></li>
+          <li><span class="ic">3</span><div><b>O evento volta à Meta via CAPI</b><span>Cada etapa é enviada como conversão offline, com correspondência por email e telefone.</span></div></li>
+          <li><span class="ic">4</span><div><b>O algoritmo optimiza para qualidade</b><span>As campanhas passam a ser optimizadas para SQL e vendas, e não apenas para leads.</span></div></li>
+        </ol>
+      </div>
+    </div>
+    <div class="why">
+      <div><b>Para o cliente final</b>Menos leads de baixa qualidade, custo por oportunidade mais baixo e um pipeline previsível.</div>
+      <div><b>Para a agência</b>Resultados que se provam com dados do CRM, clientes que ficam mais tempo e avenças que se justificam.</div>
+      <div><b>Para a parceria</b>A INUBIA implementa e mantém a integração. A agência recebe comissão de referral por cada cliente que apresentar.</div>
+    </div>
+  </section>
+
+  <!-- 2. Inputs -->
+  <section class="panel" data-panel="1">
+    <div class="card">
+      <h2>A vossa agência hoje</h2>
+      <p class="sub">Valores médios por cliente. Podem ser ajustados a qualquer momento e os resultados actualizam de imediato.</p>
+      <div class="grid3">
+        <div class="field"><label for="fee">Avença mensal média por cliente</label><div class="input"><input id="fee" type="number" min="0" step="50" value="1500" inputmode="decimal"><span class="unit">€ / mês</span></div></div>
+        <div class="field"><label for="clients">Clientes activos em gestão de campanhas</label><div class="input"><input id="clients" type="number" min="1" step="1" value="12" inputmode="numeric"><span class="unit">clientes</span></div></div>
+        <div class="field"><label for="retention">Tempo médio que mantêm um cliente</label><div class="input"><input id="retention" type="number" min="1" step="1" value="9" inputmode="numeric"><span class="unit">meses</span></div><small>Retenção média actual da carteira.</small></div>
+        <div class="field"><label for="adspend">Investimento médio em Meta Ads por cliente</label><div class="input"><input id="adspend" type="number" min="0" step="100" value="3000" inputmode="decimal"><span class="unit">€ / mês</span></div></div>
+        <div class="field"><label for="cpl">Custo por lead (CPL) actual</label><div class="input"><input id="cpl" type="number" min="0.1" step="0.5" value="25" inputmode="decimal"><span class="unit">€</span></div></div>
+        <div class="field"><label for="sqlrate">Leads que se tornam SQL</label><div class="input"><input id="sqlrate" type="number" min="1" max="100" step="1" value="20" inputmode="numeric"><span class="unit">%</span></div><small>Leads qualificadas pela equipa comercial do cliente.</small></div>
+      </div>
+
+      <details class="assump">
+        <summary>Pressupostos do modelo (editáveis)</summary>
+        <div class="grid3">
+          <div class="field"><label for="cplRed">Redução do CPL com CAPI</label><div class="input"><input id="cplRed" type="number" min="0" max="80" step="1" value="25"><span class="unit">%</span></div><small>Valor conservador. Casos com optimização para SQL ficam frequentemente acima.</small></div>
+          <div class="field"><label for="sqlUp">Subida da taxa de SQL</label><div class="input"><input id="sqlUp" type="number" min="0" max="200" step="5" value="30"><span class="unit">% relativo</span></div></div>
+          <div class="field"><label for="retUp">Aumento da retenção do cliente</label><div class="input"><input id="retUp" type="number" min="0" max="300" step="5" value="50"><span class="unit">%</span></div><small>9 meses passam a 13,5 com 50%.</small></div>
+          <div class="field"><label for="feeUp">Aumento da avença justificado</label><div class="input"><input id="feeUp" type="number" min="0" max="100" step="5" value="15"><span class="unit">%</span></div></div>
+          <div class="field"><label for="setup">Implementação da integração (uma vez)</label><div class="input"><input id="setup" type="number" min="0" step="100" value="2400"><span class="unit">€</span></div></div>
+          <div class="field"><label for="monthly">Manutenção por cliente ligado</label><div class="input"><input id="monthly" type="number" min="0" step="10" value="99"><span class="unit">€ / mês</span></div></div>
+          <div class="field"><label for="refs">Clientes apresentados à INUBIA por ano</label><div class="input"><input id="refs" type="number" min="0" step="1" value="3"><span class="unit">clientes</span></div></div>
+          <div class="field"><label for="proj">Projecto médio INUBIA por cliente</label><div class="input"><input id="proj" type="number" min="0" step="500" value="6000"><span class="unit">€</span></div></div>
+          <div class="field"><label for="refPct">Comissão de referral</label><div class="input"><input id="refPct" type="number" min="0" max="50" step="1" value="10"><span class="unit">%</span></div></div>
+        </div>
+      </details>
+    </div>
+    <div class="nav">
+      <button class="btn ghost" type="button" data-go="0">Voltar</button>
+      <button class="btn primary" type="button" data-go="2">Ver resultados</button>
+    </div>
+  </section>
+
+  <!-- 3. Resultados -->
+  <section class="panel" data-panel="2">
+    <div class="kpis">
+      <div class="kpi hero-kpi"><div class="lbl">ROI no primeiro ano</div><div class="val good mono" id="k-roi">—</div><div class="delta" id="k-roi-d">ganho líquido sobre o investimento na integração</div></div>
+      <div class="kpi"><div class="lbl">Payback</div><div class="val mono" id="k-payback">—</div><div class="delta">meses até recuperar o investimento</div></div>
+      <div class="kpi"><div class="lbl">Custo por SQL</div><div class="val good mono" id="k-cps">—</div><div class="delta" id="k-cps-d">—</div></div>
+      <div class="kpi"><div class="lbl">LTV por cliente</div><div class="val good mono" id="k-ltv">—</div><div class="delta" id="k-ltv-d">—</div></div>
+      <div class="kpi"><div class="lbl">Receita anual adicional</div><div class="val good mono" id="k-rev">—</div><div class="delta">avença revista mais comissões de referral</div></div>
+      <div class="kpi"><div class="lbl">SQL adicionais por mês</div><div class="val good mono" id="k-sql">—</div><div class="delta" id="k-sql-d">—</div></div>
+      <div class="kpi"><div class="lbl">Valor da carteira (LTV total)</div><div class="val good mono" id="k-port">—</div><div class="delta" id="k-port-d">—</div></div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h2>Funil por cliente, ao mesmo investimento em Meta Ads</h2>
+      <p class="sub">Leads mensais, SQL mensais e custo por SQL. Hoje versus com Pipedrive + CAPI.</p>
+      <div class="chart" id="chart"></div>
+      <div class="legend"><span><i style="background:var(--blue-soft)"></i>Hoje</span><span><i style="background:var(--green)"></i>Com Pipedrive + CAPI</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Detalhe do cálculo</h2>
+      <p class="sub">Todos os valores derivam dos dados introduzidos e dos pressupostos editáveis.</p>
+      <div class="tbl-wrap"><table class="cmp" id="tbl"></table></div>
+      <p class="note">Modelo indicativo para conversa comercial. Os ganhos reais dependem do volume de conversões enviadas, da qualidade da correspondência de dados e da disciplina de actualização do CRM.</p>
+    </div>
+
+    <div class="nav">
+      <button class="btn ghost" type="button" data-go="1">Ajustar valores</button>
+      <button class="btn green" type="button" data-go="3">Receber este relatório e o plano de parceiros</button>
+    </div>
+  </section>
+
+  <!-- 4. Formulário -->
+  <section class="panel" data-panel="3">
+    <div class="card">
+      <h2>Receber o relatório de ROI</h2>
+      <p class="sub">Enviamos o relatório com os valores da vossa agência e o plano de parceiros INUBIA para o email indicado.</p>
+      <form id="leadForm" novalidate>
+        <div class="grid2">
+          <div class="field"><label for="agency">Nome da agência</label><div class="input"><input id="agency" name="agency" type="text" required autocomplete="organization"></div></div>
+          <div class="field"><label for="contact">Nome do contacto</label><div class="input"><input id="contact" name="contact" type="text" required autocomplete="name"></div></div>
+          <div class="field"><label for="phone">Telefone</label><div class="input"><input id="phone" name="phone" type="tel" required autocomplete="tel" placeholder="+351 9xx xxx xxx"></div></div>
+          <div class="field"><label for="email">Email</label><div class="input"><input id="email" name="email" type="email" required autocomplete="email"></div></div>
+        </div>
+        <label class="check" style="margin-top:16px"><input id="consent" type="checkbox" required><span>Autorizo a INUBIA (Grupo Brasfone) a contactar-me sobre o programa de parceiros e a guardar estes dados no seu CRM.</span></label>
+        <div id="formMsg"></div>
+        <div class="nav">
+          <button class="btn ghost" type="button" data-go="2">Voltar aos resultados</button>
+          <button class="btn green" type="submit" id="submitBtn">Enviar relatório e criar contacto</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <span class="eyebrow">Plano de parceiros INUBIA</span>
+      <h2 style="margin-top:6px">A agência apresenta, a INUBIA implementa, a comissão é vossa</h2>
+      <div class="plan">
+        <div><b id="p-pct">10% de comissão</b>sobre os serviços INUBIA contratados por cada cliente apresentado, no primeiro ano.</div>
+        <div><b>Gestor de parceria dedicado</b>Apoio na proposta, demonstração conjunta ao cliente e acompanhamento do projecto.</div>
+        <div><b>Pipedrive + CAPI + automação</b>Implementação, formação e manutenção pela equipa INUBIA. A agência mantém a relação com o cliente.</div>
+        <div><b>Co-marketing</b>Casos de sucesso partilhados, webinars e presença conjunta em eventos como este.</div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <span>INUBIA <span class="accent">•</span> Grupo Brasfone <span class="accent">•</span> Faro, Vila do Conde, Barcelona</span>
+    <span>inubia.pt</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const fmtEUR = (v, d = 0) => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR', maximumFractionDigits: d, minimumFractionDigits: d }).format(v);
+  const fmtN = (v, d = 0) => new Intl.NumberFormat('pt-PT', { maximumFractionDigits: d, minimumFractionDigits: d }).format(v);
+  const fmtPct = (v, d = 0) => fmtN(v * 100, d) + '%';
+  const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : 0; };
+
+  const inputIds = ['fee','clients','retention','adspend','cpl','sqlrate','cplRed','sqlUp','retUp','feeUp','setup','monthly','refs','proj','refPct'];
+
+  function readInputs() {
+    return {
+      fee: num('fee'), clients: Math.max(1, num('clients')), retention: Math.max(1, num('retention')),
+      adspend: num('adspend'), cpl: Math.max(0.1, num('cpl')), sqlRate: Math.min(1, Math.max(0.01, num('sqlrate') / 100)),
+      cplRed: num('cplRed') / 100, sqlUp: num('sqlUp') / 100, retUp: num('retUp') / 100, feeUp: num('feeUp') / 100,
+      setup: num('setup'), monthly: num('monthly'), refs: num('refs'), proj: num('proj'), refPct: num('refPct') / 100
+    };
+  }
+
+  function compute(i) {
+    const leads = i.adspend / i.cpl;
+    const sqls = leads * i.sqlRate;
+    const cps = sqls > 0 ? i.adspend / sqls : 0;
+    const newCpl = i.cpl * (1 - i.cplRed);
+    const newLeads = i.adspend / newCpl;
+    const newSqlRate = Math.min(0.95, i.sqlRate * (1 + i.sqlUp));
+    const newSqls = newLeads * newSqlRate;
+    const newCps = newSqls > 0 ? i.adspend / newSqls : 0;
+    const newFee = i.fee * (1 + i.feeUp);
+    const newRetention = i.retention * (1 + i.retUp);
+    const ltv = i.fee * i.retention;
+    const newLtv = newFee * newRetention;
+    const annualRev = i.fee * 12 * i.clients;
+    const newAnnualRev = newFee * 12 * i.clients;
+    const referral = i.refs * i.proj * i.refPct;
+    const gain = (newAnnualRev - annualRev) + referral;
+    const investment = i.setup + i.monthly * 12 * i.clients;
+    const net = gain - investment;
+    const roi = investment > 0 ? net / investment : 0;
+    const payback = gain > 0 ? investment / (gain / 12) : Infinity;
+    return { leads, sqls, cps, newCpl, newLeads, newSqlRate, newSqls, newCps, newFee, newRetention, ltv, newLtv,
+      annualRev, newAnnualRev, referral, gain, investment, net, roi, payback,
+      portfolio: ltv * i.clients, newPortfolio: newLtv * i.clients };
+  }
+
+  function row(label, a, b, extra) {
+    return `<tr><td>${label}</td><td class="mono">${a}</td><td class="mono after">${b}</td><td class="mono">${extra || ''}</td></tr>`;
+  }
+  function section(label) { return `<tr class="section"><td colspan="4">${label}</td></tr>`; }
+
+  function chart(r) {
+    const groups = [
+      { lbl: 'Leads / mês', a: r.leads, b: r.newLeads, f: (v) => fmtN(v) },
+      { lbl: 'SQL / mês', a: r.sqls, b: r.newSqls, f: (v) => fmtN(v, 1) },
+      { lbl: 'Custo por SQL', a: r.cps, b: r.newCps, f: (v) => fmtEUR(v) }
+    ];
+    const W = 900, H = 230, padL = 20, padR = 20, top = 30, base = 190, gw = (W - padL - padR) / groups.length, bw = 70, gap = 2;
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Comparação do funil hoje e com Pipedrive + CAPI">`;
+    s += `<line x1="${padL}" x2="${W - padR}" y1="${base}" y2="${base}" stroke="#223A62" stroke-width="1"/>`;
+    groups.forEach((g, gi) => {
+      const max = Math.max(g.a, g.b, 0.0001);
+      const cx = padL + gw * gi + gw / 2;
+      [[g.a, '#6B8AF0', cx - bw - gap / 2], [g.b, '#22A657', cx + gap / 2]].forEach(([v, c, x]) => {
+        const h = Math.max(4, (v / max) * (base - top - 24));
+        s += `<rect x="${x}" y="${base - h}" width="${bw}" height="${h}" rx="4" fill="${c}"/>`;
+        s += `<rect x="${x}" y="${base - 4}" width="${bw}" height="4" fill="${c}"/>`;
+        s += `<text x="${x + bw / 2}" y="${base - h - 8}" text-anchor="middle" font-size="14" font-family="Ubuntu Mono, monospace" fill="#F5F6FA">${g.f(v)}</text>`;
+      });
+      s += `<text x="${cx}" y="${base + 22}" text-anchor="middle" font-size="13" font-family="Ubuntu, sans-serif" fill="#B8C4DA">${g.lbl}</text>`;
+    });
+    s += '</svg>';
+    $('chart').innerHTML = s;
+  }
+
+  function render() {
+    const i = readInputs(); const r = compute(i);
+    $('k-roi').textContent = Number.isFinite(r.roi) ? fmtPct(r.roi) : '—';
+    $('k-roi-d').textContent = `${fmtEUR(r.net)} de ganho líquido sobre ${fmtEUR(r.investment)} investidos`;
+    $('k-payback').textContent = Number.isFinite(r.payback) ? fmtN(r.payback, 1) : '—';
+    $('k-cps').textContent = fmtEUR(r.newCps);
+    $('k-cps-d').textContent = `antes ${fmtEUR(r.cps)}, menos ${fmtPct(r.cps > 0 ? 1 - r.newCps / r.cps : 0)}`;
+    $('k-ltv').textContent = fmtEUR(r.newLtv);
+    $('k-ltv-d').textContent = `antes ${fmtEUR(r.ltv)}, mais ${fmtEUR(r.newLtv - r.ltv)} por cliente`;
+    $('k-rev').textContent = fmtEUR(r.gain);
+    $('k-sql').textContent = '+' + fmtN(r.newSqls - r.sqls, 1);
+    $('k-sql-d').textContent = `por cliente, de ${fmtN(r.sqls, 1)} para ${fmtN(r.newSqls, 1)}`;
+    $('k-port').textContent = fmtEUR(r.newPortfolio);
+    $('k-port-d').textContent = `antes ${fmtEUR(r.portfolio)}, ${i.clients} clientes`;
+    $('p-pct').textContent = `${fmtN(i.refPct * 100)}% de comissão`;
+
+    $('tbl').innerHTML = `
+      <thead><tr><th>Indicador</th><th>Hoje</th><th>Com Pipedrive + CAPI</th><th>Variação</th></tr></thead><tbody>
+      ${section('Funil por cliente (mensal)')}
+      ${row('Investimento Meta Ads', fmtEUR(i.adspend), fmtEUR(i.adspend), 'igual')}
+      ${row('Custo por lead', fmtEUR(i.cpl, 2), fmtEUR(r.newCpl, 2), '-' + fmtPct(i.cplRed))}
+      ${row('Leads', fmtN(r.leads), fmtN(r.newLeads), '+' + fmtN(r.newLeads - r.leads))}
+      ${row('Taxa lead para SQL', fmtPct(i.sqlRate), fmtPct(r.newSqlRate), '+' + fmtPct(i.sqlUp) + ' rel.')}
+      ${row('SQL', fmtN(r.sqls, 1), fmtN(r.newSqls, 1), '+' + fmtN(r.newSqls - r.sqls, 1))}
+      ${row('Custo por SQL', fmtEUR(r.cps), fmtEUR(r.newCps), '-' + fmtPct(r.cps > 0 ? 1 - r.newCps / r.cps : 0))}
+      ${section('Relação com o cliente')}
+      ${row('Avença mensal', fmtEUR(i.fee), fmtEUR(r.newFee), '+' + fmtPct(i.feeUp))}
+      ${row('Retenção média', fmtN(i.retention, 1) + ' meses', fmtN(r.newRetention, 1) + ' meses', '+' + fmtPct(i.retUp))}
+      ${row('LTV por cliente', fmtEUR(r.ltv), fmtEUR(r.newLtv), '+' + fmtEUR(r.newLtv - r.ltv))}
+      ${row('LTV da carteira (' + i.clients + ' clientes)', fmtEUR(r.portfolio), fmtEUR(r.newPortfolio), '+' + fmtEUR(r.newPortfolio - r.portfolio))}
+      ${section('Agência (primeiro ano)')}
+      ${row('Receita anual em avenças', fmtEUR(r.annualRev), fmtEUR(r.newAnnualRev), '+' + fmtEUR(r.newAnnualRev - r.annualRev))}
+      ${row('Comissões de referral', fmtEUR(0), fmtEUR(r.referral), i.refs + ' clientes apresentados')}
+      ${row('Investimento na integração', '', fmtEUR(r.investment), 'implementação + manutenção')}
+      ${row('Ganho líquido', '', fmtEUR(r.net), 'ROI ' + fmtPct(r.roi))}
+      </tbody>`;
+    chart(r);
+    return { inputs: i, results: r };
+  }
+
+  // Steps
+  const stepBtns = Array.from(document.querySelectorAll('.steps button'));
+  const panels = Array.from(document.querySelectorAll('section.panel'));
+  function go(n) {
+    stepBtns.forEach((b, i) => { b.classList.toggle('active', i === n); b.classList.toggle('done', i < n); });
+    panels.forEach((p, i) => p.classList.toggle('active', i === n));
+    if (n >= 2) render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    try { localStorage.setItem('roi.step', String(n)); } catch (e) {}
+  }
+  stepBtns.forEach((b) => b.addEventListener('click', () => go(parseInt(b.dataset.step, 10))));
+  document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => go(parseInt(b.dataset.go, 10))));
+  inputIds.forEach((id) => $(id).addEventListener('input', () => {
+    try { localStorage.setItem('roi.' + id, $(id).value); } catch (e) {}
+  }));
+  try { inputIds.forEach((id) => { const v = localStorage.getItem('roi.' + id); if (v !== null && v !== '') $(id).value = v; }); } catch (e) {}
+  render();
+
+  // Form
+  const API_URL = (window.ROI_CONFIG && window.ROI_CONFIG.apiUrl) || '/api/roi-leads';
+  const form = $('leadForm'); const msg = $('formMsg'); const btn = $('submitBtn');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    msg.innerHTML = '';
+    if (!form.checkValidity()) { msg.innerHTML = '<div class="alert warn">Preencha o nome da agência, contacto, telefone, email e a autorização de contacto.</div>'; return; }
+    const data = render();
+    const payload = {
+      agency: $('agency').value.trim(), contact: $('contact').value.trim(), phone: $('phone').value.trim(), email: $('email').value.trim(),
+      source: 'Social Media Hackathon 2026', inputs: data.inputs, results: data.results, submittedAt: new Date().toISOString()
+    };
+    btn.disabled = true; btn.textContent = 'A enviar…';
+    try {
+      const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) throw new Error(out.error || ('HTTP ' + res.status));
+      msg.innerHTML = `<div class="alert ok">Relatório enviado para <b>${payload.email}</b>. Contacto e negócio criados no Pipedrive${out.dealUrl ? ` (<a href="${out.dealUrl}" target="_blank" rel="noopener">abrir negócio</a>)` : ''}. Obrigado, ${payload.contact.split(' ')[0]}.</div>`;
+      form.reset();
+    } catch (err) {
+      msg.innerHTML = `<div class="alert err">Não foi possível enviar agora (${err.message}). Verifique a ligação do servidor da calculadora ou anote os dados manualmente no Pipedrive.</div>`;
+    } finally { btn.disabled = false; btn.textContent = 'Enviar relatório e criar contacto'; }
+  });
+
+  try { const s = parseInt(localStorage.getItem('roi.step') || '0', 10); if (s > 0) go(s); } catch (e) {}
+})();
+</script>
+</body>
+</html>
