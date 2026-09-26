@@ -5,8 +5,8 @@ Aplicação de stand para o Social Media Hackathon 2026 (Forum Braga, 1 e 2 de O
 ## Fluxo
 
 1. **Enquadramento**: o que é a integração e porque interessa à agência, ao cliente e à parceria.
-2. **A vossa agência**: avença mensal, clientes activos, retenção em meses, investimento em ads, CPL e taxa de SQL. Pressupostos editáveis (redução de CPL 25%, subida de SQL 30%, retenção +50%, avença +15%, custos da integração, referral).
-3. **Resultados**: ROI ao primeiro ano, payback, custo por SQL, LTV, receita adicional, gráfico do funil e tabela de cálculo.
+2. **A vossa agência**: avença mensal, clientes activos, retenção em meses, investimento em ads, CPL, taxa de SQL, taxa de fecho, ticket médio do cliente final e percentagem de clientes activos que apresentariam à INUBIA. Pressupostos editáveis (redução de CPL 25%, subida de SQL 30%, subida de fecho 10%, retenção +50%, avença +15%, custos da integração, taxa de fecho dos referrals e comissão).
+3. **Resultados**: ROI ao primeiro ano, payback, custo por SQL, LTV, vendas geradas ao cliente, CAC, comissões de referral com simulador da carteira (slider), gráfico do funil e tabela de cálculo.
 4. **Receber relatório**: nome da agência, contacto, telefone e email. O servidor cria Organização, Pessoa, Negócio e Nota no Pipedrive e envia o relatório por email com o plano de parceiros.
 
 ## Correr localmente
@@ -28,7 +28,11 @@ Por cliente e por mês: leads = investimento / CPL; SQL = leads × taxa SQL; cus
 
 Relação com o cliente: LTV = avença × retenção; com CAPI: avença × (1 + aumento) × retenção × (1 + aumento de retenção).
 
-Agência (primeiro ano): ganho = (avenças revistas − avenças actuais) × 12 × clientes + comissões de referral (clientes apresentados × projecto médio × %). Investimento = implementação + manutenção × 12 × clientes. ROI = (ganho − investimento) / investimento. Payback = investimento / (ganho / 12).
+Cliente final: novos clientes = SQL × taxa de fecho (com CAPI, taxa × (1 + subida)); CAC = investimento / novos clientes; vendas = novos clientes × ticket médio.
+
+Referral: clientes apresentados = clientes activos × %; fechos = apresentados × taxa de fecho dos referrals; comissão = fechos × 500 € (por projecto INUBIA acima de 5.000 €).
+
+Agência (primeiro ano): ganho = (avenças revistas − avenças actuais) × 12 × clientes + comissões de referral. Investimento = implementação + manutenção × 12 × clientes. ROI = (ganho − investimento) / investimento. Payback = investimento / (ganho / 12).
 
 ## Configuração Pipedrive
 

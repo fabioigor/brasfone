@@ -164,6 +164,13 @@
   @media (max-width: 760px) { .plan { grid-template-columns: 1fr; } }
   .plan div { background: var(--navy-3); border-radius: 8px; padding: 14px 16px; font-size: 0.92rem; color: var(--ink-2); }
   .plan div b { color: var(--green-2); display: block; font-size: 1.15rem; margin-bottom: 4px; }
+  .refsim input[type=range] { width: 100%; accent-color: var(--green); margin: 10px 0 16px; }
+  .refrow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 760px) { .refrow { grid-template-columns: repeat(2, 1fr); } }
+  .refrow div { background: var(--navy-3); border-radius: 8px; padding: 12px 14px; display: grid; gap: 4px; }
+  .refrow .lbl { font-size: 0.74rem; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em; }
+  .refrow b { font-size: 1.5rem; font-weight: 700; }
+  .refrow b.good { color: var(--green-2); }
   .footer { border-top: 1px solid var(--line); margin-top: 30px; padding-top: 16px; font-size: 0.8rem; color: var(--ink-3); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .accent { color: var(--red); }
   @media (prefers-reduced-motion: no-preference) { .kpi .val { transition: color 0.2s; } }
@@ -229,6 +236,9 @@
         <div class="field"><label for="adspend">Investimento médio em Meta Ads por cliente</label><div class="input"><input id="adspend" type="number" min="0" step="100" value="3000" inputmode="decimal"><span class="unit">€ / mês</span></div></div>
         <div class="field"><label for="cpl">Custo por lead (CPL) actual</label><div class="input"><input id="cpl" type="number" min="0.1" step="0.5" value="25" inputmode="decimal"><span class="unit">€</span></div></div>
         <div class="field"><label for="sqlrate">Leads que se tornam SQL</label><div class="input"><input id="sqlrate" type="number" min="1" max="100" step="1" value="20" inputmode="numeric"><span class="unit">%</span></div><small>Leads qualificadas pela equipa comercial do cliente.</small></div>
+        <div class="field"><label for="closerate">SQL que se tornam clientes</label><div class="input"><input id="closerate" type="number" min="1" max="100" step="1" value="25" inputmode="numeric"><span class="unit">%</span></div><small>Taxa de fecho da equipa comercial do cliente.</small></div>
+        <div class="field"><label for="ticket">Ticket médio de venda do cliente final</label><div class="input"><input id="ticket" type="number" min="0" step="100" value="2500" inputmode="decimal"><span class="unit">€</span></div><small>Valor médio de cada negócio que o vosso cliente fecha.</small></div>
+        <div class="field"><label for="refShare">Clientes activos que apresentariam à INUBIA</label><div class="input"><input id="refShare" type="number" min="0" max="100" step="5" value="50" inputmode="numeric"><span class="unit">%</span></div><small>Para implementar Pipedrive + CAPI. Cada fecho acima de 5.000 € rende 500 € de comissão.</small></div>
       </div>
 
       <details class="assump">
@@ -240,9 +250,9 @@
           <div class="field"><label for="feeUp">Aumento da avença justificado</label><div class="input"><input id="feeUp" type="number" min="0" max="100" step="5" value="15"><span class="unit">%</span></div></div>
           <div class="field"><label for="setup">Implementação da integração (uma vez)</label><div class="input"><input id="setup" type="number" min="0" step="100" value="2400"><span class="unit">€</span></div></div>
           <div class="field"><label for="monthly">Manutenção por cliente ligado</label><div class="input"><input id="monthly" type="number" min="0" step="10" value="99"><span class="unit">€ / mês</span></div></div>
-          <div class="field"><label for="refs">Clientes apresentados à INUBIA por ano</label><div class="input"><input id="refs" type="number" min="0" step="1" value="3"><span class="unit">clientes</span></div></div>
-          <div class="field"><label for="proj">Projecto médio INUBIA por cliente</label><div class="input"><input id="proj" type="number" min="0" step="500" value="6000"><span class="unit">€</span></div></div>
-          <div class="field"><label for="refPct">Comissão de referral</label><div class="input"><input id="refPct" type="number" min="0" max="50" step="1" value="10"><span class="unit">%</span></div></div>
+          <div class="field"><label for="closeUp">Subida da taxa de fecho</label><div class="input"><input id="closeUp" type="number" min="0" max="100" step="5" value="10"><span class="unit">% relativo</span></div><small>Leads mais qualificadas fecham melhor.</small></div>
+          <div class="field"><label for="refClose">Referrals que fecham projecto acima de 5.000 €</label><div class="input"><input id="refClose" type="number" min="0" max="100" step="5" value="60"><span class="unit">%</span></div></div>
+          <div class="field"><label for="refFee">Comissão por referral fechado</label><div class="input"><input id="refFee" type="number" min="0" step="50" value="500"><span class="unit">€</span></div></div>
         </div>
       </details>
     </div>
@@ -259,14 +269,32 @@
       <div class="kpi"><div class="lbl">Payback</div><div class="val mono" id="k-payback">—</div><div class="delta">meses até recuperar o investimento</div></div>
       <div class="kpi"><div class="lbl">Custo por SQL</div><div class="val good mono" id="k-cps">—</div><div class="delta" id="k-cps-d">—</div></div>
       <div class="kpi"><div class="lbl">LTV por cliente</div><div class="val good mono" id="k-ltv">—</div><div class="delta" id="k-ltv-d">—</div></div>
-      <div class="kpi"><div class="lbl">Receita anual adicional</div><div class="val good mono" id="k-rev">—</div><div class="delta">avença revista mais comissões de referral</div></div>
+      <div class="kpi"><div class="lbl">Receita anual adicional da agência</div><div class="val good mono" id="k-rev">—</div><div class="delta" id="k-rev-d">avença revista mais comissões de referral</div></div>
       <div class="kpi"><div class="lbl">SQL adicionais por mês</div><div class="val good mono" id="k-sql">—</div><div class="delta" id="k-sql-d">—</div></div>
       <div class="kpi"><div class="lbl">Valor da carteira (LTV total)</div><div class="val good mono" id="k-port">—</div><div class="delta" id="k-port-d">—</div></div>
+      <div class="kpi"><div class="lbl">Vendas geradas ao cliente / mês</div><div class="val good mono" id="k-sales">—</div><div class="delta" id="k-sales-d">—</div></div>
+      <div class="kpi"><div class="lbl">Custo de aquisição por cliente (CAC)</div><div class="val good mono" id="k-cac">—</div><div class="delta" id="k-cac-d">—</div></div>
+      <div class="kpi hero-kpi" style="border-color:var(--green)"><div class="lbl">Comissões de referral por ano</div><div class="val good mono" id="k-ref">—</div><div class="delta" id="k-ref-d">—</div></div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h2>Simulação de referrals na carteira activa</h2>
+      <p class="sub">Quantos dos vossos clientes activos apresentariam à INUBIA para implementar Pipedrive + CAPI. Por cada um que feche um projecto acima de 5.000 €, a agência recebe <span id="ref-fee-lbl">500 €</span>.</p>
+      <div class="refsim">
+        <label for="refShareRange" class="eyebrow">Clientes apresentados: <b id="refShareLbl" class="mono">50%</b></label>
+        <input id="refShareRange" type="range" min="0" max="100" step="5" value="50" aria-label="Percentagem de clientes apresentados">
+        <div class="refrow">
+          <div><span class="lbl">Clientes activos</span><b class="mono" id="rs-clients">—</b></div>
+          <div><span class="lbl">Apresentados à INUBIA</span><b class="mono" id="rs-referred">—</b></div>
+          <div><span class="lbl">Fecham projecto ≥ 5.000 €</span><b class="mono" id="rs-closed">—</b></div>
+          <div><span class="lbl">Comissão para a agência</span><b class="mono good" id="rs-fee">—</b></div>
+        </div>
+      </div>
     </div>
 
     <div class="card" style="margin-top:18px">
       <h2>Funil por cliente, ao mesmo investimento em Meta Ads</h2>
-      <p class="sub">Leads mensais, SQL mensais e custo por SQL. Hoje versus com Pipedrive + CAPI.</p>
+      <p class="sub">Leads, SQL, novos clientes e custo por SQL, por mês. Hoje versus com Pipedrive + CAPI.</p>
       <div class="chart" id="chart"></div>
       <div class="legend"><span><i style="background:var(--blue-soft)"></i>Hoje</span><span><i style="background:var(--green)"></i>Com Pipedrive + CAPI</span></div>
     </div>
@@ -309,7 +337,7 @@
       <span class="eyebrow">Plano de parceiros INUBIA</span>
       <h2 style="margin-top:6px">A agência apresenta, a INUBIA implementa, a comissão é vossa</h2>
       <div class="plan">
-        <div><b id="p-pct">10% de comissão</b>sobre os serviços INUBIA contratados por cada cliente apresentado, no primeiro ano.</div>
+        <div><b id="p-pct">500 € por referral</b>por cada cliente apresentado pela agência que feche um projecto INUBIA acima de 5.000 €.</div>
         <div><b>Gestor de parceria dedicado</b>Apoio na proposta, demonstração conjunta ao cliente e acompanhamento do projecto.</div>
         <div><b>Pipedrive + CAPI + automação</b>Implementação, formação e manutenção pela equipa INUBIA. A agência mantém a relação com o cliente.</div>
         <div><b>Co-marketing</b>Casos de sucesso partilhados, webinars e presença conjunta em eventos como este.</div>
@@ -331,14 +359,16 @@
   const fmtPct = (v, d = 0) => fmtN(v * 100, d) + '%';
   const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : 0; };
 
-  const inputIds = ['fee','clients','retention','adspend','cpl','sqlrate','cplRed','sqlUp','retUp','feeUp','setup','monthly','refs','proj','refPct'];
+  const inputIds = ['fee','clients','retention','adspend','cpl','sqlrate','closerate','ticket','refShare','cplRed','sqlUp','closeUp','retUp','feeUp','setup','monthly','refClose','refFee'];
 
   function readInputs() {
     return {
       fee: num('fee'), clients: Math.max(1, num('clients')), retention: Math.max(1, num('retention')),
       adspend: num('adspend'), cpl: Math.max(0.1, num('cpl')), sqlRate: Math.min(1, Math.max(0.01, num('sqlrate') / 100)),
-      cplRed: num('cplRed') / 100, sqlUp: num('sqlUp') / 100, retUp: num('retUp') / 100, feeUp: num('feeUp') / 100,
-      setup: num('setup'), monthly: num('monthly'), refs: num('refs'), proj: num('proj'), refPct: num('refPct') / 100
+      closeRate: Math.min(1, Math.max(0.01, num('closerate') / 100)), ticket: num('ticket'),
+      cplRed: num('cplRed') / 100, sqlUp: num('sqlUp') / 100, closeUp: num('closeUp') / 100, retUp: num('retUp') / 100, feeUp: num('feeUp') / 100,
+      setup: num('setup'), monthly: num('monthly'),
+      refShare: Math.min(1, Math.max(0, num('refShare') / 100)), refClose: Math.min(1, Math.max(0, num('refClose') / 100)), refFee: num('refFee')
     };
   }
 
@@ -351,19 +381,29 @@
     const newSqlRate = Math.min(0.95, i.sqlRate * (1 + i.sqlUp));
     const newSqls = newLeads * newSqlRate;
     const newCps = newSqls > 0 ? i.adspend / newSqls : 0;
+    const customers = sqls * i.closeRate;
+    const newCloseRate = Math.min(0.95, i.closeRate * (1 + i.closeUp));
+    const newCustomers = newSqls * newCloseRate;
+    const cac = customers > 0 ? i.adspend / customers : 0;
+    const newCac = newCustomers > 0 ? i.adspend / newCustomers : 0;
+    const sales = customers * i.ticket;
+    const newSales = newCustomers * i.ticket;
+    const referred = i.clients * i.refShare;
+    const refClosed = referred * i.refClose;
     const newFee = i.fee * (1 + i.feeUp);
     const newRetention = i.retention * (1 + i.retUp);
     const ltv = i.fee * i.retention;
     const newLtv = newFee * newRetention;
     const annualRev = i.fee * 12 * i.clients;
     const newAnnualRev = newFee * 12 * i.clients;
-    const referral = i.refs * i.proj * i.refPct;
+    const referral = refClosed * i.refFee;
     const gain = (newAnnualRev - annualRev) + referral;
     const investment = i.setup + i.monthly * 12 * i.clients;
     const net = gain - investment;
     const roi = investment > 0 ? net / investment : 0;
     const payback = gain > 0 ? investment / (gain / 12) : Infinity;
-    return { leads, sqls, cps, newCpl, newLeads, newSqlRate, newSqls, newCps, newFee, newRetention, ltv, newLtv,
+    return { leads, sqls, cps, newCpl, newLeads, newSqlRate, newSqls, newCps, customers, newCloseRate, newCustomers, cac, newCac, sales, newSales,
+      referred, refClosed, newFee, newRetention, ltv, newLtv,
       annualRev, newAnnualRev, referral, gain, investment, net, roi, payback,
       portfolio: ltv * i.clients, newPortfolio: newLtv * i.clients };
   }
@@ -377,9 +417,10 @@
     const groups = [
       { lbl: 'Leads / mês', a: r.leads, b: r.newLeads, f: (v) => fmtN(v) },
       { lbl: 'SQL / mês', a: r.sqls, b: r.newSqls, f: (v) => fmtN(v, 1) },
+      { lbl: 'Novos clientes / mês', a: r.customers, b: r.newCustomers, f: (v) => fmtN(v, 1) },
       { lbl: 'Custo por SQL', a: r.cps, b: r.newCps, f: (v) => fmtEUR(v) }
     ];
-    const W = 900, H = 230, padL = 20, padR = 20, top = 30, base = 190, gw = (W - padL - padR) / groups.length, bw = 70, gap = 2;
+    const W = 900, H = 230, padL = 20, padR = 20, top = 30, base = 190, gw = (W - padL - padR) / groups.length, bw = 64, gap = 2;
     let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Comparação do funil hoje e com Pipedrive + CAPI">`;
     s += `<line x1="${padL}" x2="${W - padR}" y1="${base}" y2="${base}" stroke="#223A62" stroke-width="1"/>`;
     groups.forEach((g, gi) => {
@@ -411,7 +452,21 @@
     $('k-sql-d').textContent = `por cliente, de ${fmtN(r.sqls, 1)} para ${fmtN(r.newSqls, 1)}`;
     $('k-port').textContent = fmtEUR(r.newPortfolio);
     $('k-port-d').textContent = `antes ${fmtEUR(r.portfolio)}, ${i.clients} clientes`;
-    $('p-pct').textContent = `${fmtN(i.refPct * 100)}% de comissão`;
+    $('k-rev-d').textContent = `${fmtEUR(r.newAnnualRev - r.annualRev)} em avenças mais ${fmtEUR(r.referral)} de referral`;
+    $('k-sales').textContent = fmtEUR(r.newSales);
+    $('k-sales-d').textContent = `antes ${fmtEUR(r.sales)}, ${fmtN(r.newCustomers, 1)} clientes novos por mês (antes ${fmtN(r.customers, 1)})`;
+    $('k-cac').textContent = fmtEUR(r.newCac);
+    $('k-cac-d').textContent = `antes ${fmtEUR(r.cac)}, menos ${fmtPct(r.cac > 0 ? 1 - r.newCac / r.cac : 0)}`;
+    $('k-ref').textContent = fmtEUR(r.referral);
+    $('k-ref-d').textContent = `${fmtN(r.refClosed, 1)} clientes fecham projecto acima de 5.000 €, ${fmtEUR(i.refFee)} cada`;
+    $('p-pct').textContent = `${fmtEUR(i.refFee)} por referral`;
+    $('ref-fee-lbl').textContent = fmtEUR(i.refFee);
+    $('refShareLbl').textContent = fmtPct(i.refShare);
+    if (document.activeElement !== $('refShareRange')) $('refShareRange').value = String(Math.round(i.refShare * 100));
+    $('rs-clients').textContent = fmtN(i.clients);
+    $('rs-referred').textContent = fmtN(r.referred, 1);
+    $('rs-closed').textContent = fmtN(r.refClosed, 1);
+    $('rs-fee').textContent = fmtEUR(r.referral);
 
     $('tbl').innerHTML = `
       <thead><tr><th>Indicador</th><th>Hoje</th><th>Com Pipedrive + CAPI</th><th>Variação</th></tr></thead><tbody>
@@ -422,6 +477,10 @@
       ${row('Taxa lead para SQL', fmtPct(i.sqlRate), fmtPct(r.newSqlRate), '+' + fmtPct(i.sqlUp) + ' rel.')}
       ${row('SQL', fmtN(r.sqls, 1), fmtN(r.newSqls, 1), '+' + fmtN(r.newSqls - r.sqls, 1))}
       ${row('Custo por SQL', fmtEUR(r.cps), fmtEUR(r.newCps), '-' + fmtPct(r.cps > 0 ? 1 - r.newCps / r.cps : 0))}
+      ${row('Taxa SQL para cliente', fmtPct(i.closeRate), fmtPct(r.newCloseRate), '+' + fmtPct(i.closeUp) + ' rel.')}
+      ${row('Novos clientes', fmtN(r.customers, 1), fmtN(r.newCustomers, 1), '+' + fmtN(r.newCustomers - r.customers, 1))}
+      ${row('Custo de aquisição por cliente', fmtEUR(r.cac), fmtEUR(r.newCac), '-' + fmtPct(r.cac > 0 ? 1 - r.newCac / r.cac : 0))}
+      ${row('Vendas geradas (ticket ' + fmtEUR(i.ticket) + ')', fmtEUR(r.sales), fmtEUR(r.newSales), '+' + fmtEUR(r.newSales - r.sales))}
       ${section('Relação com o cliente')}
       ${row('Avença mensal', fmtEUR(i.fee), fmtEUR(r.newFee), '+' + fmtPct(i.feeUp))}
       ${row('Retenção média', fmtN(i.retention, 1) + ' meses', fmtN(r.newRetention, 1) + ' meses', '+' + fmtPct(i.retUp))}
@@ -429,7 +488,7 @@
       ${row('LTV da carteira (' + i.clients + ' clientes)', fmtEUR(r.portfolio), fmtEUR(r.newPortfolio), '+' + fmtEUR(r.newPortfolio - r.portfolio))}
       ${section('Agência (primeiro ano)')}
       ${row('Receita anual em avenças', fmtEUR(r.annualRev), fmtEUR(r.newAnnualRev), '+' + fmtEUR(r.newAnnualRev - r.annualRev))}
-      ${row('Comissões de referral', fmtEUR(0), fmtEUR(r.referral), i.refs + ' clientes apresentados')}
+      ${row('Comissões de referral', fmtEUR(0), fmtEUR(r.referral), fmtN(r.refClosed, 1) + ' fechos × ' + fmtEUR(i.refFee))}
       ${row('Investimento na integração', '', fmtEUR(r.investment), 'implementação + manutenção')}
       ${row('Ganho líquido', '', fmtEUR(r.net), 'ROI ' + fmtPct(r.roi))}
       </tbody>`;
@@ -452,6 +511,7 @@
   inputIds.forEach((id) => $(id).addEventListener('input', () => {
     try { localStorage.setItem('roi.' + id, $(id).value); } catch (e) {}
   }));
+  $('refShareRange').addEventListener('input', () => { $('refShare').value = $('refShareRange').value; try { localStorage.setItem('roi.refShare', $('refShare').value); } catch (e) {} render(); });
   try { inputIds.forEach((id) => { const v = localStorage.getItem('roi.' + id); if (v !== null && v !== '') $(id).value = v; }); } catch (e) {}
   render();
 

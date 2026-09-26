@@ -17,6 +17,10 @@ function rows(inputs, r) {
     ['Taxa lead para SQL', pct(i.sqlRate), pct(r.newSqlRate)],
     ['SQL', n(r.sqls, 1), n(r.newSqls, 1)],
     ['Custo por SQL', eur(r.cps), eur(r.newCps) + ' (menos ' + pct(cpsDrop) + ')'],
+    ['Taxa SQL para cliente', pct(i.closeRate), pct(r.newCloseRate)],
+    ['Novos clientes', n(r.customers, 1), n(r.newCustomers, 1)],
+    ['Custo de aquisição por cliente', eur(r.cac), eur(r.newCac)],
+    ['Vendas geradas (ticket ' + eur(i.ticket) + ')', eur(r.sales), eur(r.newSales)],
     ['Relação com o cliente'],
     ['Avença mensal', eur(i.fee), eur(r.newFee)],
     ['Retenção média', n(i.retention, 1) + ' meses', n(r.newRetention, 1) + ' meses'],
@@ -24,7 +28,8 @@ function rows(inputs, r) {
     ['LTV da carteira (' + n(i.clients) + ' clientes)', eur(r.portfolio), eur(r.newPortfolio)],
     ['Agência (primeiro ano)'],
     ['Receita anual em avenças', eur(r.annualRev), eur(r.newAnnualRev)],
-    ['Comissões de referral', eur(0), eur(r.referral)],
+    ['Clientes apresentados à INUBIA', '', n(r.referred, 1) + ' de ' + n(i.clients)],
+    ['Comissões de referral (' + n(r.refClosed, 1) + ' fechos × ' + eur(i.refFee) + ')', eur(0), eur(r.referral)],
     ['Investimento na integração', '', eur(r.investment)],
     ['Ganho líquido', '', eur(r.net) + ' (ROI ' + pct(r.roi) + ')'],
   ];
@@ -42,7 +47,6 @@ function tableHtml(inputs, r, { navy = '#0A1628', line = '#dce3ef' } = {}) {
 
 function buildReportHtml({ agency, contact, inputs, results: r, partnerPlanUrl }) {
   const first = esc(String(contact).split(' ')[0]);
-  const refPct = n((inputs.refPct || 0) * 100);
   return `<!doctype html><html lang="pt-PT"><body style="margin:0;background:#F5F6FA;font-family:Ubuntu,Arial,sans-serif;color:#0A1628">
   <div style="max-width:640px;margin:0 auto;padding:24px 16px">
     <div style="background:#0A1628;color:#fff;border-radius:10px 10px 0 0;padding:28px 28px 22px">
@@ -56,18 +60,22 @@ function buildReportHtml({ agency, contact, inputs, results: r, partnerPlanUrl }
         <tr>
           <td style="background:#e8ecf4;border-radius:8px;padding:14px;width:33%"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5a6a7e">ROI 1.º ano</div><div style="font-size:26px;font-weight:700;color:#1a8a49">${pct(r.roi)}</div></td>
           <td style="background:#e8ecf4;border-radius:8px;padding:14px;width:33%"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5a6a7e">Payback</div><div style="font-size:26px;font-weight:700">${Number.isFinite(r.payback) ? n(r.payback, 1) + ' meses' : '—'}</div></td>
+          <td style="background:#e8ecf4;border-radius:8px;padding:14px;width:33%"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5a6a7e">Referral / ano</div><div style="font-size:26px;font-weight:700;color:#1a8a49">${eur(r.referral)}</div><div style="font-size:12px;color:#5a6a7e">${n(r.refClosed, 1)} fechos × ${eur(inputs.refFee)}</div></td>
+        </tr><tr>
+          <td style="background:#e8ecf4;border-radius:8px;padding:14px;width:33%"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5a6a7e">LTV por cliente</div><div style="font-size:26px;font-weight:700;color:#1a8a49">${eur(r.newLtv)}</div><div style="font-size:12px;color:#5a6a7e">antes ${eur(r.ltv)}</div></td>
+          <td style="background:#e8ecf4;border-radius:8px;padding:14px;width:33%"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5a6a7e">CAC do cliente final</div><div style="font-size:26px;font-weight:700;color:#1a8a49">${eur(r.newCac)}</div><div style="font-size:12px;color:#5a6a7e">antes ${eur(r.cac)}</div></td>
           <td style="background:#e8ecf4;border-radius:8px;padding:14px;width:33%"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#5a6a7e">Custo por SQL</div><div style="font-size:26px;font-weight:700;color:#1a8a49">${eur(r.newCps)}</div><div style="font-size:12px;color:#5a6a7e">antes ${eur(r.cps)}</div></td>
         </tr>
       </table>
       ${tableHtml(inputs, r)}
-      <p style="margin:18px 0 0;font-size:12px;color:#5a6a7e;line-height:1.5">Pressupostos: CPL menos ${pct(inputs.cplRed)}, taxa de SQL mais ${pct(inputs.sqlUp)} (relativo), retenção mais ${pct(inputs.retUp)}, avença mais ${pct(inputs.feeUp)}, implementação ${eur(inputs.setup)}, manutenção ${eur(inputs.monthly)} por cliente e mês, ${n(inputs.refs)} clientes apresentados por ano com projecto médio de ${eur(inputs.proj)}. Modelo indicativo para conversa comercial; os ganhos reais dependem do volume de conversões enviadas e da disciplina de actualização do CRM.</p>
+      <p style="margin:18px 0 0;font-size:12px;color:#5a6a7e;line-height:1.5">Pressupostos: CPL menos ${pct(inputs.cplRed)}, taxa de SQL mais ${pct(inputs.sqlUp)} (relativo), taxa de fecho mais ${pct(inputs.closeUp)} (relativo), retenção mais ${pct(inputs.retUp)}, avença mais ${pct(inputs.feeUp)}, implementação ${eur(inputs.setup)}, manutenção ${eur(inputs.monthly)} por cliente e mês, ${pct(inputs.refShare)} dos clientes activos apresentados à INUBIA com ${pct(inputs.refClose)} a fechar projecto acima de 5.000 €. Modelo indicativo para conversa comercial; os ganhos reais dependem do volume de conversões enviadas e da disciplina de actualização do CRM.</p>
     </div>
 
     <div style="background:#fff;padding:28px;border:1px solid #e0e6ef;border-top:0;border-radius:0 0 10px 10px">
       <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#1D3DF5">Plano de parceiros INUBIA</div>
       <h2 style="margin:8px 0 12px;font-size:20px;line-height:1.25">A agência apresenta, a INUBIA implementa, a comissão é vossa</h2>
       <ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.6;color:#0A1628">
-        <li><b>${refPct}% de comissão de referral</b> sobre os serviços INUBIA contratados por cada cliente que a agência apresentar, durante o primeiro ano de contrato.</li>
+        <li><b>${eur(inputs.refFee)} de comissão de referral</b> por cada cliente apresentado pela agência que feche um projecto INUBIA acima de 5.000 €. Na vossa carteira: ${n(r.referred, 1)} clientes apresentados, ${n(r.refClosed, 1)} fechos estimados, ${eur(r.referral)} por ano.</li>
         <li><b>Gestor de parceria dedicado</b>, apoio na proposta, demonstração conjunta ao cliente e acompanhamento do projecto.</li>
         <li><b>Implementação completa</b> de Pipedrive, Conversions API, automação e IA pela equipa INUBIA, com formação incluída. A agência mantém a relação com o cliente.</li>
         <li><b>Co-marketing</b>: casos de sucesso partilhados, webinars e presença conjunta em eventos.</li>
