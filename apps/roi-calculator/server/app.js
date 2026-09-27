@@ -165,4 +165,114 @@ app.post('/api/roi-leads', async (req, res) => {
   res.json({ ok: true, dealUrl, dryRun, emailSent });
 });
 
+// ======================================================================
+// Partner sign-up: creates the partner in Pipedrive and emails the contract draft.
+// ======================================================================
+const { buildContractPdf, normalizePartner } = require('./contract');
+const { PROGRAM, summary: programSummary } = require('./partner-program');
+const { buildPartnerEmailHtml, buildPartnerNoteHtml } = require('./partner-email');
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+const PROGRAM_PDF_URL = PARTNER_PLAN_URL || (PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/docs/programa-parceiros-inubia.pdf` : '');
+const PARTNER_TYPES = ['Agência de marketing', 'Consultor', 'Cliente Pipedrive', 'Outro'];
+
+function validatePartner(body) {
+  const p = normalizePartner(body || {});
+  const errors = [];
+  if (!PARTNER_TYPES.includes(p.type)) errors.push('type');
+  if (p.company.length < 2) errors.push('company');
+  if (!/^[A-Z0-9-]{8,15}$/i.test(p.nif)) errors.push('nif');
+  if (p.address.length < 4) errors.push('address');
+  if (p.postalCode.length < 4) errors.push('postalCode');
+  if (p.city.length < 2) errors.push('city');
+  if (p.repName.length < 2) errors.push('repName');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.email)) errors.push('email');
+  if (!/^[+\d][\d\s().-]{6,}$/.test(p.phone)) errors.push('phone');
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(p.iban)) errors.push('iban');
+  if (p.billingEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.billingEmail)) errors.push('billingEmail');
+  if (body && body.acceptTerms !== true) errors.push('acceptTerms');
+  if (body && body.consent !== true) errors.push('consent');
+  return { errors, partner: p };
+}
+
+app.get('/api/partners/program', (_req, res) => {
+  res.json({ ok: true, version: PROGRAM.version, fee: PROGRAM.fee, minDeal: PROGRAM.minDeal, contactHours: PROGRAM.contactHours, summary: programSummary(), programUrl: PROGRAM_PDF_URL || null, types: PARTNER_TYPES });
+});
+
+// Draft preview without side effects (used by the "Pré-visualizar minuta" button).
+app.post('/api/partners/preview', async (req, res) => {
+  const v = validatePartner(req.body);
+  if (v.errors.length) return res.status(400).json({ ok: false, error: `Campos inválidos: ${v.errors.join(', ')}` });
+  try {
+    const pdf = await buildContractPdf(v.partner);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="minuta-contrato-parceria-inubia.pdf"');
+    res.send(pdf);
+  } catch (err) {
+    console.log(new Date().toISOString(), 'Contract preview error', err.message);
+    res.status(500).json({ ok: false, error: 'Não foi possível gerar a minuta' });
+  }
+});
+
+app.post('/api/partners', async (req, res) => {
+  const v = validatePartner(req.body);
+  if (v.errors.length) return res.status(400).json({ ok: false, error: `Campos inválidos: ${v.errors.join(', ')}` });
+  const partner = v.partner;
+  const source = typeof req.body.source === 'string' ? req.body.source.slice(0, 120) : 'Formulário de parceiros';
+  const log = (...a) => console.log(new Date().toISOString(), ...a);
+  const dryRun = DRY_RUN || !PD_TOKEN;
+
+  let pdf;
+  try {
+    pdf = await buildContractPdf(partner);
+  } catch (err) {
+    log('Contract error', err.message);
+    return res.status(500).json({ ok: false, error: 'Não foi possível gerar a minuta do contrato' });
+  }
+
+  let orgUrl = null;
+  try {
+    if (dryRun) {
+      log('[DRY_RUN] Pipedrive: partner org/person/note/activity for', partner.company, partner.repName, partner.email);
+    } else {
+      const orgId = await findOrCreateOrganization(partner.company);
+      await pd('PUT', `/organizations/${orgId}`, { address: [partner.address, partner.postalCode, partner.city, partner.country].filter(Boolean).join(', ') });
+      const personId = await findOrCreatePerson({ name: partner.repName, email: partner.email, phone: partner.phone, orgId });
+      await pd('POST', '/notes', { content: buildPartnerNoteHtml({ partner, source }), org_id: orgId, person_id: personId, pinned_to_organization_flag: 1 });
+      const due = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+      const activity = { subject: `Validar adesão de parceiro e recolher contrato assinado: ${partner.company}`, type: 'task', due_date: due, org_id: orgId, person_id: personId };
+      if (PD_OWNER_ID) activity.user_id = PD_OWNER_ID;
+      await pd('POST', '/activities', activity);
+      orgUrl = PD_DOMAIN ? `https://${PD_DOMAIN}.pipedrive.com/organization/${orgId}` : null;
+      log('Pipedrive partner registered', orgId, partner.company);
+    }
+  } catch (err) {
+    log('Pipedrive partner error', err.message);
+    return res.status(502).json({ ok: false, error: 'Falha ao registar o parceiro no Pipedrive' });
+  }
+
+  let emailSent = false;
+  try {
+    const transport = DRY_RUN ? null : mailer();
+    const html = buildPartnerEmailHtml({ partner, programUrl: PROGRAM_PDF_URL });
+    const filename = `Minuta_Contrato_Parceria_INUBIA_${partner.company.replace(/[^\w.-]+/g, '_').slice(0, 60)}.pdf`;
+    if (!transport) {
+      log('[DRY_RUN] Partner email to', partner.email, '| contract pdf bytes', pdf.length, '| html bytes', html.length);
+    } else {
+      await transport.sendMail({
+        from: MAIL_FROM, to: `${partner.repName} <${partner.email}>`, cc: MAIL_CC || undefined,
+        subject: `Bem-vindos ao ${PROGRAM.name}: minuta do contrato de parceria para ${partner.company}`,
+        html,
+        attachments: [{ filename, content: pdf, contentType: 'application/pdf' }],
+      });
+      emailSent = true;
+      log('Partner email sent to', partner.email);
+    }
+  } catch (err) {
+    log('Partner email error', err.message);
+    return res.status(502).json({ ok: false, error: 'Parceiro registado no Pipedrive, mas o email com a minuta não foi enviado' });
+  }
+
+  res.json({ ok: true, orgUrl, dryRun, emailSent });
+});
+
 module.exports = app;

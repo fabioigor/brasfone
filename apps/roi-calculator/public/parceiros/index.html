@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Adesão Parceiros INUBIA</title>
+<meta name="description" content="Formulário de adesão ao Programa de Parceiros INUBIA. Ao submeter, o parceiro recebe automaticamente a minuta do contrato de parceria com todos os termos e condições.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&family=Ubuntu+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="../assets/roi.css">
+<style>
+  .terms { background: var(--navy-3); border-radius: 8px; padding: 14px 16px; font-size: 0.92rem; color: var(--ink-2); }
+  .terms ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+  .terms b { color: var(--ink); font-weight: 500; }
+  fieldset { border: 0; padding: 0; margin: 0 0 22px; min-width: 0; }
+  fieldset legend { font-size: 0.74rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--green-2); font-weight: 500; margin-bottom: 12px; }
+  .checks { display: grid; gap: 10px; margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <a href="../index.html"><img src="../assets/inubia-logo.webp" alt="INUBIA"></a>
+      <span class="x">×</span>
+      <div class="smh"><img src="../assets/smh-logo.webp" alt="Social Media Hackathon"><span>Social Media Hackathon 2026</span></div>
+    </div>
+    <span class="mode">Adesão de parceiros <a href="../agencias/index.html">voltar à calculadora</a></span>
+  </header>
+
+  <section style="padding-block:32px 8px">
+    <div class="hero">
+      <div>
+        <span class="tag"><i></i>Programa de Parceiros INUBIA</span>
+        <h1>Tornar-se parceiro INUBIA em dois minutos</h1>
+        <p class="lead">Preencha os dados da empresa e do representante. A minuta do contrato de parceria, com todos os termos e condições, é gerada automaticamente com esses dados e enviada para o email indicado. A equipa de parcerias INUBIA acompanha a assinatura.</p>
+      </div>
+      <div class="terms">
+        <b>Condições do programa (versão 2026-09)</b>
+        <ul>
+          <li><b>500 € + IVA</b> por cada referência fechada.</li>
+          <li>Referência fechada: a empresa apresentada adjudica à INUBIA um projecto de valor igual ou superior a <b>5.000 € + IVA</b>, no prazo de 12 meses após o registo.</li>
+          <li>A INUBIA contacta a referência em <b>24 horas úteis</b> e confirma a sua validade em 5 dias úteis.</li>
+          <li>Pagamento no final do mês da adjudicação, contra factura do parceiro.</li>
+          <li>Sem exclusividade. Vigência de 12 meses, renovável, com denúncia a 30 dias.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-block:20px">
+    <form id="partnerForm" class="card" novalidate>
+      <h2>Dados de adesão</h2>
+      <p class="sub">Os campos são os que constam do contrato. O IBAN é usado exclusivamente para o pagamento das comissões.</p>
+
+      <fieldset>
+        <legend>Empresa</legend>
+        <div class="grid2">
+          <div class="field"><label for="type">Tipo de parceiro</label><div class="input"><select id="type" name="type" required>
+            <option value="Agência de marketing">Agência de marketing</option>
+            <option value="Consultor">Consultor</option>
+            <option value="Cliente Pipedrive">Cliente Pipedrive</option>
+            <option value="Outro">Outro</option>
+          </select></div></div>
+          <div class="field"><label for="company">Denominação social</label><div class="input"><input id="company" name="company" type="text" required autocomplete="organization" placeholder="Exemplo Marketing, Lda."></div></div>
+          <div class="field"><label for="tradeName">Nome comercial (se diferente)</label><div class="input"><input id="tradeName" name="tradeName" type="text"></div></div>
+          <div class="field"><label for="nif">NIF</label><div class="input"><input id="nif" name="nif" type="text" required inputmode="numeric" placeholder="500 000 000"></div></div>
+          <div class="field"><label for="address">Morada da sede</label><div class="input"><input id="address" name="address" type="text" required autocomplete="street-address"></div></div>
+          <div class="field"><label for="website">Website</label><div class="input"><input id="website" name="website" type="text" placeholder="www.exemplo.pt"></div></div>
+          <div class="field"><label for="postalCode">Código postal</label><div class="input"><input id="postalCode" name="postalCode" type="text" required autocomplete="postal-code" placeholder="8000-000"></div></div>
+          <div class="field"><label for="city">Localidade</label><div class="input"><input id="city" name="city" type="text" required autocomplete="address-level2"></div></div>
+          <div class="field"><label for="country">País</label><div class="input"><select id="country" name="country"><option>Portugal</option><option>Espanha</option><option>Outro</option></select></div></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Representante legal</legend>
+        <div class="grid2">
+          <div class="field"><label for="repName">Nome</label><div class="input"><input id="repName" name="repName" type="text" required autocomplete="name"></div></div>
+          <div class="field"><label for="repRole">Cargo</label><div class="input"><input id="repRole" name="repRole" type="text" placeholder="Sócio-gerente"></div></div>
+          <div class="field"><label for="email">Email</label><div class="input"><input id="email" name="email" type="email" required autocomplete="email"></div><small>Recebe a minuta do contrato.</small></div>
+          <div class="field"><label for="phone">Telemóvel</label><div class="input"><input id="phone" name="phone" type="tel" required autocomplete="tel" placeholder="+351 9xx xxx xxx"></div></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Pagamento das comissões</legend>
+        <div class="grid2">
+          <div class="field"><label for="iban">IBAN</label><div class="input"><input id="iban" name="iban" type="text" required placeholder="PT50 0000 0000 0000 0000 0000 0" autocomplete="off"></div></div>
+          <div class="field"><label for="billingEmail">Email de facturação (opcional)</label><div class="input"><input id="billingEmail" name="billingEmail" type="email"></div></div>
+        </div>
+      </fieldset>
+
+      <div class="checks">
+        <label class="check"><input id="acceptTerms" type="checkbox" required><span>Declaro que li e aceito as condições do Programa de Parceiros INUBIA acima descritas e que tenho poderes para representar a empresa indicada.</span></label>
+        <label class="check"><input id="consent" type="checkbox" required><span>Autorizo a INUBIA (Grupo Brasfone) a guardar estes dados no seu CRM e a contactar-me para formalizar a parceria.</span></label>
+      </div>
+
+      <div id="formMsg"></div>
+      <div class="nav">
+        <button class="btn ghost" type="button" id="previewBtn">Pré-visualizar a minuta (PDF)</button>
+        <button class="btn green" type="submit" id="submitBtn">Aderir e receber a minuta do contrato</button>
+      </div>
+    </form>
+
+    <div class="card">
+      <span class="eyebrow">O que acontece a seguir</span>
+      <div class="plan">
+        <div><b>1. Minuta por email</b>Contrato de parceria de referenciação preenchido com os dados desta adesão, para revisão e assinatura.</div>
+        <div><b>2. Registo no CRM INUBIA</b>A empresa e o representante ficam registados e a equipa de parcerias recebe a tarefa de validar a adesão.</div>
+        <div><b>3. Primeira referência</b>Basta indicar a empresa, o decisor e o contexto. A INUBIA contacta em 24 horas úteis.</div>
+        <div><b>4. Comissão</b>500 € + IVA por cada referência que feche um projecto INUBIA de 5.000 € + IVA ou mais.</div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <span>INUBIA <span class="accent">•</span> Grupo Brasfone <span class="accent">•</span> Faro, Vila do Conde, Barcelona</span>
+    <span>inubia.pt</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const form = $('partnerForm'), msg = $('formMsg'), submitBtn = $('submitBtn'), previewBtn = $('previewBtn');
+  const BASE = (window.ROI_CONFIG && window.ROI_CONFIG.apiBase) || '';
+  const fields = ['type','company','tradeName','nif','address','website','postalCode','city','country','repName','repRole','email','phone','iban','billingEmail'];
+  const KEY = 'roi.partner';
+
+  try { fields.forEach((f) => { const v = localStorage.getItem(KEY + '.' + f); if (v !== null && v !== '') $(f).value = v; }); } catch (e) { /* ignore */ }
+  fields.forEach((f) => $(f).addEventListener('input', () => { try { localStorage.setItem(KEY + '.' + f, $(f).value); } catch (e) { /* ignore */ } }));
+
+  function payload() {
+    const o = { source: 'Social Media Hackathon 2026', acceptTerms: $('acceptTerms').checked, consent: $('consent').checked };
+    fields.forEach((f) => { o[f] = $(f).value.trim(); });
+    return o;
+  }
+  function valid() {
+    if (!form.checkValidity()) { msg.innerHTML = '<div class="alert warn">Preencha todos os campos obrigatórios e aceite as condições.</div>'; return false; }
+    return true;
+  }
+
+  previewBtn.addEventListener('click', async () => {
+    msg.innerHTML = '';
+    const p = payload(); p.acceptTerms = true; p.consent = true;
+    if (!form.checkValidity()) { msg.innerHTML = '<div class="alert warn">Preencha os campos obrigatórios para gerar a pré-visualização.</div>'; return; }
+    previewBtn.disabled = true;
+    try {
+      const res = await fetch(BASE + '/api/partners/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
+      if (!res.ok) { const out = await res.json().catch(() => ({})); throw new Error(out.error || ('HTTP ' + res.status)); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      msg.innerHTML = `<div class="alert err">Não foi possível gerar a pré-visualização (${esc(err.message)}).</div>`;
+    } finally { previewBtn.disabled = false; }
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    msg.innerHTML = '';
+    if (!valid()) return;
+    const p = payload();
+    submitBtn.disabled = true; const label = submitBtn.textContent; submitBtn.textContent = 'A gerar a minuta…';
+    try {
+      const res = await fetch(BASE + '/api/partners', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) throw new Error(out.error || ('HTTP ' + res.status));
+      if (out.dryRun) {
+        msg.innerHTML = `<div class="alert warn">Modo de demonstração: o servidor ainda não tem credenciais do Pipedrive e do email, por isso a adesão de <b>${esc(p.company)}</b> não foi registada nem a minuta enviada. Use "Pré-visualizar a minuta" para obter o PDF e registe os dados manualmente.</div>`;
+      } else {
+        msg.innerHTML = `<div class="alert ok">Adesão registada. A minuta do contrato ${out.emailSent ? 'foi enviada para' : 'está preparada para'} <b>${esc(p.email)}</b>${out.orgUrl ? ` (<a href="${esc(out.orgUrl)}" target="_blank" rel="noopener">abrir no Pipedrive</a>)` : ''}. Obrigado, ${esc(p.repName.split(' ')[0])}.</div>`;
+        try { fields.forEach((f) => localStorage.removeItem(KEY + '.' + f)); } catch (e2) { /* ignore */ }
+        form.reset();
+      }
+    } catch (err) {
+      msg.innerHTML = `<div class="alert err">Não foi possível concluir a adesão (${esc(err.message)}). Verifique a ligação do servidor ou registe os dados manualmente.</div>`;
+    } finally { submitBtn.disabled = false; submitBtn.textContent = label; }
+  });
+})();
+</script>
+</body>
+</html>
