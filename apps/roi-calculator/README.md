@@ -36,7 +36,7 @@ Agência (primeiro ano): ganho = (avenças revistas − avenças actuais) × 12 
 
 ## Configuração Pipedrive
 
-Usa a API v1 com token pessoal (`PIPEDRIVE_API_TOKEN`) e o domínio da conta (`PIPEDRIVE_COMPANY_DOMAIN`). Opcionalmente `PIPEDRIVE_PIPELINE_ID`, `PIPEDRIVE_STAGE_ID` e `PIPEDRIVE_OWNER_ID` para colocar os negócios de parceria no pipeline certo. A organização é procurada pelo nome exacto e a pessoa pelo email, para não duplicar quando a mesma agência preenche duas vezes. O negócio tem como valor a comissão de referral anual estimada e recebe uma nota fixada com o relatório.
+Usa a API v1 com token pessoal (`PIPEDRIVE_API_TOKEN`) e o domínio da conta (`PIPEDRIVE_COMPANY_DOMAIN`). Os negócios entram no pipeline INUBIA (id 11) na etapa "Diagnóstico Estratégico" (id 74), configurável por `PIPEDRIVE_PIPELINE_ID` e `PIPEDRIVE_STAGE_ID`; `PIPEDRIVE_OWNER_ID` define o responsável. A organização é procurada pelo nome exacto e a pessoa pelo email, para não duplicar quando a mesma agência preenche duas vezes. O negócio tem como valor a comissão de referral anual estimada e recebe uma nota fixada com o relatório.
 
 ## Email
 
@@ -44,4 +44,4 @@ SMTP via `nodemailer` (Google Workspace funciona com password de aplicação). `
 
 ## Deploy para o stand
 
-Qualquer host Node (Railway, Render, Vercel com serverless adaptado, VPS). Apontar o domínio, preencher `.env` e abrir `/` num portátil ou tablet. A página guarda os últimos valores introduzidos no browser, o que ajuda a retomar a conversa se o ecrã for actualizado.
+Pronto para Vercel: `public/` é servido como estático e `api/index.js` expõe o Express como função (rewrites em `vercel.json`). Projecto `inubia-roi-capi` na equipa INUBIA, root directory `apps/roi-calculator`. Sem `PIPEDRIVE_API_TOKEN` e `SMTP_HOST` o servidor corre em modo de demonstração e a página avisa que nada foi criado. Também corre em qualquer host Node (Railway, Render, VPS) com `npm start`. A página guarda os últimos valores introduzidos no browser, o que ajuda a retomar a conversa se o ecrã for actualizado.

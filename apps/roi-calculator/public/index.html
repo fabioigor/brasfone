@@ -532,7 +532,11 @@
       const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const out = await res.json().catch(() => ({}));
       if (!res.ok || !out.ok) throw new Error(out.error || ('HTTP ' + res.status));
-      msg.innerHTML = `<div class="alert ok">Relatório enviado para <b>${payload.email}</b>. Contacto e negócio criados no Pipedrive${out.dealUrl ? ` (<a href="${out.dealUrl}" target="_blank" rel="noopener">abrir negócio</a>)` : ''}. Obrigado, ${payload.contact.split(' ')[0]}.</div>`;
+      if (out.dryRun) {
+        msg.innerHTML = `<div class="alert warn">Modo de demonstração: o servidor ainda não tem credenciais do Pipedrive e do email configuradas, por isso nada foi criado nem enviado. Os dados de <b>${payload.agency}</b> devem ser registados manualmente.</div>`;
+      } else {
+        msg.innerHTML = `<div class="alert ok">Relatório ${out.emailSent ? 'enviado para' : 'preparado para'} <b>${payload.email}</b>. Contacto e negócio criados no Pipedrive${out.dealUrl ? ` (<a href="${out.dealUrl}" target="_blank" rel="noopener">abrir negócio</a>)` : ''}. Obrigado, ${payload.contact.split(' ')[0]}.</div>`;
+      }
       form.reset();
     } catch (err) {
       msg.innerHTML = `<div class="alert err">Não foi possível enviar agora (${err.message}). Verifique a ligação do servidor da calculadora ou anote os dados manualmente no Pipedrive.</div>`;
