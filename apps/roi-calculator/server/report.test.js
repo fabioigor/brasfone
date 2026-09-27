@@ -37,8 +37,8 @@ assert.equal(ag2.ltvGain, ag.ltvGain);
 
 // ---------- Company model (defaults of public/empresas/index.html) ----------
 const co = models.company({
-  adspend: 3000, cpl: 25, lostRate: 0.2, sqlRate: 0.2, closeRate: 0.25, ticket: 2500, users: 3, margin: 0.4,
-  cplRed: 0.25, recovery: 0.5, sqlUp: 0.3, closeUp: 0.1, setup: 4500, licence: 49, maintenance: 150,
+  adspend: 3000, cpl: 25, lostRate: 0.2, sqlRate: 0.2, closeRate: 0.25, ticket: 2500, users: 3, sellerCost: 2000, margin: 0.4,
+  cplRed: 0.25, recovery: 0.5, sqlUp: 0.3, closeUp: 0.1, setup: 5000, licence: 708,
 });
 near(co.leads, 120);
 near(co.followed, 96);
@@ -52,16 +52,24 @@ near(co.newFollowed, 144);
 near(co.newSqls, 37.44);
 near(co.newCustomers, 10.296);
 near(co.recovered, 16);
-near(co.monthlyCost, 297);
-near(co.investment, 4500 + 297 * 12);
+near(co.teamCostMonthly, 6000);
+near(co.teamCostAnnual, 72000);
+near(co.licenceAnnual, 2124);           // 3 × 708 €
+near(co.investment, 7124);              // licenças + implementação média
+near(co.recurringAnnual, 2124);
+near(co.toolShare, 7124 / 72000, 0.0001);
+near(co.fullCac, 9000 / 4.8);           // (ads + equipa) por cliente
+near(co.newFullCac, 9000 / 10.296);
+near(co.marginPerCustomer, 1000);
+near(co.breakEvenCustomers, 7.124);     // clientes adicionais por ano para pagar o investimento
 near(co.marginGain, (co.newSales - co.sales) * 12 * 0.4);
 assert.ok(co.roi > 1 && Number.isFinite(co.payback) && co.payback < 12, 'company scenario pays back within the year');
 assert.ok(co.adsSaving > 0 && co.equivalentSpend < co.spend, 'same customers with less ad spend');
 
 // Guard rails: rates are capped and zero inputs do not produce NaN or Infinity in the funnel.
-const edge = models.company({ adspend: 0, cpl: 0, lostRate: 2, sqlRate: 5, closeRate: 5, ticket: 0, users: 0, margin: 0, cplRed: 3, recovery: 3, sqlUp: 100, closeUp: 100, setup: 0, licence: 0, maintenance: 0 });
+const edge = models.company({ adspend: 0, cpl: 0, lostRate: 2, sqlRate: 5, closeRate: 5, ticket: 0, users: 0, sellerCost: 0, margin: 0, cplRed: 3, recovery: 3, sqlUp: 100, closeUp: 100, setup: 0, licence: 0 });
 assert.ok(edge.newSqlRate <= 0.95 && edge.newCloseRate <= 0.95 && edge.newLost <= 0.95);
-['leads', 'sqls', 'customers', 'sales', 'cps', 'cac', 'newCps', 'newCac'].forEach((k) => assert.ok(Number.isFinite(edge[k]), k + ' is finite'));
+['leads', 'sqls', 'customers', 'sales', 'cps', 'cac', 'newCps', 'newCac', 'fullCac', 'newFullCac', 'teamCostAnnual', 'investment'].forEach((k) => assert.ok(Number.isFinite(edge[k]), k + ' is finite'));
 
 // ---------- Report rendering ----------
 const report = {

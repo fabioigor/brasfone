@@ -94,25 +94,39 @@
 
   /**
    * Company model (the company runs its own campaigns and sales).
-   * i: adspend, cpl, lostRate, sqlRate, closeRate, ticket, users, margin,
-   *    cplRed, recovery, sqlUp, closeUp, setup, licence, maintenance.
+   * i: adspend, cpl, lostRate, sqlRate, closeRate, ticket, users, sellerCost (monthly cost per salesperson), margin,
+   *    cplRed, recovery, sqlUp, closeUp, setup (implementation), licence (annual Pipedrive licence per user).
+   * The investment is licences + implementation; it is put against the cost of the sales team and the extra margin.
    */
   function company(i) {
     const f = funnel(i);
     const users = Math.max(1, i.users || 1);
     const margin = clamp(i.margin, 0.01, 1);
-    const monthlyCost = users * Math.max(0, i.licence || 0) + Math.max(0, i.maintenance || 0);
-    const investment = Math.max(0, i.setup || 0) + monthlyCost * 12;
+    const sellerCost = Math.max(0, i.sellerCost || 0);
+    const teamCostMonthly = users * sellerCost;
+    const teamCostAnnual = teamCostMonthly * 12;
+    const licenceAnnual = users * Math.max(0, i.licence || 0);
+    const setup = Math.max(0, i.setup || 0);
+    const investment = setup + licenceAnnual;          // first year
+    const recurringAnnual = licenceAnnual;             // following years
+    const toolShare = teamCostAnnual > 0 ? investment / teamCostAnnual : Infinity;
+    const fullCac = f.customers > 0 ? (f.spend + teamCostMonthly) / f.customers : 0;
+    const newFullCac = f.newCustomers > 0 ? (f.spend + teamCostMonthly) / f.newCustomers : 0;
     const salesGainMonthly = f.newSales - f.sales;
     const revenueGain = salesGainMonthly * 12;
     const marginGain = revenueGain * margin;
     const net = marginGain - investment;
     const roi = investment > 0 ? net / investment : Infinity;
     const payback = salesGainMonthly * margin > 0 ? investment / (salesGainMonthly * margin) : Infinity;
+    const marginPerCustomer = f.ticket * margin;
+    const breakEvenCustomers = marginPerCustomer > 0 ? investment / marginPerCustomer : Infinity; // extra customers per year to pay the investment
+    const breakEvenMonthly = breakEvenCustomers / 12;
     const equivalentSpend = f.customers * f.newCac;
     const adsSaving = f.spend - equivalentSpend;
     return Object.assign({}, f, {
-      users, margin, monthlyCost, investment, salesGainMonthly, revenueGain, marginGain, net, roi, payback, equivalentSpend, adsSaving,
+      users, margin, sellerCost, teamCostMonthly, teamCostAnnual, licenceAnnual, setup, investment, recurringAnnual, toolShare,
+      fullCac, newFullCac, salesGainMonthly, revenueGain, marginGain, net, roi, payback, marginPerCustomer, breakEvenCustomers, breakEvenMonthly,
+      equivalentSpend, adsSaving,
     });
   }
 

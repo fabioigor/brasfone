@@ -82,13 +82,15 @@
         <div class="field"><label for="sqlrate">Leads contactadas que se tornam SQL</label><div class="input"><input id="sqlrate" type="number" min="1" max="100" step="1" value="20" inputmode="numeric"><span class="unit">%</span></div></div>
         <div class="field"><label for="closerate">SQL que se tornam clientes</label><div class="input"><input id="closerate" type="number" min="1" max="100" step="1" value="25" inputmode="numeric"><span class="unit">%</span></div></div>
         <div class="field"><label for="ticket">Ticket médio por cliente</label><div class="input"><input id="ticket" type="number" min="0" step="100" value="2500" inputmode="decimal"><span class="unit">€</span></div><small>Valor médio de cada negócio fechado.</small></div>
-        <div class="field"><label for="users">Pessoas na equipa comercial</label><div class="input"><input id="users" type="number" min="1" step="1" value="3" inputmode="numeric"><span class="unit">utilizadores</span></div><small>Define as licenças Pipedrive.</small></div>
+        <div class="field"><label for="users">Comerciais (utilizadores Pipedrive)</label><div class="input"><input id="users" type="number" min="1" step="1" value="3" inputmode="numeric"><span class="unit">pessoas</span></div><small>Define as licenças Pipedrive.</small></div>
+        <div class="field"><label for="sellerCost">Custo mensal por comercial</label><div class="input"><input id="sellerCost" type="number" min="0" step="100" value="2000" inputmode="decimal"><span class="unit">€ / mês</span></div><small>Salário e encargos. Relaciona o custo da equipa com o do Pipedrive.</small></div>
         <div class="field"><label for="margin">Margem sobre as vendas</label><div class="input"><input id="margin" type="number" min="1" max="100" step="5" value="40" inputmode="numeric"><span class="unit">%</span></div><small>O ROI é calculado sobre a margem, não sobre a receita.</small></div>
       </div>
       <div class="derived">
         <span>SQL por mês: <b class="mono" id="d-sqls">—</b></span>
         <span>Novos clientes por mês: <b class="mono" id="d-cust">—</b></span>
-        <span>CAC actual: <b class="mono" id="d-cac">—</b></span>
+        <span>Custo da equipa comercial: <b class="mono" id="d-team">—</b> / mês</span>
+        <span>Custo total por cliente (ads + equipa): <b class="mono" id="d-fullcac">—</b></span>
       </div>
     </div>
 
@@ -99,9 +101,8 @@
         <div class="field"><label for="recovery">Leads sem seguimento recuperadas pelo Pipedrive</label><div class="input"><input id="recovery" type="number" min="0" max="100" step="5" value="50"><span class="unit">%</span></div><small>Distribuição e actividades automáticas.</small></div>
         <div class="field"><label for="sqlUp">Subida da taxa de SQL</label><div class="input"><input id="sqlUp" type="number" min="0" max="200" step="5" value="30"><span class="unit">% relativo</span></div></div>
         <div class="field"><label for="closeUp">Subida da taxa de fecho</label><div class="input"><input id="closeUp" type="number" min="0" max="100" step="5" value="10"><span class="unit">% relativo</span></div><small>Leads mais qualificadas e seguimento a tempo.</small></div>
-        <div class="field"><label for="setup">Implementação INUBIA (uma vez)</label><div class="input"><input id="setup" type="number" min="0" step="100" value="4500"><span class="unit">€</span></div><small>Pipedrive, integração CAPI, automação e formação.</small></div>
-        <div class="field"><label for="licence">Licença Pipedrive por utilizador</label><div class="input"><input id="licence" type="number" min="0" step="1" value="49"><span class="unit">€ / mês</span></div></div>
-        <div class="field"><label for="maintenance">Manutenção e acompanhamento INUBIA</label><div class="input"><input id="maintenance" type="number" min="0" step="10" value="150"><span class="unit">€ / mês</span></div></div>
+        <div class="field"><label for="setup">Implementação INUBIA (média, uma vez)</label><div class="input"><input id="setup" type="number" min="0" step="100" value="5000"><span class="unit">€</span></div><small>Pipedrive, integração CAPI, automação e formação.</small></div>
+        <div class="field"><label for="licence">Licenciamento Pipedrive por utilizador</label><div class="input"><input id="licence" type="number" min="0" step="1" value="708"><span class="unit">€ / ano</span></div><small>708 € por ano, cerca de 59 € por mês.</small></div>
       </div>
     </details>
 
@@ -118,9 +119,9 @@
       <div class="kpi"><div class="lbl">Payback</div><div class="val mono" id="k-payback">—</div><div class="delta">meses até recuperar o investimento</div></div>
       <div class="kpi"><div class="lbl">Novos clientes / mês</div><div class="val good mono" id="k-cust">—</div><div class="delta" id="k-cust-d">—</div></div>
       <div class="kpi"><div class="lbl">Vendas / mês</div><div class="val good mono" id="k-sales">—</div><div class="delta" id="k-sales-d">—</div></div>
-      <div class="kpi"><div class="lbl">Custo de aquisição (CAC)</div><div class="val good mono" id="k-cac">—</div><div class="delta" id="k-cac-d">—</div></div>
-      <div class="kpi"><div class="lbl">Custo por SQL</div><div class="val good mono" id="k-cps">—</div><div class="delta" id="k-cps-d">—</div></div>
-      <div class="kpi"><div class="lbl">Leads recuperadas / mês</div><div class="val good mono" id="k-rec">—</div><div class="delta" id="k-rec-d">—</div></div>
+      <div class="kpi"><div class="lbl">Custo total por cliente (ads + equipa)</div><div class="val good mono" id="k-fullcac">—</div><div class="delta" id="k-fullcac-d">—</div></div>
+      <div class="kpi"><div class="lbl">Pipedrive face à equipa comercial</div><div class="val mono" id="k-share">—</div><div class="delta" id="k-share-d">—</div></div>
+      <div class="kpi"><div class="lbl">Clientes a mais para pagar o investimento</div><div class="val mono" id="k-be">—</div><div class="delta" id="k-be-d">—</div></div>
     </div>
 
     <div class="card" style="margin-top:18px">
@@ -128,6 +129,17 @@
       <p class="sub">Leads, leads com seguimento, SQL e novos clientes. Hoje versus com Pipedrive + CAPI.</p>
       <div class="chart" id="chart"></div>
       <div class="legend"><span><i style="background:var(--blue-soft)"></i>Hoje</span><span><i style="background:var(--green)"></i>Com Pipedrive + CAPI</span></div>
+    </div>
+
+    <div class="card">
+      <h2>O Pipedrive ao lado do custo da equipa comercial</h2>
+      <p class="sub">Licenciamento e implementação comparados com o que a empresa já paga em vendedores. O investimento paga-se com poucos clientes adicionais.</p>
+      <div class="refrow">
+        <div><span class="lbl">Equipa comercial / ano</span><b class="mono" id="t-team">—</b></div>
+        <div><span class="lbl">Pipedrive 1.º ano (licenças + implementação)</span><b class="mono" id="t-inv">—</b></div>
+        <div><span class="lbl">Peso no custo da equipa</span><b class="mono good" id="t-share">—</b></div>
+        <div><span class="lbl">Clientes a mais por ano para pagar</span><b class="mono good" id="t-be">—</b></div>
+      </div>
     </div>
 
     <div class="card">
@@ -199,14 +211,14 @@
 (function () {
   const { fmtEUR, fmtN, fmtPct, $, num, pct } = ROI;
   const KEY = 'roi.company';
-  const inputIds = ['adspend','cpl','lostRate','sqlrate','closerate','ticket','users','margin','cplRed','recovery','sqlUp','closeUp','setup','licence','maintenance'];
+  const inputIds = ['adspend','cpl','lostRate','sqlrate','closerate','ticket','users','sellerCost','margin','cplRed','recovery','sqlUp','closeUp','setup','licence'];
 
   function readInputs() {
     return {
       adspend: num('adspend'), cpl: num('cpl'), lostRate: pct('lostRate'), sqlRate: pct('sqlrate'), closeRate: pct('closerate'),
-      ticket: num('ticket'), users: num('users'), margin: pct('margin'),
+      ticket: num('ticket'), users: num('users'), sellerCost: num('sellerCost'), margin: pct('margin'),
       cplRed: pct('cplRed'), recovery: pct('recovery'), sqlUp: pct('sqlUp'), closeUp: pct('closeUp'),
-      setup: num('setup'), licence: num('licence'), maintenance: num('maintenance'),
+      setup: num('setup'), licence: num('licence'),
     };
   }
 
@@ -226,13 +238,20 @@
       ['Novos clientes', fmtN(r.customers, 1), fmtN(r.newCustomers, 1), '+' + fmtN(r.newCustomers - r.customers, 1)],
       ['Custo de aquisição por cliente', fmtEUR(r.cac), fmtEUR(r.newCac), drop(r.cac, r.newCac)],
       ['Vendas (ticket ' + fmtEUR(r.ticket) + ')', fmtEUR(r.sales), fmtEUR(r.newSales), '+' + fmtEUR(r.salesGainMonthly)],
-      ['Primeiro ano'],
+      ['Equipa comercial'],
+      ['Comerciais', '', fmtN(r.users), fmtEUR(r.sellerCost) + ' por mês cada'],
+      ['Custo da equipa comercial', fmtEUR(r.teamCostMonthly) + ' / mês', fmtEUR(r.teamCostAnnual) + ' / ano', ''],
+      ['Custo total por cliente (ads + equipa)', fmtEUR(r.fullCac), fmtEUR(r.newFullCac), drop(r.fullCac, r.newFullCac)],
+      ['Investimento e retorno (primeiro ano)'],
+      ['Licenciamento Pipedrive', '', fmtEUR(r.licenceAnnual), fmtN(r.users) + ' × ' + fmtEUR(i.licence) + ' por ano'],
+      ['Implementação INUBIA', '', fmtEUR(r.setup), 'média, uma vez'],
+      ['Investimento no primeiro ano', '', fmtEUR(r.investment), fmtEUR(r.recurringAnnual) + ' por ano a partir do segundo'],
+      ['Peso no custo da equipa comercial', '', Number.isFinite(r.toolShare) ? fmtPct(r.toolShare, 1) : '—', ''],
+      ['Clientes adicionais para pagar o investimento', '', fmtN(r.breakEvenCustomers, 1) + ' por ano', fmtN(r.breakEvenMonthly, 2) + ' por mês, a ' + fmtEUR(r.marginPerCustomer) + ' de margem cada'],
       ['Vendas adicionais', '', fmtEUR(r.revenueGain), '12 × ' + fmtEUR(r.salesGainMonthly)],
       ['Margem adicional (' + fmtPct(r.margin) + ')', '', fmtEUR(r.marginGain), ''],
-      ['Implementação INUBIA', '', fmtEUR(i.setup), 'uma vez'],
-      ['Licenças Pipedrive + acompanhamento', '', fmtEUR(r.monthlyCost * 12), fmtN(r.users) + ' × ' + fmtEUR(i.licence) + ' + ' + fmtEUR(i.maintenance) + ' por mês'],
-      ['Investimento total', '', fmtEUR(r.investment), ''],
       ['Ganho líquido', '', fmtEUR(r.net), Number.isFinite(r.roi) ? 'ROI ' + fmtPct(r.roi) : ''],
+      ['Payback', '', Number.isFinite(r.payback) ? fmtN(r.payback, 1) + ' meses' : '—', ''],
       ['Poupança equivalente em ads', '', fmtEUR(Math.max(0, r.adsSaving) * 12), 'mantendo os clientes de hoje'],
     ];
   }
@@ -245,7 +264,8 @@
     $('d-leads-y').textContent = fmtN(r.leads * 12);
     $('d-sqls').textContent = fmtN(r.sqls, 1);
     $('d-cust').textContent = fmtN(r.customers, 1);
-    $('d-cac').textContent = fmtEUR(r.cac);
+    $('d-team').textContent = fmtEUR(r.teamCostMonthly);
+    $('d-fullcac').textContent = fmtEUR(r.fullCac);
 
     $('k-roi').textContent = Number.isFinite(r.roi) ? fmtPct(r.roi) : '—';
     $('k-roi-d').textContent = `${fmtEUR(r.net)} de ganho líquido em margem sobre ${fmtEUR(r.investment)} investidos`;
@@ -254,12 +274,16 @@
     $('k-cust-d').textContent = `antes ${fmtN(r.customers, 1)}, mais ${fmtN(r.newCustomers - r.customers, 1)} por mês`;
     $('k-sales').textContent = fmtEUR(r.newSales);
     $('k-sales-d').textContent = `antes ${fmtEUR(r.sales)}, mais ${fmtEUR(r.salesGainMonthly)} por mês`;
-    $('k-cac').textContent = fmtEUR(r.newCac);
-    $('k-cac-d').textContent = `antes ${fmtEUR(r.cac)}, menos ${fmtPct(r.cac > 0 ? 1 - r.newCac / r.cac : 0)}`;
-    $('k-cps').textContent = fmtEUR(r.newCps);
-    $('k-cps-d').textContent = `antes ${fmtEUR(r.cps)}, menos ${fmtPct(r.cps > 0 ? 1 - r.newCps / r.cps : 0)}`;
-    $('k-rec').textContent = '+' + fmtN(r.recovered, 1);
-    $('k-rec-d').textContent = `sem seguimento de ${fmtPct(r.lost)} para ${fmtPct(r.newLost)}`;
+    $('k-fullcac').textContent = fmtEUR(r.newFullCac);
+    $('k-fullcac-d').textContent = `antes ${fmtEUR(r.fullCac)}, menos ${fmtPct(r.fullCac > 0 ? 1 - r.newFullCac / r.fullCac : 0)}; só ads: ${fmtEUR(r.cac)} para ${fmtEUR(r.newCac)}`;
+    $('k-share').textContent = Number.isFinite(r.toolShare) ? fmtPct(r.toolShare, 1) : '—';
+    $('k-share-d').textContent = `${fmtEUR(r.investment)} no primeiro ano contra ${fmtEUR(r.teamCostAnnual)} de equipa comercial`;
+    $('k-be').textContent = fmtN(r.breakEvenCustomers, 1);
+    $('k-be-d').textContent = `por ano (${fmtN(r.breakEvenMonthly, 2)} por mês) a ${fmtEUR(r.marginPerCustomer)} de margem cada; o modelo prevê +${fmtN((r.newCustomers - r.customers) * 12, 1)}`;
+    $('t-team').textContent = fmtEUR(r.teamCostAnnual);
+    $('t-inv').textContent = fmtEUR(r.investment);
+    $('t-share').textContent = Number.isFinite(r.toolShare) ? fmtPct(r.toolShare, 1) : '—';
+    $('t-be').textContent = fmtN(r.breakEvenCustomers, 1);
 
     $('s-spend').textContent = fmtEUR(r.spend);
     $('s-equiv').textContent = fmtEUR(r.equivalentSpend);
@@ -295,13 +319,13 @@
             { label: 'Payback', value: Number.isFinite(r.payback) ? fmtN(r.payback, 1) + ' meses' : '—', note: `investimento ${fmtEUR(r.investment)}` },
             { label: 'Novos clientes / mês', value: fmtN(r.newCustomers, 1), note: `antes ${fmtN(r.customers, 1)}` },
             { label: 'Vendas / mês', value: fmtEUR(r.newSales), note: `antes ${fmtEUR(r.sales)}` },
-            { label: 'CAC', value: fmtEUR(r.newCac), note: `antes ${fmtEUR(r.cac)}` },
-            { label: 'Custo por SQL', value: fmtEUR(r.newCps), note: `antes ${fmtEUR(r.cps)}` },
+            { label: 'Custo total por cliente (ads + equipa)', value: fmtEUR(r.newFullCac), note: `antes ${fmtEUR(r.fullCac)}` },
+            { label: 'Pipedrive face à equipa comercial', value: Number.isFinite(r.toolShare) ? fmtPct(r.toolShare, 1) : '—', note: `${fmtEUR(r.investment)} contra ${fmtEUR(r.teamCostAnnual)} por ano` },
           ],
           sections: [
             { title: 'Funil e retorno', headers: ['Indicador', 'Hoje', 'Com Pipedrive + CAPI', 'Variação'], rows: rows(i, r) },
           ],
-          assumptions: `Pressupostos: CPL menos ${fmtPct(i.cplRed)}, ${fmtPct(i.recovery)} das leads sem seguimento recuperadas, taxa de SQL mais ${fmtPct(i.sqlUp)} e taxa de fecho mais ${fmtPct(i.closeUp)} (relativos), margem de ${fmtPct(i.margin)} sobre as vendas, implementação ${fmtEUR(i.setup)}, ${fmtN(i.users)} licenças Pipedrive a ${fmtEUR(i.licence)} por mês e acompanhamento INUBIA de ${fmtEUR(i.maintenance)} por mês.`,
+          assumptions: `Pressupostos: CPL menos ${fmtPct(i.cplRed)}, ${fmtPct(i.recovery)} das leads sem seguimento recuperadas, taxa de SQL mais ${fmtPct(i.sqlUp)} e taxa de fecho mais ${fmtPct(i.closeUp)} (relativos), margem de ${fmtPct(i.margin)} sobre as vendas, ${fmtN(i.users)} comerciais a ${fmtEUR(i.sellerCost)} por mês, licenciamento Pipedrive de ${fmtEUR(i.licence)} por utilizador e ano e implementação INUBIA média de ${fmtEUR(i.setup)}.`,
         },
       };
     },
