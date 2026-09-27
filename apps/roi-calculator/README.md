@@ -7,13 +7,19 @@ Aplicação de stand para o Social Media Hackathon 2026 (Forum Braga, 1 e 2 de O
 
 Ambas terminam num formulário (nome, contacto, telefone, email) que cria Organização, Pessoa, Negócio e Nota no Pipedrive e envia o relatório por email: com o plano de parceiros para agências, com os próximos passos para empresas.
 
+- **Adesão de parceiros** (`/parceiros/`): formulário com os dados da empresa, do representante e o IBAN. Ao submeter, o servidor regista a organização, a pessoa, uma nota e uma tarefa de validação no Pipedrive e envia por email a minuta do contrato de parceria em PDF, gerada com os dados da adesão (`server/contract.js`, pdfkit). O botão "Pré-visualizar a minuta" devolve o mesmo PDF sem registar nada.
+- **Documentos** (`docs/`): programa de parceiros versão 2026-09 em DOCX (editável) e PDF; o PDF é servido em `/docs/programa-parceiros-inubia.pdf` e ligado nos emails.
+
 ## Estrutura
 
 - `public/index.html`: página de entrada.
 - `public/agencias/index.html` e `public/empresas/index.html`: as duas calculadoras, independentes.
 - `public/assets/roi-models.js`: os dois modelos de cálculo (partilhados com os testes).
 - `public/assets/roi.js` e `roi.css`: helpers (passos, gráfico, tabela, formulário) e estilo INUBIA.
-- `server/`: Express com `POST /api/roi-leads`; o relatório é enviado pela página já formatado (KPIs, tabelas, pressupostos) e o servidor só o compõe e escapa.
+- `public/parceiros/index.html`: formulário de adesão ao programa de parceiros.
+- `server/`: Express com `POST /api/roi-leads` (relatórios de ROI), `POST /api/partners` (adesão + minuta por email), `POST /api/partners/preview` (minuta em PDF sem efeitos) e `GET /api/partners/program` (condições). O relatório de ROI é enviado pela página já formatado e o servidor só o compõe e escapa.
+- `server/partner-program.js`: condições canónicas do programa (500 € por referência fechada, projecto mínimo de 5.000 €, 24 horas úteis, vigência, etc.) e identificação legal da INUBIA a partir do ambiente (`PARTNER_COMPANY_LEGAL`, `PARTNER_COMPANY_NIF`, `PARTNER_COMPANY_ADDRESS`).
+- `server/contract.js`: cláusulas da minuta e geração do PDF; `server/partner-email.js`: email de boas-vindas e nota do CRM.
 
 ## Correr localmente
 
