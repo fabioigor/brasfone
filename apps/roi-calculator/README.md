@@ -1,13 +1,19 @@
-# Calculadora ROI Pipedrive + Meta CAPI (INUBIA)
+# Calculadoras ROI Pipedrive + Meta CAPI (INUBIA)
 
-Aplicação de stand para o Social Media Hackathon 2026 (Forum Braga, 1 e 2 de Outubro). Mostra a agências de marketing o retorno de integrar o Pipedrive com a Meta Conversions API (CAPI): CPL mais baixo, mais SQL ao mesmo investimento, clientes retidos mais tempo, avença justificada e comissão de referral pela parceria INUBIA.
+Aplicação de stand para o Social Media Hackathon 2026 (Forum Braga, 1 e 2 de Outubro). Duas calculadoras independentes, com uma página de entrada para escolher o perfil de quem está à frente:
 
-## Fluxo
+- **Agências de marketing** (`/agencias/`): ROI da parceria INUBIA como parceiro gerador de leads. Fase 1 pede apenas dados da agência (clientes activos, avença média, retenção, % com Meta Ads). Fase 2 é um cliente tipo ilustrativo, pré-preenchido com benchmarks, que não entra no ROI da agência: cada cliente tem o seu CPL e as suas taxas e a agência não tem essas médias no evento. Resultados: receita adicional anual (avenças revistas nos clientes ligados + comissões), LTV e meses adicionais de retenção, valor acrescentado à carteira, retorno por hora comercial, simulador de referrals (500 € por cliente apresentado que feche projecto INUBIA acima de 5.000 €) e o funil do cliente tipo para mostrar o argumento.
+- **Empresas** (`/empresas/`): ROI de ter o Pipedrive integrado com a CAPI a acompanhar leads, pipeline e conversão. Fase 1 marketing (investimento em Meta Ads, CPL), fase 2 vendas (leads sem seguimento, taxa de SQL, taxa de fecho, ticket médio, equipa comercial, margem). Resultados: ROI e payback sobre implementação e licenças, novos clientes, vendas, CAC, custo por SQL, leads recuperadas, poupança equivalente em ads.
 
-1. **Enquadramento**: o que é a integração e porque interessa à agência, ao cliente e à parceria.
-2. **A vossa agência**: avença mensal, clientes activos, retenção em meses, investimento em ads, CPL, taxa de SQL, taxa de fecho, ticket médio do cliente final e percentagem de clientes activos que apresentariam à INUBIA. Pressupostos editáveis (redução de CPL 25%, subida de SQL 30%, subida de fecho 10%, retenção +50%, avença +15%, custos da integração, taxa de fecho dos referrals e comissão).
-3. **Resultados**: ROI ao primeiro ano, payback, custo por SQL, LTV, vendas geradas ao cliente, CAC, comissões de referral com simulador da carteira (slider), gráfico do funil e tabela de cálculo.
-4. **Receber relatório**: nome da agência, contacto, telefone e email. O servidor cria Organização, Pessoa, Negócio e Nota no Pipedrive e envia o relatório por email com o plano de parceiros.
+Ambas terminam num formulário (nome, contacto, telefone, email) que cria Organização, Pessoa, Negócio e Nota no Pipedrive e envia o relatório por email: com o plano de parceiros para agências, com os próximos passos para empresas.
+
+## Estrutura
+
+- `public/index.html`: página de entrada.
+- `public/agencias/index.html` e `public/empresas/index.html`: as duas calculadoras, independentes.
+- `public/assets/roi-models.js`: os dois modelos de cálculo (partilhados com os testes).
+- `public/assets/roi.js` e `roi.css`: helpers (passos, gráfico, tabela, formulário) e estilo INUBIA.
+- `server/`: Express com `POST /api/roi-leads`; o relatório é enviado pela página já formatado (KPIs, tabelas, pressupostos) e o servidor só o compõe e escapa.
 
 ## Correr localmente
 
@@ -22,25 +28,21 @@ Sem credenciais (demonstração offline): `npm run dev` arranca em `DRY_RUN=1`, 
 
 Testes do relatório e do modelo: `npm test`.
 
-## Modelo de cálculo
+## Modelos de cálculo
 
-Por cliente e por mês: leads = investimento / CPL; SQL = leads × taxa SQL; custo por SQL = investimento / SQL. Com CAPI: CPL × (1 − redução), taxa SQL × (1 + subida), tecto de 95%.
+**Funil (comum, por mês):** leads = investimento / CPL; com seguimento = leads × (1 − % sem seguimento); SQL = com seguimento × taxa SQL; clientes = SQL × taxa de fecho; vendas = clientes × ticket; custo por SQL = investimento / SQL; CAC = investimento / clientes. Com Pipedrive + CAPI: CPL × (1 − redução), % sem seguimento × (1 − recuperação), taxa SQL × (1 + subida), taxa de fecho × (1 + subida), tectos de 95%.
 
-Relação com o cliente: LTV = avença × retenção; com CAPI: avença × (1 + aumento) × retenção × (1 + aumento de retenção).
+**Agência:** elegíveis = clientes × % com Meta Ads; apresentados = elegíveis × % apresentados; ligados = apresentados × % que fecham projecto acima de 5.000 €. Só os ligados recebem avença × (1 + aumento) e retenção × (1 + aumento). Receita adicional anual = ligados × aumento de avença × 12 + ligados × 500 €. LTV acrescentado = (LTV novo − LTV actual) × ligados. Tempo investido = apresentados × horas × custo hora; retorno por hora = receita adicional / horas. O cliente tipo usa o funil comum sem seguimento e é apenas ilustrativo.
 
-Cliente final: novos clientes = SQL × taxa de fecho (com CAPI, taxa × (1 + subida)); CAC = investimento / novos clientes; vendas = novos clientes × ticket médio.
-
-Referral: clientes apresentados = clientes activos × %; fechos = apresentados × taxa de fecho dos referrals; comissão = fechos × 500 € (por projecto INUBIA acima de 5.000 €).
-
-Agência (primeiro ano): ganho = (avenças revistas − avenças actuais) × 12 × clientes + comissões de referral. Investimento = implementação + manutenção × 12 × clientes. ROI = (ganho − investimento) / investimento. Payback = investimento / (ganho / 12).
+**Empresa:** funil comum com os dados da empresa. Investimento = implementação + (licenças × utilizadores + acompanhamento) × 12. Ganho = vendas adicionais × 12 × margem. ROI = (ganho − investimento) / investimento; payback = investimento / (ganho mensal). Poupança equivalente = investimento actual − clientes actuais × CAC novo.
 
 ## Configuração Pipedrive
 
-Usa a API v1 com token pessoal (`PIPEDRIVE_API_TOKEN`) e o domínio da conta (`PIPEDRIVE_COMPANY_DOMAIN`). Os negócios entram no pipeline INUBIA (id 11) na etapa "Diagnóstico Estratégico" (id 74), configurável por `PIPEDRIVE_PIPELINE_ID` e `PIPEDRIVE_STAGE_ID`; `PIPEDRIVE_OWNER_ID` define o responsável. A organização é procurada pelo nome exacto e a pessoa pelo email, para não duplicar quando a mesma agência preenche duas vezes. O negócio tem como valor a comissão de referral anual estimada e recebe uma nota fixada com o relatório.
+Usa a API v1 com token pessoal (`PIPEDRIVE_API_TOKEN`) e o domínio da conta (`PIPEDRIVE_COMPANY_DOMAIN`). Os negócios entram no pipeline INUBIA (id 11) na etapa "Diagnóstico Estratégico" (id 74), configurável por `PIPEDRIVE_PIPELINE_ID` e `PIPEDRIVE_STAGE_ID`; `PIPEDRIVE_OWNER_ID` define o responsável. A organização é procurada pelo nome exacto e a pessoa pelo email, para não duplicar quando a mesma agência preenche duas vezes. Agências: negócio "Parceria INUBIA · nome" com valor igual à comissão de referral anual estimada. Empresas: negócio "Pipedrive + CAPI · nome" com valor igual ao investimento do primeiro ano. Ambos recebem uma nota fixada com o relatório.
 
 ## Email
 
-SMTP via `nodemailer` (Google Workspace funciona com password de aplicação). `MAIL_CC` recebe cópia de cada envio. `PARTNER_PLAN_URL` acrescenta um botão para o plano de parceiros completo.
+SMTP via `nodemailer` (Google Workspace funciona com password de aplicação). `MAIL_CC` recebe cópia de cada envio. `PARTNER_PLAN_URL` acrescenta um botão para o plano de parceiros completo no email das agências.
 
 ## Deploy para o stand
 

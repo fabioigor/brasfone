@@ -1,50 +1,99 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { buildReportHtml, buildNoteHtml } = require('./report');
+const models = require('../public/assets/roi-models');
+const { buildReportHtml, buildNoteHtml, sanitizeReport } = require('./report');
 
-// Same model as public/index.html compute(), used here to keep the report in sync with the page.
-function compute(i) {
-  const leads = i.adspend / i.cpl, sqls = leads * i.sqlRate, cps = i.adspend / sqls;
-  const newCpl = i.cpl * (1 - i.cplRed), newLeads = i.adspend / newCpl;
-  const newSqlRate = Math.min(0.95, i.sqlRate * (1 + i.sqlUp)), newSqls = newLeads * newSqlRate, newCps = i.adspend / newSqls;
-  const customers = sqls * i.closeRate, newCloseRate = Math.min(0.95, i.closeRate * (1 + i.closeUp)), newCustomers = newSqls * newCloseRate;
-  const cac = i.adspend / customers, newCac = i.adspend / newCustomers, sales = customers * i.ticket, newSales = newCustomers * i.ticket;
-  const referred = i.clients * i.refShare, refClosed = referred * i.refClose;
-  const newFee = i.fee * (1 + i.feeUp), newRetention = i.retention * (1 + i.retUp);
-  const ltv = i.fee * i.retention, newLtv = newFee * newRetention;
-  const annualRev = i.fee * 12 * i.clients, newAnnualRev = newFee * 12 * i.clients;
-  const referral = refClosed * i.refFee;
-  const gain = newAnnualRev - annualRev + referral, investment = i.setup + i.monthly * 12 * i.clients;
-  const net = gain - investment, roi = net / investment, payback = investment / (gain / 12);
-  return { leads, sqls, cps, newCpl, newLeads, newSqlRate, newSqls, newCps, customers, newCloseRate, newCustomers, cac, newCac, sales, newSales, referred, refClosed, newFee, newRetention, ltv, newLtv, annualRev, newAnnualRev, referral, gain, investment, net, roi, payback, portfolio: ltv * i.clients, newPortfolio: newLtv * i.clients };
-}
+const near = (a, b, tol = 0.01) => assert.ok(Math.abs(a - b) <= tol, `${a} ≈ ${b}`);
 
-const inputs = { fee: 1500, clients: 12, retention: 9, adspend: 3000, cpl: 25, sqlRate: 0.2, cplRed: 0.25, sqlUp: 0.3, retUp: 0.5, feeUp: 0.15, setup: 2400, monthly: 99, closeRate: 0.25, ticket: 2500, closeUp: 0.1, refShare: 0.5, refClose: 0.6, refFee: 500 };
-const r = compute(inputs);
+// ---------- Agency model (defaults of public/agencias/index.html) ----------
+const ag = models.agency({
+  clients: 12, fee: 1500, retention: 9, adsShare: 0.8,
+  refShare: 0.5, refClose: 0.6, refFee: 500, retUp: 0.5, feeUp: 0.15, hoursPerClient: 3, hourCost: 45,
+  c_adspend: 2000, c_cpl: 25, c_sqlRate: 0.2, c_closeRate: 0.25, c_ticket: 2500, cplRed: 0.25, sqlUp: 0.3, closeUp: 0.1,
+});
+near(ag.eligible, 9.6);
+near(ag.presented, 4.8);
+near(ag.linked, 2.88);
+near(ag.referral, 1440);           // 2,88 × 500 €
+near(ag.feeGain, 2.88 * 225 * 12); // avença +15% nos clientes ligados
+near(ag.gain, ag.feeGain + ag.referral);
+assert.equal(ag.ltv, 13500);
+near(ag.newLtv, 23287.5);
+near(ag.extraMonths, 4.5);
+near(ag.hours, 14.4);
+near(ag.timeCost, 648);
+assert.ok(ag.roi > 1 && ag.perHour > 100, 'agency partnership pays for the time invested');
+// Illustrative client funnel does not depend on agency data.
+near(ag.client.leads, 80);
+near(ag.client.newLeads, 106.67);
+near(ag.client.cps, 125);
+near(ag.client.customers, 4);
 
-// Reference values for the default scenario.
-assert.equal(Math.round(r.leads), 120);
-assert.equal(Math.round(r.newLeads), 160);
-assert.equal(Math.round(r.cps), 125);
-assert.equal(Math.round(r.newCps * 100) / 100, 72.12);
-assert.equal(r.ltv, 13500);
-assert.equal(Math.round(r.newLtv * 100) / 100, 23287.5);
-assert.equal(Math.round(r.referral), 1800); // 12 × 50% × 60% × 500 €
-assert.equal(r.customers, 6);
-assert.equal(Math.round(r.cac), 500);
-assert.equal(r.sales, 15000);
-assert.equal(r.investment, 2400 + 99 * 12 * 12);
-assert.ok(r.roi > 1, 'default scenario should show positive ROI');
+// Agency ROI must not change when the client-type benchmarks change.
+const ag2 = models.agency({ clients: 12, fee: 1500, retention: 9, adsShare: 0.8, refShare: 0.5, refClose: 0.6, refFee: 500, retUp: 0.5, feeUp: 0.15, hoursPerClient: 3, hourCost: 45,
+  c_adspend: 9000, c_cpl: 60, c_sqlRate: 0.05, c_closeRate: 0.1, c_ticket: 100, cplRed: 0.25, sqlUp: 0.3, closeUp: 0.1 });
+assert.equal(ag2.gain, ag.gain);
+assert.equal(ag2.ltvGain, ag.ltvGain);
 
-const html = buildReportHtml({ agency: 'Agência <Teste>', contact: 'Ana Silva', inputs, results: r, partnerPlanUrl: 'https://inubia.pt/parceiros' });
-assert.ok(html.includes('Agência &lt;Teste&gt;'), 'agency name is escaped');
+// ---------- Company model (defaults of public/empresas/index.html) ----------
+const co = models.company({
+  adspend: 3000, cpl: 25, lostRate: 0.2, sqlRate: 0.2, closeRate: 0.25, ticket: 2500, users: 3, margin: 0.4,
+  cplRed: 0.25, recovery: 0.5, sqlUp: 0.3, closeUp: 0.1, setup: 4500, licence: 49, maintenance: 150,
+});
+near(co.leads, 120);
+near(co.followed, 96);
+near(co.sqls, 19.2);
+near(co.customers, 4.8);
+near(co.sales, 12000);
+near(co.cac, 625);
+near(co.newLeads, 160);
+near(co.newLost, 0.1);
+near(co.newFollowed, 144);
+near(co.newSqls, 37.44);
+near(co.newCustomers, 10.296);
+near(co.recovered, 16);
+near(co.monthlyCost, 297);
+near(co.investment, 4500 + 297 * 12);
+near(co.marginGain, (co.newSales - co.sales) * 12 * 0.4);
+assert.ok(co.roi > 1 && Number.isFinite(co.payback) && co.payback < 12, 'company scenario pays back within the year');
+assert.ok(co.adsSaving > 0 && co.equivalentSpend < co.spend, 'same customers with less ad spend');
+
+// Guard rails: rates are capped and zero inputs do not produce NaN or Infinity in the funnel.
+const edge = models.company({ adspend: 0, cpl: 0, lostRate: 2, sqlRate: 5, closeRate: 5, ticket: 0, users: 0, margin: 0, cplRed: 3, recovery: 3, sqlUp: 100, closeUp: 100, setup: 0, licence: 0, maintenance: 0 });
+assert.ok(edge.newSqlRate <= 0.95 && edge.newCloseRate <= 0.95 && edge.newLost <= 0.95);
+['leads', 'sqls', 'customers', 'sales', 'cps', 'cac', 'newCps', 'newCac'].forEach((k) => assert.ok(Number.isFinite(edge[k]), k + ' is finite'));
+
+// ---------- Report rendering ----------
+const report = {
+  title: 'Relatório de ROI da parceria INUBIA', subtitle: 'Sub',
+  kpis: [{ label: 'Receita adicional anual', value: '9.216 €', note: '2,9 clientes ligados' }, { label: 'X', value: '1' }],
+  sections: [{ title: 'Agência', headers: ['Indicador', 'Hoje', 'Com a parceria', 'Detalhe'], rows: [['Carteira'], ['Clientes activos', '', '12', ''], ['LTV', '13 500 €', '23 288 €', '+9 788 €']] }],
+  assumptions: 'Pressupostos <script>alert(1)</script>',
+};
+const html = buildReportHtml({ kind: 'agency', name: 'Agência <Teste>', contact: 'Ana Silva', report, partnerPlanUrl: 'https://inubia.pt/parceiros' });
+assert.ok(html.includes('Agência &lt;Teste&gt;'), 'name is escaped');
+assert.ok(html.includes('&lt;script&gt;'), 'assumptions are escaped');
 assert.ok(html.includes('Olá Ana'), 'greets by first name');
 assert.ok(html.includes('Plano de parceiros INUBIA'));
-assert.ok(/500.€ de comissão de referral/.test(html));
+assert.ok(html.includes('500 € de comissão de referral'));
 assert.ok(html.includes('maior Pipedrive Platinum Partner'));
+assert.ok(html.includes('inubia.pt/parceiros'));
 
-const note = buildNoteHtml({ agency: 'Agência Teste', contact: 'Ana Silva', phone: '+351910000000', email: 'ana@exemplo.pt', inputs, results: r, source: 'Social Media Hackathon 2026' });
-assert.ok(note.includes('Social Media Hackathon 2026'));
-assert.ok(note.includes('Referral estimado/ano'));
+const html2 = buildReportHtml({ kind: 'company', name: 'Empresa Teste', contact: 'Rui Pires', report: { title: 'Relatório de ROI Pipedrive + Meta CAPI', kpis: [], sections: [], assumptions: '' } });
+assert.ok(html2.includes('Próximos passos com a INUBIA'));
+assert.ok(!html2.includes('Plano de parceiros'), 'companies do not get the partner plan');
+
+const note = buildNoteHtml({ kind: 'company', name: 'Empresa Teste', contact: 'Rui Pires', phone: '+351910000000', email: 'rui@exemplo.pt', report, source: 'Social Media Hackathon 2026' });
+assert.ok(note.includes('Social Media Hackathon 2026') && note.includes('Empresa (Pipedrive + CAPI)'));
+
+// Oversized or malformed payloads are bounded.
+const big = sanitizeReport({ kpis: new Array(50).fill({ label: 'x'.repeat(500), value: 1 }), sections: new Array(20).fill({ rows: new Array(500).fill(['a', 'b', 'c', 'd', 'e']) }), title: 'y'.repeat(1000) });
+assert.equal(big.kpis.length, 8);
+assert.equal(big.kpis[0].label.length, 80);
+assert.equal(big.sections.length, 4);
+assert.equal(big.sections[0].rows.length, 60);
+assert.equal(big.sections[0].rows[0].length, 4);
+assert.equal(big.title.length, 120);
+assert.deepEqual(sanitizeReport(null).kpis, []);
 
 console.log('report.test.js: ok');
