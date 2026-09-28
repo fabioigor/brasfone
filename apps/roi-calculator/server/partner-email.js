@@ -32,7 +32,7 @@ function buildPartnerEmailHtml({ partner, programUrl, program = PROGRAM }) {
         <tr><td style="padding:8px;border-bottom:1px solid ${LINE};color:${MUTED}">Representante</td><td style="padding:8px;border-bottom:1px solid ${LINE}">${esc(partner.repName)}${partner.repRole ? ', ' + esc(partner.repRole) : ''}</td></tr>
       </table>
       ${programUrl ? `<p style="margin:0 0 18px"><a href="${esc(programUrl)}" style="display:inline-block;background:${BLUE};color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700">Ver o programa de parceiros completo</a></p>` : ''}
-      <p style="margin:0;font-size:14px;line-height:1.55">A INUBIA faz parte do ${esc(c.group)} e é o ${esc(c.positioning)}, com equipas em ${esc(c.offices)}. Respondemos a este email para qualquer dúvida.</p>
+      <p style="margin:0;font-size:14px;line-height:1.55">A INUBIA faz parte do ${esc(c.group)} e é o ${esc(c.positioning)}, com equipas em ${esc(c.offices)}. O vosso contacto de parcerias é ${esc(c.contactName)}, com o apoio de ${esc(c.contactSupport)}. Respondemos a este email para qualquer dúvida.</p>
       <p style="margin:16px 0 0;font-size:13px;color:${MUTED}">${esc(c.brand)} · ${esc(c.group)} · <a href="https://${esc(c.website)}" style="color:${BLUE}">${esc(c.website)}</a></p>
     </div>
   </div></body></html>`;

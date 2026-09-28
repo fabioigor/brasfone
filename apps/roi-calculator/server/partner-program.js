@@ -28,6 +28,8 @@ const PROGRAM = {
     nif: env('PARTNER_COMPANY_NIF', '[NIF]'),
     address: env('PARTNER_COMPANY_ADDRESS', '[Sede], Faro'),
     email: env('PARTNER_EMAIL', 'parcerias@inubia.pt'),
+    contactName: env('PARTNER_CONTACT_NAME', 'Pedro Teixeira'),
+    contactSupport: env('PARTNER_CONTACT_SUPPORT', 'Diogo, Sales Manager'),
     website: 'inubia.pt',
     jurisdiction: env('PARTNER_JURISDICTION', 'Faro'),
     offices: 'Faro, Vila do Conde e Barcelona',
@@ -48,6 +50,7 @@ function summary(p = PROGRAM) {
     'Pagamento no final do mês correspondente à adjudicação, contra factura do parceiro com o IBAN indicado na adesão.',
     'A INUBIA reserva-se o direito de não apresentar proposta quando entender que não pode ajudar a referência.',
     `Vigência de ${p.termMonths} meses, renovável, sem exclusividade; denúncia com ${p.noticeDays} dias de aviso.`,
+    `Contacto de parcerias: ${p.company.contactName}, com o apoio de ${p.company.contactSupport}, em ${p.company.email}.`,
   ];
 }
 

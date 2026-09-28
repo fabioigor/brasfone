@@ -167,7 +167,7 @@ const children = [
   h2('Pagamento da compensação'),
   p('A compensação é paga no final do mês correspondente ao mês de adjudicação do projecto pela referência e contra factura do parceiro, de valor correspondente ao apurado. Os dados de pagamento (IBAN) são fornecidos na adesão. A INUBIA poderá superar os parâmetros de pagamento aqui definidos; quando isto ocorrer, não haverá nenhuma cobrança adicional. Parâmetros diferentes dos descritos poderão ser acordados conforme conveniência de ambas as partes ao longo da referenciação.'),
   h2('Contacto para dúvidas'),
-  p('Para qualquer dúvida ou esclarecimento adicional sobre o Programa de Parceiros INUBIA, contacte a equipa de parcerias através de parcerias@inubia.pt ou em inubia.pt.'),
+  p('Para qualquer dúvida ou esclarecimento adicional sobre o Programa de Parceiros INUBIA, contacte Pedro Teixeira, responsável de parcerias, com o apoio de Diogo, Sales Manager, através de parcerias@inubia.pt ou em inubia.pt.'),
 ];
 
 const doc = new Document({
