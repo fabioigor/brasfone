@@ -1,0 +1,21 @@
+{
+  "name": "@brasfone/roi-calculator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Calculadoras de ROI Pipedrive + Meta CAPI (agências e empresas) e adesão ao programa de parceiros INUBIA",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "DRY_RUN=1 node server/index.js",
+    "test": "node server/report.test.js && node server/contract.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "nodemailer": "^6.9.16",
+    "pdfkit": "^0.15.0"
+  }
+}
