@@ -53,3 +53,7 @@ SMTP via `nodemailer` (Google Workspace funciona com password de aplicação). `
 ## Deploy para o stand
 
 Pronto para Vercel: `public/` é servido como estático e `api/index.js` expõe o Express como função (rewrites em `vercel.json`). Projecto `inubia-roi-capi` na equipa INUBIA, root directory `apps/roi-calculator`. Sem `PIPEDRIVE_API_TOKEN` e `SMTP_HOST` o servidor corre em modo de demonstração e a página avisa que nada foi criado. Também corre em qualquer host Node (Railway, Render, VPS) com `npm start`. A página guarda os últimos valores introduzidos no browser, o que ajuda a retomar a conversa se o ecrã for actualizado.
+
+## Página para QR code no evento e autocolantes
+
+`public/qr/index.html` é a landing page para quem chega pelo QR do stand: mini-calculadora com três valores (perfil empresa ou agência, `?perfil=empresa|agencia`), argumento CAPI condensado da LP inubia.pt/capi-social, formulário que cria o contacto no Pipedrive com origem "QR stand" e envia o relatório, e FAQ curta. Os autocolantes 60 x 60 mm (PDF com marcas de corte, versões escura e clara, folhas A4 de 12) e o QR em PNG/SVG estão em `docs/autocolantes/`, gerados por `node docs/build-stickers.js [url]` (por omissão aponta para https://inubia-roi-capi.vercel.app/qr/).

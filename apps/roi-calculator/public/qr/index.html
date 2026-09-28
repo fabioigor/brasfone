@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meta CAPI Pipedrive ROI</title>
+<meta name="description" content="Chegou pelo QR do stand INUBIA no Social Media Hackathon? Em 60 segundos vê quanto perde entre o anúncio e o fecho e quanto ganha ao ligar a Meta Conversions API ao Pipedrive.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&family=Ubuntu+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="../assets/roi.css">
+<style>
+  .wrap { max-width: 640px; }
+  .qr-hero { padding-block: 26px 8px; }
+  .qr-hero h1 { font-size: clamp(1.75rem, 7vw, 2.5rem); }
+  .qr-hero .lead { font-size: 1.05rem; color: var(--ink-2); margin-top: 12px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--navy-2); border: 1px solid var(--line); border-radius: 12px; padding: 6px; margin-top: 20px; }
+  .seg button { border: 0; border-radius: 8px; padding: 12px 10px; background: transparent; color: var(--ink-2); font: inherit; font-weight: 500; cursor: pointer; }
+  .seg button.active { background: var(--blue); color: #fff; }
+  .seg button:focus-visible { outline: 2px solid var(--green-2); outline-offset: 2px; }
+  .seg small { display: block; font-size: 0.74rem; font-weight: 400; opacity: 0.85; }
+  .mini { margin-top: 14px; }
+  .mini .grid { display: grid; gap: 12px; }
+  .big { background: linear-gradient(160deg, var(--navy-3), var(--navy-2)); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-top: 14px; }
+  .big .lbl { font-size: 0.78rem; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.08em; }
+  .big .val { font-size: 2.4rem; font-weight: 700; color: var(--green-2); line-height: 1.1; margin-top: 4px; }
+  .big .sub { color: var(--ink-2); font-size: 0.92rem; margin-top: 6px; }
+  .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .row3 div { background: var(--navy-3); border-radius: 8px; padding: 10px; display: grid; gap: 2px; }
+  .row3 .lbl { font-size: 0.68rem; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.05em; }
+  .row3 b { font-size: 1.05rem; }
+  .steps3 { display: grid; gap: 10px; margin-top: 12px; }
+  .steps3 > div { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; color: var(--ink-2); font-size: 0.93rem; }
+  .steps3 .n { width: 30px; height: 30px; border-radius: 8px; background: var(--blue); color: #fff; display: grid; place-items: center; font-weight: 700; }
+  .steps3 b { color: var(--ink); display: block; font-weight: 500; }
+  .stat { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+  .stat div { background: var(--navy-3); border-radius: 8px; padding: 12px; text-align: center; }
+  .stat b { display: block; font-size: 1.4rem; color: var(--green-2); }
+  .stat span { font-size: 0.74rem; color: var(--ink-2); }
+  details.faq { border-top: 1px solid var(--line); padding: 10px 0; color: var(--ink-2); font-size: 0.93rem; }
+  details.faq summary { color: var(--ink); font-weight: 500; cursor: pointer; }
+  details.faq p { margin-top: 6px; }
+  .sticky { position: sticky; bottom: 12px; margin-top: 18px; display: flex; gap: 8px; }
+  @media (min-width: 900px) { .sticky { display: none; } }
+  .sticky .btn { flex: 1; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+  .contact { display: grid; gap: 6px; margin-top: 14px; font-size: 0.95rem; color: var(--ink-2); }
+  .contact a { font-weight: 500; }
+  .alert { border-radius: 8px; padding: 12px 14px; font-size: 0.92rem; margin-top: 12px; }
+  .alert.ok { background: rgba(34,166,87,0.18); border: 1px solid var(--green); }
+  .alert.warn { background: rgba(245,179,66,0.14); border: 1px solid var(--warn); }
+  .alert.err { background: rgba(255,0,0,0.12); border: 1px solid var(--red); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <a href="../index.html"><img src="../assets/inubia-logo.webp" alt="INUBIA"></a>
+      <span class="x">×</span>
+      <div class="smh"><img src="../assets/smh-logo.webp" alt="Social Media Hackathon"><span>Social Media Hackathon 2026</span></div>
+    </div>
+  </header>
+
+  <section class="qr-hero">
+    <span class="tag"><i></i>Chegou pelo QR do stand INUBIA</span>
+    <h1>Quantos clientes perde entre o anúncio e o fecho?</h1>
+    <p class="lead">O pixel deixa escapar entre 20% e 40% das conversões. A Meta optimiza para o que consegue ver. Ligamos o Pipedrive à Conversions API e a Meta passa a procurar quem compra, não quem preenche formulários. Em 60 segundos vê o que isso vale no vosso caso.</p>
+  </section>
+
+  <div class="seg" role="tablist" aria-label="Perfil">
+    <button type="button" id="seg-company" class="active" role="tab" aria-selected="true">Tenho uma empresa<small>Invisto em Meta Ads</small></button>
+    <button type="button" id="seg-agency" role="tab" aria-selected="false">Tenho uma agência<small>Giro campanhas de clientes</small></button>
+  </div>
+
+  <!-- Empresa -->
+  <div class="card mini" id="panel-company">
+    <h2>Três números e já está</h2>
+    <p class="sub">Valores mensais aproximados chegam. Os restantes pressupostos usam referências INUBIA e podem ser ajustados na calculadora completa.</p>
+    <div class="grid">
+      <div class="field"><label for="c_adspend">Investimento mensal em Meta Ads</label><div class="input"><input id="c_adspend" type="number" min="0" step="100" value="3000" inputmode="decimal"><span class="unit">€ / mês</span></div></div>
+      <div class="field"><label for="c_cpl">Custo por lead actual</label><div class="input"><input id="c_cpl" type="number" min="0.1" step="0.5" value="25" inputmode="decimal"><span class="unit">€</span></div></div>
+      <div class="field"><label for="c_ticket">Ticket médio por cliente</label><div class="input"><input id="c_ticket" type="number" min="0" step="100" value="2500" inputmode="decimal"><span class="unit">€</span></div></div>
+    </div>
+    <div class="big">
+      <div class="lbl">Vendas adicionais no primeiro ano</div>
+      <div class="val mono" id="c-gain">—</div>
+      <div class="sub" id="c-gain-sub">—</div>
+      <div class="row3">
+        <div><span class="lbl">Clientes / mês</span><b class="mono" id="c-cust">—</b></div>
+        <div><span class="lbl">Custo por cliente</span><b class="mono" id="c-cac">—</b></div>
+        <div><span class="lbl">Payback</span><b class="mono" id="c-payback">—</b></div>
+      </div>
+    </div>
+    <p class="note">Pressupostos: CPL menos 25% (referência Meta para contas com CRM ligado), 20% das leads hoje sem seguimento e metade recuperada pelo Pipedrive, taxa de SQL mais 30% e de fecho mais 10% (relativos), 3 comerciais, margem de 40%, licenças 708 € por utilizador e ano, implementação média 5.000 €.</p>
+    <div class="cta-row" style="margin-top:14px"><a class="btn ghost" href="../empresas/index.html">Afinar todos os valores na calculadora completa</a></div>
+  </div>
+
+  <!-- Agência -->
+  <div class="card mini" id="panel-agency" hidden>
+    <h2>Três números e já está</h2>
+    <p class="sub">Só pedimos dados da agência. Não precisa das métricas dos vossos clientes.</p>
+    <div class="grid">
+      <div class="field"><label for="a_clients">Clientes activos em gestão de campanhas</label><div class="input"><input id="a_clients" type="number" min="1" step="1" value="12" inputmode="numeric"><span class="unit">clientes</span></div></div>
+      <div class="field"><label for="a_fee">Avença mensal média por cliente</label><div class="input"><input id="a_fee" type="number" min="0" step="50" value="1500" inputmode="decimal"><span class="unit">€ / mês</span></div></div>
+      <div class="field"><label for="a_retention">Tempo médio que mantém um cliente</label><div class="input"><input id="a_retention" type="number" min="1" step="1" value="9" inputmode="numeric"><span class="unit">meses</span></div></div>
+    </div>
+    <div class="big">
+      <div class="lbl">Receita adicional anual para a agência</div>
+      <div class="val mono" id="a-gain">—</div>
+      <div class="sub" id="a-gain-sub">—</div>
+      <div class="row3">
+        <div><span class="lbl">Clientes ligados</span><b class="mono" id="a-linked">—</b></div>
+        <div><span class="lbl">Comissões / ano</span><b class="mono" id="a-ref">—</b></div>
+        <div><span class="lbl">Meses a mais</span><b class="mono" id="a-months">—</b></div>
+      </div>
+    </div>
+    <p class="note">Pressupostos: 80% dos clientes investem em Meta Ads, metade é apresentada à INUBIA e 60% fecha um projecto acima de 5.000 €; por cada um, 500 € de comissão, retenção mais 50% e avença mais 15% nos clientes ligados.</p>
+    <div class="cta-row" style="margin-top:14px"><a class="btn ghost" href="../agencias/index.html">Simular a carteira toda na calculadora completa</a><a class="btn primary" href="../parceiros/index.html">Aderir ao programa de parceiros</a></div>
+  </div>
+
+  <section class="card">
+    <h2>O que muda quando a Meta vê o CRM</h2>
+    <div class="steps3">
+      <div><span class="n">1</span><div><b>Lead entra pelo anúncio ou pelo WhatsApp</b>É criada no Pipedrive com origem, campanha e, no Click-to-WhatsApp, o identificador do clique.</div></div>
+      <div><span class="n">2</span><div><b>O Pipedrive garante o seguimento</b>Distribuição automática, actividades e lembretes. Nenhuma lead fica por contactar.</div></div>
+      <div><span class="n">3</span><div><b>Cada etapa volta à Meta pela CAPI</b>Lead qualificada, reunião e negócio ganho com valor real. A Meta optimiza por lucro, não por cliques.</div></div>
+    </div>
+    <div class="stat">
+      <div><b>−24%</b><span>no custo por lead de qualidade (referência Meta)</span></div>
+      <div><b>~100%</b><span>das conversões chegam à Meta com pixel + CAPI</span></div>
+      <div><b>10 dias</b><span>úteis do kick-off ao go-live</span></div>
+    </div>
+    <p class="note">A CAPI não substitui o pixel: trabalha ao lado dele e apanha o que ele deixa cair. Não pedimos acessos ao vosso Business Manager; o vosso marketing mantém a Meta, nós tratamos do Pipedrive.</p>
+  </section>
+
+  <section class="card" id="report">
+    <h2>Receber o relatório completo</h2>
+    <p class="sub">Enviamos por email o relatório com os vossos valores e, para agências, o plano de parceiros. Marcamos um diagnóstico gratuito de 30 minutos, sem compromisso.</p>
+    <form id="leadForm" novalidate>
+      <div class="grid2">
+        <div class="field"><label for="name" id="name-lbl">Nome da empresa</label><div class="input"><input id="name" name="name" type="text" required autocomplete="organization"></div></div>
+        <div class="field"><label for="contact">O seu nome</label><div class="input"><input id="contact" name="contact" type="text" required autocomplete="name"></div></div>
+        <div class="field"><label for="phone">Telefone</label><div class="input"><input id="phone" name="phone" type="tel" required autocomplete="tel" placeholder="+351 9xx xxx xxx"></div></div>
+        <div class="field"><label for="email">Email</label><div class="input"><input id="email" name="email" type="email" required autocomplete="email"></div></div>
+      </div>
+      <label class="check" style="margin-top:14px"><input id="consent" type="checkbox" required><span>Autorizo a INUBIA (Grupo Brasfone) a contactar-me sobre esta análise e a guardar estes dados no seu CRM.</span></label>
+      <div id="formMsg"></div>
+      <div class="cta-row" style="margin-top:14px"><button class="btn green" type="submit" id="submitBtn" style="flex:1">Enviar relatório e marcar diagnóstico</button></div>
+    </form>
+    <div class="contact">
+      <span>Prefere falar já? Estamos no stand, ou:</span>
+      <a href="tel:+351912899191">+351 91 289 91 91</a>
+      <a href="mailto:inubia@inubia.pt">inubia@inubia.pt</a>
+    </div>
+  </section>
+
+  <section style="margin-top:22px">
+    <h2 style="margin-bottom:8px">Antes de avançar</h2>
+    <details class="faq"><summary>Vão precisar de acesso à nossa conta Meta?</summary><p>Não. Trabalhamos só do lado do CRM. O vosso marketing gera o token da CAPI e partilha-o connosco por canal seguro, com o Pixel ID.</p></details>
+    <details class="faq"><summary>E o RGPD?</summary><p>Email e telefone são encriptados com SHA-256 antes de saírem do vosso sistema. A Meta compara códigos, nunca recebe dados em texto simples.</p></details>
+    <details class="faq"><summary>Não usamos Click-to-WhatsApp. Faz sentido na mesma?</summary><p>Sim. Lead e negócio ganho com valor funcionam em qualquer funil com landing page ou formulário. O WhatsApp é onde o ganho é maior, não é obrigatório.</p></details>
+    <details class="faq"><summary>Precisamos de alguma ferramenta nova?</summary><p>Só do Pipedrive. A automação corre na infra-estrutura da INUBIA. Para o Click-to-WhatsApp é necessária a Cloud API oficial do WhatsApp.</p></details>
+  </section>
+
+  <div class="sticky"><a class="btn green" href="#report">Quero o relatório e o diagnóstico</a></div>
+
+  <footer class="footer">
+    <span>INUBIA <span class="accent">•</span> Grupo Brasfone <span class="accent">•</span> Maior Pipedrive Platinum Partner de Portugal e Espanha</span>
+    <span>inubia.pt</span>
+  </footer>
+</div>
+
+<script src="../assets/roi-models.js"></script>
+<script src="../assets/roi.js"></script>
+<script>
+(function () {
+  const { fmtEUR, fmtN, fmtPct, $, num } = ROI;
+  let mode = 'company';
+  const C = { lostRate: 0.2, sqlRate: 0.2, closeRate: 0.25, users: 3, sellerCost: 2000, margin: 0.4, cplRed: 0.25, recovery: 0.5, sqlUp: 0.3, closeUp: 0.1, setup: 5000, licence: 708 };
+  const A = { adsShare: 0.8, refShare: 0.5, refClose: 0.6, refFee: 500, retUp: 0.5, feeUp: 0.15, hoursPerClient: 3, hourCost: 45, c_adspend: 2000, c_cpl: 25, c_sqlRate: 0.2, c_closeRate: 0.25, c_ticket: 2500, cplRed: 0.25, sqlUp: 0.3, closeUp: 0.1 };
+  let last = null;
+
+  function company() {
+    const i = Object.assign({ adspend: num('c_adspend'), cpl: num('c_cpl'), ticket: num('c_ticket') }, C);
+    const r = ROI_MODELS.company(i);
+    $('c-gain').textContent = '+' + fmtEUR(r.revenueGain);
+    $('c-gain-sub').textContent = `${fmtEUR(r.salesGainMonthly)} a mais por mês ao mesmo investimento em ads; ROI ${Number.isFinite(r.roi) ? fmtPct(r.roi) : '—'} sobre ${fmtEUR(r.investment)} de licenças e implementação`;
+    $('c-cust').textContent = `${fmtN(r.customers, 1)} → ${fmtN(r.newCustomers, 1)}`;
+    $('c-cac').textContent = `${fmtEUR(r.cac)} → ${fmtEUR(r.newCac)}`;
+    $('c-payback').textContent = Number.isFinite(r.payback) ? fmtN(r.payback, 1) + ' meses' : '—';
+    last = { inputs: i, r };
+    return last;
+  }
+  function agency() {
+    const i = Object.assign({ clients: num('a_clients'), fee: num('a_fee'), retention: num('a_retention') }, A);
+    const r = ROI_MODELS.agency(i);
+    $('a-gain').textContent = '+' + fmtEUR(r.gain);
+    $('a-gain-sub').textContent = `${fmtEUR(r.feeGain)} em avenças revistas mais ${fmtEUR(r.referral)} de comissões, com ${fmtN(r.linked, 1)} clientes ligados via parceria`;
+    $('a-linked').textContent = fmtN(r.linked, 1);
+    $('a-ref').textContent = fmtEUR(r.referral);
+    $('a-months').textContent = '+' + fmtN(r.extraMonths, 1);
+    last = { inputs: i, r };
+    return last;
+  }
+  function render() { return mode === 'company' ? company() : agency(); }
+
+  function setMode(m) {
+    mode = m;
+    $('seg-company').classList.toggle('active', m === 'company'); $('seg-company').setAttribute('aria-selected', m === 'company');
+    $('seg-agency').classList.toggle('active', m === 'agency'); $('seg-agency').setAttribute('aria-selected', m === 'agency');
+    $('panel-company').hidden = m !== 'company'; $('panel-agency').hidden = m !== 'agency';
+    $('name-lbl').textContent = m === 'company' ? 'Nome da empresa' : 'Nome da agência';
+    try { localStorage.setItem('roi.qr.mode', m); } catch (e) { /* ignore */ }
+    render();
+  }
+  $('seg-company').addEventListener('click', () => setMode('company'));
+  $('seg-agency').addEventListener('click', () => setMode('agency'));
+  ['c_adspend','c_cpl','c_ticket','a_clients','a_fee','a_retention'].forEach((id) => $(id).addEventListener('input', render));
+  try { const q = new URLSearchParams(location.search).get('perfil'); setMode(q === 'agencia' ? 'agency' : q === 'empresa' ? 'company' : (localStorage.getItem('roi.qr.mode') || 'company')); } catch (e) { setMode('company'); }
+
+  ROI.wireForm({
+    kind: () => mode,
+    source: 'QR stand · Social Media Hackathon 2026',
+    collect: () => {
+      const { inputs: i, r } = render();
+      const name = $('name').value.trim();
+      if (mode === 'company') {
+        return { name, dealValue: r.investment, report: {
+          title: 'Relatório de ROI Pipedrive + Meta CAPI',
+          subtitle: 'Estimativa rápida feita no stand INUBIA. Afinamos os valores no diagnóstico gratuito.',
+          kpis: [
+            { label: 'Vendas adicionais no primeiro ano', value: '+' + fmtEUR(r.revenueGain), note: `${fmtEUR(r.salesGainMonthly)} por mês` },
+            { label: 'ROI no primeiro ano', value: Number.isFinite(r.roi) ? fmtPct(r.roi) : '—', note: `sobre ${fmtEUR(r.investment)}` },
+            { label: 'Payback', value: Number.isFinite(r.payback) ? fmtN(r.payback, 1) + ' meses' : '—', note: '' },
+            { label: 'Novos clientes / mês', value: fmtN(r.newCustomers, 1), note: `antes ${fmtN(r.customers, 1)}` },
+            { label: 'Custo de aquisição por cliente', value: fmtEUR(r.newCac), note: `antes ${fmtEUR(r.cac)}` },
+          ],
+          sections: [{ title: 'Funil mensal', headers: ['Indicador', 'Hoje', 'Com Pipedrive + CAPI'], rows: [
+            ['Investimento Meta Ads', fmtEUR(r.spend), fmtEUR(r.spend)], ['Custo por lead', fmtEUR(r.cpl, 2), fmtEUR(r.newCpl, 2)], ['Leads', fmtN(r.leads), fmtN(r.newLeads)],
+            ['Leads com seguimento', fmtN(r.followed), fmtN(r.newFollowed)], ['SQL', fmtN(r.sqls, 1), fmtN(r.newSqls, 1)], ['Novos clientes', fmtN(r.customers, 1), fmtN(r.newCustomers, 1)], ['Vendas', fmtEUR(r.sales), fmtEUR(r.newSales)],
+          ] }],
+          assumptions: `Pressupostos: CPL menos ${fmtPct(C.cplRed)}, ${fmtPct(C.lostRate)} das leads sem seguimento e ${fmtPct(C.recovery)} recuperadas, taxa de SQL ${fmtPct(C.sqlRate)} mais ${fmtPct(C.sqlUp)} e de fecho ${fmtPct(C.closeRate)} mais ${fmtPct(C.closeUp)} (relativos), ${C.users} comerciais a ${fmtEUR(C.sellerCost)} por mês, margem ${fmtPct(C.margin)}, licenças ${fmtEUR(C.licence)} por utilizador e ano, implementação ${fmtEUR(C.setup)}. Estimativa rápida feita no stand.`,
+        } };
+      }
+      return { name, dealValue: r.referral, report: {
+        title: 'Relatório de ROI da parceria INUBIA',
+        subtitle: 'Estimativa rápida feita no stand INUBIA para a vossa carteira de clientes.',
+        kpis: [
+          { label: 'Receita adicional anual', value: '+' + fmtEUR(r.gain), note: `${fmtN(r.linked, 1)} clientes ligados` },
+          { label: 'Comissões de referral / ano', value: fmtEUR(r.referral), note: `${fmtN(r.linked, 1)} × ${fmtEUR(A.refFee)}` },
+          { label: 'Avenças adicionais / ano', value: fmtEUR(r.feeGain), note: `avença de ${fmtEUR(r.fee)} para ${fmtEUR(r.newFee)}` },
+          { label: 'Retenção por cliente ligado', value: fmtN(r.newRetention, 1) + ' meses', note: `antes ${fmtN(r.retention, 1)}` },
+          { label: 'LTV por cliente ligado', value: fmtEUR(r.newLtv), note: `antes ${fmtEUR(r.ltv)}` },
+        ],
+        sections: [{ title: 'Carteira e parceria', headers: ['Indicador', 'Valor'], rows: [
+          ['Clientes activos', fmtN(r.clients)], ['Clientes com campanhas Meta', fmtN(r.eligible, 1)], ['Apresentados à INUBIA', fmtN(r.presented, 1)], ['Ligados (projecto acima de 5.000 €)', fmtN(r.linked, 1)],
+          ['Comissões de referral', fmtEUR(r.referral)], ['Avenças adicionais', fmtEUR(r.feeGain)], ['Receita adicional anual', fmtEUR(r.gain)],
+        ] }],
+        assumptions: `Pressupostos: ${fmtPct(A.adsShare)} dos clientes investem em Meta Ads, ${fmtPct(A.refShare)} dos elegíveis apresentados à INUBIA, ${fmtPct(A.refClose)} fecham projecto acima de 5.000 €, comissão de ${fmtEUR(A.refFee)} por referral, retenção mais ${fmtPct(A.retUp)} e avença mais ${fmtPct(A.feeUp)} nos clientes ligados. Estimativa rápida feita no stand.`,
+      } };
+    },
+  });
+})();
+</script>
+</body>
+</html>

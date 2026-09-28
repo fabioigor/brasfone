@@ -88,7 +88,7 @@
       }
       const data = collect();
       const payload = {
-        kind, name: data.name, contact: $('contact').value.trim(), phone: $('phone').value.trim(), email: $('email').value.trim(),
+        kind: typeof kind === 'function' ? kind() : kind, name: data.name, contact: $('contact').value.trim(), phone: $('phone').value.trim(), email: $('email').value.trim(),
         source: source || 'Social Media Hackathon 2026', dealValue: data.dealValue, report: data.report, submittedAt: new Date().toISOString(),
       };
       btn.disabled = true; btn.textContent = 'A enviar…';
